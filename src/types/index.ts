@@ -6,7 +6,39 @@ export interface User {
   name: string;
   domain: string;
   isActive: boolean;
+  avatar?: string;
+  role: UserRole;
+  permissions: string[];
+  lastLogin?: string;
 }
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  provider: 'google' | 'email';
+}
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+  rememberMe?: boolean;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  success: boolean;
+  message?: string;
+}
+
+export type UserRole = 'admin' | 'manager' | 'operator' | 'viewer';
+
+// Re-export migration scenario types
+export * from './migration-scenarios';
 
 export interface Domain {
   id: string;

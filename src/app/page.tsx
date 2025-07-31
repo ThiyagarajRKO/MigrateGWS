@@ -14,10 +14,13 @@ export default function Home() {
               <Database className="h-8 w-8 text-blue-600 mr-3" />
               <h1 className="text-2xl font-bold text-gray-900">GWS Migration Platform</h1>
             </div>
-            <nav className="flex space-x-8">
+            <nav className="flex items-center space-x-8">
               <Link href="/dashboard" className="text-gray-600 hover:text-blue-600">Dashboard</Link>
               <Link href="/migrations" className="text-gray-600 hover:text-blue-600">Migrations</Link>
               <Link href="/settings" className="text-gray-600 hover:text-blue-600">Settings</Link>
+              <Link href="/login" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">
+                Sign In
+              </Link>
             </nav>
           </div>
         </div>
