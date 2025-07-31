@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { createGoogleWorkspaceService } from '@/lib/google-workspace'
-import { ExtendedSession } from '@/app/api/auth/[...nextauth]/route'
+import { ExtendedSession } from '@/lib/auth-options'
+
+// Import the authOptions from NextAuth
+import { authOptions } from '@/lib/auth-options'
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession() as ExtendedSession | null
+    const session = await getServerSession(authOptions) as ExtendedSession | null
     
     if (!session?.accessToken) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -67,7 +70,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession() as ExtendedSession | null
+    const session = await getServerSession(authOptions) as ExtendedSession | null
     
     if (!session?.accessToken) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

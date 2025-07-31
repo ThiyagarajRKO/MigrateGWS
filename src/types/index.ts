@@ -131,3 +131,6 @@ export interface ApiResponse<T> {
   error?: string;
   message?: string;
 }
+
+// Re-export migration scenario types
+export * from './migration-scenarios';

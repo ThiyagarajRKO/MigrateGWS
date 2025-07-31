@@ -2,6 +2,32 @@
 
 export type MigrationScenario = 'single-super-admin' | 'cross-tenant';
 
+// Domain mapping types
+export type DomainMappingType = 'one-to-one' | 'one-to-many' | 'many-to-one' | 'subdomain';
+
+export interface DomainMappingConfig {
+  type: DomainMappingType;
+  sourceDomains: string[];
+  targetDomain: string;
+  targetDomains?: string[]; // For one-to-many scenarios
+  preserveSourceAsAlias?: boolean;
+  conflictResolution?: 'prefix' | 'suffix' | 'manual';
+  distributionRule?: 'department' | 'alphabetical' | 'custom'; // For one-to-many
+  description: string;
+}
+
+export interface DomainMappingOption {
+  type: DomainMappingType;
+  title: string;
+  description: string;
+  example: string;
+  advantages: string[];
+  considerations: string[];
+  complexity: 'Low' | 'Medium' | 'High';
+  requiresConflictHandling: boolean;
+  supportedScenarios: MigrationScenario[];
+}
+
 export interface MigrationStep {
   id: string;
   title: string;
@@ -260,4 +286,104 @@ export interface MigrationStatus {
     timestamp: string;
     resolved: boolean;
   }>;
+}
+
+// Domain mapping options
+export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
+  {
+    type: 'one-to-one',
+    title: 'One-to-One Mapping',
+    description: 'Same username, different domain - most common scenario',
+    example: 'alice@oldcompany.com → alice@newcompany.com',
+    advantages: [
+      'Simple and straightforward',
+      'Users keep familiar usernames',
+      'No conflict resolution needed',
+      'Easy to communicate to users'
+    ],
+    considerations: [
+      'Requires MX record switch',
+      'Reapplication of file/email sharing settings',
+      'DNS propagation time',
+      'User notification required'
+    ],
+    complexity: 'Low',
+    requiresConflictHandling: false,
+    supportedScenarios: ['single-super-admin', 'cross-tenant']
+  },
+  {
+    type: 'one-to-many',
+    title: 'One-to-Many Domain Distribution',
+    description: 'Distribute users from single source domain to multiple target domains',
+    example: 'user@company.com → user@division1.com, user@division2.com',
+    advantages: [
+      'Organizational restructuring support',
+      'Division-specific domain assignment',
+      'Improved brand segmentation',
+      'Flexible user distribution rules'
+    ],
+    considerations: [
+      'Complex user assignment logic required',
+      'Multiple domain management overhead',
+      'User communication complexity',
+      'Cross-domain collaboration setup'
+    ],
+    complexity: 'High',
+    requiresConflictHandling: false,
+    supportedScenarios: ['single-super-admin', 'cross-tenant']
+  },
+  {
+    type: 'many-to-one',
+    title: 'Many-to-One Domain Merge',
+    description: 'Multiple source domains consolidated into single destination',
+    example: 'user@brandA.com, user@brandB.com → user@mainbrand.com',
+    advantages: [
+      'Domain consolidation',
+      'Simplified management',
+      'Cost optimization',
+      'Unified brand identity'
+    ],
+    considerations: [
+      'Duplicate username conflicts',
+      'Group policy review and merge',
+      'Complex user communication',
+      'Potential data conflicts'
+    ],
+    complexity: 'High',
+    requiresConflictHandling: true,
+    supportedScenarios: ['single-super-admin', 'cross-tenant']
+  },
+  {
+    type: 'subdomain',
+    title: 'Subdomain Mapping',
+    description: 'Map from subdomain to main domain or different structure',
+    example: 'user@sub.olddomain.com → user@newdomain.com',
+    advantages: [
+      'Organizational restructuring',
+      'Simplified domain hierarchy',
+      'Better DNS management',
+      'Cleaner email addresses'
+    ],
+    considerations: [
+      'Custom routing/DNS configuration',
+      'Multi-tenant setup complexity',
+      'Email forwarding rules',
+      'Subdomain deprecation planning'
+    ],
+    complexity: 'Medium',
+    requiresConflictHandling: false,
+    supportedScenarios: ['single-super-admin', 'cross-tenant']
+  }
+];
+
+// Helper function to get domain mapping option by type
+export function getDomainMappingOption(type: DomainMappingType): DomainMappingOption | undefined {
+  return DOMAIN_MAPPING_OPTIONS.find(option => option.type === type);
+}
+
+// Helper function to get supported mapping types for a scenario
+export function getSupportedMappingTypes(scenario: MigrationScenario): DomainMappingOption[] {
+  return DOMAIN_MAPPING_OPTIONS.filter(option => 
+    option.supportedScenarios.includes(scenario)
+  );
 }

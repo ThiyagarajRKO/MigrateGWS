@@ -4,22 +4,25 @@ import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { ScenarioSelector } from '@/components/ScenarioSelector';
+import { DomainMappingSelector } from '@/components/DomainMappingSelector';
 import { MigrationProgress } from '@/components/MigrationProgress';
 import { 
   MigrationScenario, 
   MigrationStatus,
   createMigrationScenario,
   SINGLE_SUPER_ADMIN_STEPS,
-  CROSS_TENANT_STEPS
+  CROSS_TENANT_STEPS,
+  DomainMappingConfig
 } from '@/types/migration-scenarios';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 
-type WizardStep = 'scenario' | 'configuration' | 'review' | 'migration';
+type WizardStep = 'scenario' | 'domain-mapping' | 'configuration' | 'review' | 'migration';
 
 export default function NewMigration() {
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState<WizardStep>('scenario');
   const [selectedScenario, setSelectedScenario] = useState<MigrationScenario | null>(null);
+  const [domainMapping, setDomainMapping] = useState<DomainMappingConfig | null>(null);
   const [migrationConfig, setMigrationConfig] = useState({
     sourceDomain: '',
     targetDomain: '',
@@ -38,6 +41,17 @@ export default function NewMigration() {
 
   const handleScenarioSelect = (scenario: MigrationScenario) => {
     setSelectedScenario(scenario);
+    setCurrentStep('domain-mapping');
+  };
+
+  const handleDomainMappingSelect = (mapping: DomainMappingConfig) => {
+    setDomainMapping(mapping);
+    // Auto-populate source and target domains from mapping
+    setMigrationConfig(prev => ({
+      ...prev,
+      sourceDomain: mapping.sourceDomains[0] || '',
+      targetDomain: mapping.targetDomain
+    }));
     setCurrentStep('configuration');
   };
 
@@ -53,6 +67,9 @@ export default function NewMigration() {
   const handleNext = () => {
     switch (currentStep) {
       case 'scenario':
+        setCurrentStep('domain-mapping');
+        break;
+      case 'domain-mapping':
         setCurrentStep('configuration');
         break;
       case 'configuration':
@@ -66,8 +83,11 @@ export default function NewMigration() {
 
   const handleBack = () => {
     switch (currentStep) {
-      case 'configuration':
+      case 'domain-mapping':
         setCurrentStep('scenario');
+        break;
+      case 'configuration':
+        setCurrentStep('domain-mapping');
         break;
       case 'review':
         setCurrentStep('configuration');
@@ -118,6 +138,21 @@ export default function NewMigration() {
           </div>
         );
 
+      case 'domain-mapping':
+        if (!selectedScenario) return null;
+        return (
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+              Configure Domain Mapping
+            </h2>
+            <DomainMappingSelector
+              selectedScenario={selectedScenario}
+              selectedMapping={domainMapping}
+              onMappingSelect={handleDomainMappingSelect}
+            />
+          </div>
+        );
+
       case 'configuration':
         return (
           <div className="space-y-6">
@@ -134,6 +169,16 @@ export default function NewMigration() {
                   ? 'Migrate multiple domains using a single super admin account with comprehensive admin privileges.'
                   : 'Migrate data between separate Google Workspace tenants with independent authentication.'}
               </p>
+              {domainMapping && (
+                <div className="mt-3 pt-3 border-t border-blue-200">
+                  <p className="text-sm text-blue-800">
+                    <strong>Domain Mapping:</strong> {domainMapping.description}
+                  </p>
+                  <p className="text-xs text-blue-600 font-mono mt-1">
+                    {domainMapping.sourceDomains.join(', ')} → {domainMapping.targetDomain}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -220,14 +265,43 @@ export default function NewMigration() {
             </h2>
             
             <div className="bg-gray-50 rounded-lg p-6 space-y-4">
-              <div>
-                <h3 className="font-medium text-gray-900">Migration Scenario</h3>
-                <p className="text-gray-600">
-                  {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
-                </p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-medium text-gray-900">Migration Scenario</h3>
+                  <p className="text-gray-600">
+                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
+                  </p>
+                </div>
+                
+                {domainMapping && (
+                  <div>
+                    <h3 className="font-medium text-gray-900">Domain Mapping</h3>
+                    <p className="text-gray-600">{domainMapping.description}</p>
+                    <div className="mt-2 p-3 bg-gray-100 rounded text-sm font-mono">
+                      {domainMapping.type === 'one-to-many' ? (
+                        <div>
+                          <div>{domainMapping.sourceDomains.join(', ')} → Multiple Targets:</div>
+                          <div className="ml-4 mt-1">
+                            {domainMapping.targetDomains?.map((target, idx) => (
+                              <div key={idx}>→ {target}</div>
+                            ))}
+                          </div>
+                          <div className="text-xs text-blue-600 mt-1">
+                            Distribution: {domainMapping.distributionRule}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          {domainMapping.sourceDomains.join(', ')} → {domainMapping.targetDomain}
+                          {domainMapping.preserveSourceAsAlias && (
+                            <span className="block text-xs text-blue-600 mt-1">
+                              (Source domains preserved as aliases)
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}              <div className="grid grid-cols-2 gap-6">
                 <div>
                   <h3 className="font-medium text-gray-900">Source Domain</h3>
                   <p className="text-gray-600">{migrationConfig.sourceDomain}</p>
@@ -285,9 +359,10 @@ export default function NewMigration() {
   const getStepNumber = () => {
     switch (currentStep) {
       case 'scenario': return 1;
-      case 'configuration': return 2;
-      case 'review': return 3;
-      case 'migration': return 4;
+      case 'domain-mapping': return 2;
+      case 'configuration': return 3;
+      case 'review': return 4;
+      case 'migration': return 5;
       default: return 1;
     }
   };
@@ -296,6 +371,8 @@ export default function NewMigration() {
     switch (currentStep) {
       case 'scenario':
         return selectedScenario !== null;
+      case 'domain-mapping':
+        return domainMapping !== null;
       case 'configuration':
         return migrationConfig.sourceDomain && migrationConfig.targetDomain && migrationConfig.services.length > 0;
       case 'review':
@@ -312,7 +389,7 @@ export default function NewMigration() {
           {/* Progress Steps */}
           <div className="mb-8">
             <div className="flex items-center justify-center">
-              {['Scenario', 'Configuration', 'Review', 'Migration'].map((step, index) => (
+              {['Scenario', 'Domain Mapping', 'Configuration', 'Review', 'Migration'].map((step, index) => (
                 <div key={step} className="flex items-center">
                   <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${
                     index + 1 <= getStepNumber() 
@@ -326,8 +403,8 @@ export default function NewMigration() {
                   }`}>
                     {step}
                   </span>
-                  {index < 3 && (
-                    <div className={`w-16 h-0.5 mx-4 ${
+                  {index < 4 && (
+                    <div className={`w-12 h-0.5 mx-3 ${
                       index + 1 < getStepNumber() ? 'bg-blue-600' : 'bg-gray-300'
                     }`} />
                   )}
@@ -344,7 +421,7 @@ export default function NewMigration() {
               </h1>
               {currentStep !== 'scenario' && (
                 <p className="text-gray-600 mt-1">
-                  Step {getStepNumber()} of 4
+                  Step {getStepNumber()} of 5
                 </p>
               )}
             </div>

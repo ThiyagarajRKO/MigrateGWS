@@ -28,6 +28,46 @@ export interface GWSDomain {
   isPrimary: boolean
   verified: boolean
   creationTime: string
+  aliases?: string[]
+}
+
+// Domain management functions
+export async function listDomains(credentials: GoogleWorkspaceCredentials): Promise<{
+  success: boolean
+  domains: GWSDomain[]
+  error?: string
+}> {
+  try {
+    const auth = new google.auth.OAuth2()
+    auth.setCredentials({
+      access_token: credentials.accessToken,
+      refresh_token: credentials.refreshToken
+    })
+
+    const admin = google.admin({ version: 'directory_v1', auth })
+    
+    const response = await admin.domains.list({
+      customer: 'my_customer'
+    })
+
+    return {
+      success: true,
+      domains: response.data.domains?.map(domain => ({
+        domainName: domain.domainName || '',
+        verified: domain.verified || false,
+        isPrimary: domain.isPrimary || false,
+        creationTime: domain.creationTime || '',
+        aliases: domain.domainAliases?.map(alias => alias.domainAliasName || '') || []
+      })) || []
+    }
+  } catch (error: any) {
+    console.error('Error listing domains:', error)
+    return {
+      success: false,
+      error: error.message || 'Failed to list domains',
+      domains: []
+    }
+  }
 }
 
 export class GoogleWorkspaceService {

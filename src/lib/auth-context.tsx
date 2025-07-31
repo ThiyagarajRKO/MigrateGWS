@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import { ExtendedSession } from '@/app/api/auth/[...nextauth]/route'
+import { ExtendedSession } from '@/lib/auth-options'
 import { AuthUser } from '@/types'
 
 interface AuthContextType {
