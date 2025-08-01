@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   ArrowRight,
   CheckCircle,
@@ -45,7 +45,7 @@ export function DomainMappingSelector({
     selectedMapping?.targetDomain || ''
   );
   const [targetDomains, setTargetDomains] = useState<string[]>(
-    selectedMapping?.targetDomains || ['']
+    selectedMapping?.targetDomains || (selectedMapping?.type === 'one-to-many' ? ['', ''] : [''])
   );
   const [preserveAlias, setPreserveAlias] = useState(
     selectedMapping?.preserveSourceAsAlias || false
@@ -56,6 +56,19 @@ export function DomainMappingSelector({
   const [distributionRule, setDistributionRule] = useState<'department' | 'alphabetical' | 'custom'>(
     selectedMapping?.distributionRule || 'department'
   );
+
+  // Sync state when selectedMapping prop changes
+  useEffect(() => {
+    if (selectedMapping) {
+      setSelectedType(selectedMapping.type);
+      setSourceDomains(selectedMapping.sourceDomains);
+      setTargetDomain(selectedMapping.targetDomain || '');
+      setTargetDomains(selectedMapping.targetDomains || (selectedMapping.type === 'one-to-many' ? ['', ''] : ['']));
+      setPreserveAlias(selectedMapping.preserveSourceAsAlias || false);
+      setConflictResolution(selectedMapping.conflictResolution || 'prefix');
+      setDistributionRule(selectedMapping.distributionRule || 'department');
+    }
+  }, [selectedMapping]);
 
   const supportedMappings = getSupportedMappingTypes(selectedScenario);
 
@@ -306,6 +319,13 @@ export function DomainMappingSelector({
           </div>
 
           {/* Target Domain(s) */}
+          <div className="text-xs text-gray-500 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+            <div>Current mapping type: <strong>{selectedType || 'none'}</strong></div>
+            <div>Target domains count: <strong>{targetDomains.length}</strong></div>
+            <div>Available domains: <strong>{domains.length}</strong></div>
+            <div>Selected mapping prop: <strong>{selectedMapping?.type || 'none'}</strong></div>
+            <div>Is one-to-many check: <strong>{(selectedType === 'one-to-many').toString()}</strong></div>
+          </div>
           {selectedType === 'one-to-many' ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">

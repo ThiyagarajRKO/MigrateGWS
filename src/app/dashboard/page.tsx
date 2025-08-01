@@ -131,6 +131,7 @@ export default function Dashboard() {
                 <nav className="flex space-x-8">
                   <Link href="/dashboard" className="text-blue-600 font-semibold">Dashboard</Link>
                   <Link href="/migrations" className="text-gray-600 hover:text-blue-600">Migrations</Link>
+                  <Link href="/setup" className="text-gray-600 hover:text-blue-600">Setup</Link>
                   <Link href="/settings" className="text-gray-600 hover:text-blue-600">Settings</Link>
                 </nav>
                 
@@ -189,6 +190,43 @@ export default function Dashboard() {
               New Migration
             </Link>
           </div>
+
+          {/* Service Account Setup Banner */}
+          {(!validationData?.valid) && (
+            <div className="mb-8 bg-amber-50 border border-amber-200 rounded-lg p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <Shield className="w-6 h-6 text-amber-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-amber-900 mb-2">
+                    Service Account Setup Required
+                  </h3>
+                  <p className="text-amber-800 mb-4">
+                    To enable Google Workspace migrations, you need to configure domain-wide delegation 
+                    in your Google Admin Console. This is a one-time setup that allows secure access 
+                    to your organization's data.
+                  </p>
+                  <div className="flex gap-3">
+                    <Link
+                      href="/setup"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                    >
+                      <Shield className="w-4 h-4" />
+                      Start Setup Process
+                    </Link>
+                    <button
+                      onClick={() => validateAccess()}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Re-check Access
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">

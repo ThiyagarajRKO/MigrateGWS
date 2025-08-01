@@ -19,7 +19,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession() as { data: ExtendedSession | null, status: string }
+  const { data: session, status, error: sessionError } = useSession() as { 
+    data: ExtendedSession | null, 
+    status: string,
+    error?: string 
+  }
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<AuthUser | null>(null)
 
@@ -27,6 +31,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = status === 'authenticated' && !!session
 
   useEffect(() => {
+    // Handle session errors
+    if (sessionError) {
+      console.warn('NextAuth session error:', sessionError)
+      setError('Authentication service temporarily unavailable. Please try again.')
+      setUser(null)
+      return
+    }
+
     if (session?.user && session.accessToken) {
       setUser({
         id: session.user.email || 'unknown',
@@ -46,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null)
       setError(null)
     }
-  }, [session, status])
+  }, [session, status, sessionError])
 
   const signInWithGoogle = async () => {
     try {

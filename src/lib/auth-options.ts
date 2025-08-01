@@ -88,33 +88,46 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account, user }) {
-      // Initial sign in
-      if (account && user) {
+      try {
+        // Initial sign in
+        if (account && user) {
+          return {
+            ...token,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            expiresAt: account.expires_at,
+          } as ExtendedToken
+        }
+
+        // Return previous token if the access token has not expired yet
+        const extendedToken = token as ExtendedToken
+        if (extendedToken.expiresAt && Date.now() < extendedToken.expiresAt * 1000) {
+          return extendedToken
+        }
+
+        // Access token has expired, try to update it
+        return await refreshAccessToken(extendedToken)
+      } catch (error) {
+        console.error('JWT callback error:', error)
         return {
           ...token,
-          accessToken: account.access_token,
-          refreshToken: account.refresh_token,
-          expiresAt: account.expires_at,
+          error: 'RefreshAccessTokenError',
         } as ExtendedToken
       }
-
-      // Return previous token if the access token has not expired yet
-      const extendedToken = token as ExtendedToken
-      if (extendedToken.expiresAt && Date.now() < extendedToken.expiresAt * 1000) {
-        return extendedToken
-      }
-
-      // Access token has expired, try to update it
-      return await refreshAccessToken(extendedToken)
     },
     async session({ session, token }) {
-      const extendedToken = token as ExtendedToken
-      const extendedSession = session as ExtendedSession
-      
-      extendedSession.accessToken = extendedToken.accessToken
-      extendedSession.error = extendedToken.error
+      try {
+        const extendedToken = token as ExtendedToken
+        const extendedSession = session as ExtendedSession
+        
+        extendedSession.accessToken = extendedToken.accessToken
+        extendedSession.error = extendedToken.error
 
-      return extendedSession
+        return extendedSession
+      } catch (error) {
+        console.error('Session callback error:', error)
+        return session as ExtendedSession
+      }
     },
   },
   pages: {
@@ -123,5 +136,7 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
+    maxAge: 24 * 60 * 60, // 24 hours
   },
+  debug: process.env.NODE_ENV === 'development',
 }
