@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { 
   ArrowRight,
   CheckCircle,
@@ -18,9 +18,11 @@ import {
   DomainMappingOption, 
   DOMAIN_MAPPING_OPTIONS,
   getSupportedMappingTypes,
-  MigrationScenario 
+  MigrationScenario,
+  TargetDomainConfig
 } from '@/types/migration-scenarios';
 import { useDomains } from '@/hooks/useGoogleWorkspaceDomains';
+import { MultiTargetDomainSelector } from './MultiTargetDomainSelector';
 
 interface DomainMappingSelectorProps {
   selectedScenario: MigrationScenario;
@@ -28,7 +30,7 @@ interface DomainMappingSelectorProps {
   onMappingSelect: (mapping: DomainMappingConfig) => void;
 }
 
-export function DomainMappingSelector({ 
+export const DomainMappingSelector = memo(function DomainMappingSelector({ 
   selectedScenario, 
   selectedMapping, 
   onMappingSelect 
@@ -47,14 +49,14 @@ export function DomainMappingSelector({
   const [targetDomains, setTargetDomains] = useState<string[]>(
     selectedMapping?.targetDomains || (selectedMapping?.type === 'one-to-many' ? ['', ''] : [''])
   );
+  const [multiTargetConfig, setMultiTargetConfig] = useState<TargetDomainConfig[]>(
+    selectedMapping?.multiTargetConfig || []
+  );
   const [preserveAlias, setPreserveAlias] = useState(
     selectedMapping?.preserveSourceAsAlias || false
   );
   const [conflictResolution, setConflictResolution] = useState<'prefix' | 'suffix' | 'manual'>(
     selectedMapping?.conflictResolution || 'prefix'
-  );
-  const [distributionRule, setDistributionRule] = useState<'department' | 'alphabetical' | 'custom'>(
-    selectedMapping?.distributionRule || 'department'
   );
 
   // Sync state when selectedMapping prop changes
@@ -64,9 +66,9 @@ export function DomainMappingSelector({
       setSourceDomains(selectedMapping.sourceDomains);
       setTargetDomain(selectedMapping.targetDomain || '');
       setTargetDomains(selectedMapping.targetDomains || (selectedMapping.type === 'one-to-many' ? ['', ''] : ['']));
+      setMultiTargetConfig(selectedMapping.multiTargetConfig || []);
       setPreserveAlias(selectedMapping.preserveSourceAsAlias || false);
       setConflictResolution(selectedMapping.conflictResolution || 'prefix');
-      setDistributionRule(selectedMapping.distributionRule || 'department');
     }
   }, [selectedMapping]);
 
@@ -103,8 +105,10 @@ export function DomainMappingSelector({
     
     if (option.type === 'one-to-many') {
       setTargetDomains(['', '']); // Start with 2 target domains for one-to-many
+      setMultiTargetConfig([]); // Reset advanced config
     } else {
       setTargetDomains(['']); // Single target for other types
+      setMultiTargetConfig([]); // Reset advanced config
     }
   };
 
@@ -145,7 +149,7 @@ export function DomainMappingSelector({
       return;
     }
     
-    if (isOneToMany && effectiveTargetDomains.length === 0) {
+    if (isOneToMany && effectiveTargetDomains.length === 0 && multiTargetConfig.length === 0) {
       return;
     }
     
@@ -161,9 +165,9 @@ export function DomainMappingSelector({
       sourceDomains: sourceDomains.filter(d => d.trim()),
       targetDomain: effectiveTargetDomain,
       targetDomains: isOneToMany ? effectiveTargetDomains : undefined,
+      multiTargetConfig: isOneToMany && multiTargetConfig.length > 0 ? multiTargetConfig : undefined,
       preserveSourceAsAlias: preserveAlias,
       conflictResolution: selectedOption.requiresConflictHandling ? conflictResolution : undefined,
-      distributionRule: isOneToMany ? distributionRule : undefined,
       description: selectedOption.description
     };
 
@@ -174,7 +178,12 @@ export function DomainMappingSelector({
     if (!selectedType || sourceDomains.some(d => !d.trim())) return false;
     
     if (selectedType === 'one-to-many') {
-      return targetDomains.some(d => d.trim());
+      // Check if using advanced multi-target config or simple target domains
+      if (multiTargetConfig.length > 0) {
+        return multiTargetConfig.every(config => config.domain.trim() !== '');
+      } else {
+        return targetDomains.some(d => d.trim());
+      }
     } else {
       return targetDomain.trim() !== '';
     }
@@ -220,28 +229,6 @@ export function DomainMappingSelector({
                   <div className="text-xs text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded">
                     {option.example}
                   </div>
-                  
-                  {isSelected && (
-                    <div className="mt-4 space-y-3">
-                      <div>
-                        <h5 className="text-sm font-medium text-green-700 mb-1">✅ Advantages:</h5>
-                        <ul className="text-xs text-green-600 space-y-1">
-                          {option.advantages.map((advantage, idx) => (
-                            <li key={idx}>• {advantage}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      
-                      <div>
-                        <h5 className="text-sm font-medium text-yellow-700 mb-1">⚠️ Considerations:</h5>
-                        <ul className="text-xs text-yellow-600 space-y-1">
-                          {option.considerations.map((consideration, idx) => (
-                            <li key={idx}>• {consideration}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -284,19 +271,29 @@ export function DomainMappingSelector({
             
             {sourceDomains.map((domain, index) => (
               <div key={index} className="flex items-center space-x-2 mb-2">
-                <select
-                  value={domain}
-                  onChange={(e) => updateSourceDomain(index, e.target.value)}
-                  disabled={domainsLoading || !!domainsError}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                >
-                  <option value="">Select a domain...</option>
-                  {domains.map((d) => (
-                    <option key={d.domainName} value={d.domainName}>
-                      {d.domainName} {d.isPrimary ? '(Primary)' : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex-1">
+                  <select
+                    value={domain}
+                    onChange={(e) => updateSourceDomain(index, e.target.value)}
+                    disabled={domainsLoading || !!domainsError}
+                    required
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                      domain === '' 
+                        ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                        : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                    }`}
+                  >
+                    <option value="">Select a domain...</option>
+                    {domains.map((d) => (
+                      <option key={d.domainName} value={d.domainName}>
+                        {d.domainName} {d.isPrimary ? '(Primary)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {domain === '' && (
+                    <p className="text-xs text-red-600 mt-1">Please select a source domain</p>
+                  )}
+                </div>
                 {sourceDomains.length > 1 && (
                   <button
                     onClick={() => removeSourceDomain(index)}
@@ -319,55 +316,140 @@ export function DomainMappingSelector({
           </div>
 
           {/* Target Domain(s) */}
-          <div className="text-xs text-gray-500 mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
-            <div>Current mapping type: <strong>{selectedType || 'none'}</strong></div>
-            <div>Target domains count: <strong>{targetDomains.length}</strong></div>
-            <div>Available domains: <strong>{domains.length}</strong></div>
-            <div>Selected mapping prop: <strong>{selectedMapping?.type || 'none'}</strong></div>
-            <div>Is one-to-many check: <strong>{(selectedType === 'one-to-many').toString()}</strong></div>
-          </div>
           {selectedType === 'one-to-many' ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Target Domains
-              </label>
-              {domainsLoading && (
-                <div className="flex items-center space-x-2 text-gray-500 mb-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Loading domains...</span>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">
+                  Target Domains Configuration
+                </label>
+                <div className="text-xs text-gray-500">
+                  Choose between simple or advanced configuration
+                </div>
+              </div>
+              
+              {/* Configuration Mode Selector */}
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-lg w-fit">
+                <button
+                  onClick={() => {
+                    if (multiTargetConfig.length === 0) {
+                      // Switch to simple mode - use existing targetDomains
+                      setMultiTargetConfig([]);
+                    }
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    multiTargetConfig.length === 0
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Simple
+                </button>
+                <button
+                  onClick={() => {
+                    if (multiTargetConfig.length === 0) {
+                      // Switch to advanced mode - convert existing targetDomains
+                      const newConfig = targetDomains
+                        .filter(d => d.trim())
+                        .map(domain => ({
+                          domain,
+                          conflictResolution: 'prefix' as const,
+                          preserveGroups: true,
+                          emailForwarding: true
+                        }));
+                      setMultiTargetConfig(newConfig.length > 0 ? newConfig : [{
+                        domain: '',
+                        conflictResolution: 'prefix' as const,
+                        preserveGroups: true,
+                        emailForwarding: true
+                      }]);
+                    }
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    multiTargetConfig.length > 0
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Advanced
+                </button>
+              </div>
+
+              {multiTargetConfig.length > 0 ? (
+                /* Advanced Multi-Target Configuration */
+                <MultiTargetDomainSelector
+                  availableDomains={domains}
+                  selectedTargets={multiTargetConfig}
+                  onTargetsChange={setMultiTargetConfig}
+                  loading={domainsLoading}
+                  error={domainsError}
+                  className="border-0 shadow-none"
+                  minTargets={1}
+                  maxTargets={5}
+                />
+              ) : (
+                /* Simple Target Domain Selection */
+                <div>
+                  {domainsLoading && (
+                    <div className="flex items-center space-x-2 text-gray-500 mb-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">Loading domains...</span>
+                    </div>
+                  )}
+                  
+                  {targetDomains.map((domain, index) => (
+                    <div key={index} className="flex items-center space-x-2 mb-2">
+                      <div className="flex-1">
+                        <select
+                          value={domain}
+                          onChange={(e) => updateTargetDomain(index, e.target.value)}
+                          disabled={domainsLoading || !!domainsError}
+                          required
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                            domain === '' 
+                              ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                              : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                          }`}
+                        >
+                          <option value="">Select a domain...</option>
+                          {domains.map((d) => (
+                            <option key={d.domainName} value={d.domainName}>
+                              {d.domainName} {d.isPrimary ? '(Primary)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {domain === '' && (
+                          <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
+                        )}
+                      </div>
+                      {targetDomains.length > 1 && (
+                        <button
+                          onClick={() => removeTargetDomain(index)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button
+                    onClick={addTargetDomain}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    + Add another target domain
+                  </button>
+                  
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium">💡 Want more control?</p>
+                      <p className="text-blue-700 mt-1">
+                        Switch to Advanced mode to configure conflict resolution 
+                        and migration options for each target domain.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
-              {targetDomains.map((domain, index) => (
-                <div key={index} className="flex items-center space-x-2 mb-2">
-                  <select
-                    value={domain}
-                    onChange={(e) => updateTargetDomain(index, e.target.value)}
-                    disabled={domainsLoading || !!domainsError}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                  >
-                    <option value="">Select a domain...</option>
-                    {domains.map((d) => (
-                      <option key={d.domainName} value={d.domainName}>
-                        {d.domainName} {d.isPrimary ? '(Primary)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {targetDomains.length > 1 && (
-                    <button
-                      onClick={() => removeTargetDomain(index)}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={addTargetDomain}
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                + Add another target domain
-              </button>
             </div>
           ) : (
             <div>
@@ -384,7 +466,12 @@ export function DomainMappingSelector({
                 value={targetDomain}
                 onChange={(e) => setTargetDomain(e.target.value)}
                 disabled={domainsLoading || !!domainsError}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                required
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                  targetDomain === '' 
+                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                    : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                }`}
               >
                 <option value="">Select a domain...</option>
                 {domains.map((d) => (
@@ -393,6 +480,9 @@ export function DomainMappingSelector({
                   </option>
                 ))}
               </select>
+              {targetDomain === '' && (
+                <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
+              )}
             </div>
           )}
 
@@ -429,24 +519,6 @@ export function DomainMappingSelector({
             </div>
           )}
 
-          {/* Distribution Rule */}
-          {selectedType === 'one-to-many' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                User Distribution Strategy
-              </label>
-              <select
-                value={distributionRule}
-                onChange={(e) => setDistributionRule(e.target.value as 'department' | 'alphabetical' | 'custom')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="department">By Department/Role</option>
-                <option value="alphabetical">Alphabetical Distribution</option>
-                <option value="custom">Custom Assignment Rules</option>
-              </select>
-            </div>
-          )}
-
           {/* Preview */}
           {canConfirm() && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -464,7 +536,7 @@ export function DomainMappingSelector({
                         </div>
                         <div className="ml-6 text-xs text-blue-600">
                           {targetDomains.filter(d => d.trim()).map((target, tidx) => (
-                            <div key={tidx}>→ user@{target} ({distributionRule} rule)</div>
+                            <div key={tidx}>→ user@{target}</div>
                           ))}
                         </div>
                       </div>
@@ -507,4 +579,8 @@ export function DomainMappingSelector({
       )}
     </div>
   );
-}
+});
+
+DomainMappingSelector.displayName = 'DomainMappingSelector';
+
+export default DomainMappingSelector;

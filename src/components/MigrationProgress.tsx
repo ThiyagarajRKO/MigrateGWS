@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { 
   CheckCircle, 
   Clock, 
@@ -20,7 +20,7 @@ interface MigrationProgressProps {
   onStepAction?: (stepId: string, action: 'start' | 'pause' | 'retry') => void;
 }
 
-export function MigrationProgress({ migrationStatus, steps, onStepAction }: MigrationProgressProps) {
+export const MigrationProgress = memo(function MigrationProgress({ migrationStatus, steps, onStepAction }: MigrationProgressProps) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   
   const toggleStepExpansion = (stepId: string) => {
@@ -244,4 +244,8 @@ export function MigrationProgress({ migrationStatus, steps, onStepAction }: Migr
       </div>
     </div>
   );
-}
+});
+
+MigrationProgress.displayName = 'MigrationProgress';
+
+export default MigrationProgress;

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, memo } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Building, 
   ArrowRightLeft, 
@@ -8,16 +9,98 @@ import {
   Users, 
   CheckCircle,
   Clock,
-  Info
+  Info,
+  ExternalLink,
+  Copy,
+  Settings
 } from 'lucide-react';
 import { MigrationScenario, getScenarioDescription, getEstimatedTotalDuration, SINGLE_SUPER_ADMIN_STEPS, CROSS_TENANT_STEPS } from '@/types/migration-scenarios';
 
 interface ScenarioSelectorProps {
   selectedScenario: MigrationScenario | null;
   onScenarioSelect: (scenario: MigrationScenario) => void;
+  onStartGmailMigration?: () => void;
 }
 
-export function ScenarioSelector({ selectedScenario, onScenarioSelect }: ScenarioSelectorProps) {
+export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenario, onScenarioSelect, onStartGmailMigration }: ScenarioSelectorProps) {
+  const router = useRouter();
+  const [showSetup, setShowSetup] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [isStartingMigration, setIsStartingMigration] = useState(false);
+  const [serviceAccountInfo, setServiceAccountInfo] = useState<{
+    clientId: string;
+    email: string;
+    available: boolean;
+  } | null>(null);
+  const [loadingServiceAccount, setLoadingServiceAccount] = useState(false);
+
+  const fetchServiceAccountInfo = async () => {
+    setLoadingServiceAccount(true);
+    try {
+      const response = await fetch('/api/google-workspace?action=service-account-info');
+      if (response.ok) {
+        const data = await response.json();
+        setServiceAccountInfo(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch service account info:', error);
+    } finally {
+      setLoadingServiceAccount(false);
+    }
+  };
+
+  // Fetch service account info when component mounts or scenario is selected
+  useEffect(() => {
+    if (selectedScenario) {
+      fetchServiceAccountInfo();
+    }
+  }, [selectedScenario]);
+
+  const handleStartGmailMigration = async () => {
+    if (!selectedScenario) return;
+    
+    setIsStartingMigration(true);
+    try {
+      // Call the parent's migration handler if provided
+      if (onStartGmailMigration) {
+        await onStartGmailMigration();
+      } else {
+        // Navigate to migrations page using Next.js router
+        router.push(`/migrations/new?service=gmail&scenario=${selectedScenario}`);
+      }
+    } catch (error) {
+      console.error('Failed to start Gmail migration:', error);
+    } finally {
+      setIsStartingMigration(false);
+    }
+  };
+
+  // OAuth scopes for domain-wide delegation
+  const REQUIRED_SCOPES = [
+    'https://www.googleapis.com/auth/admin.directory.user',
+    'https://www.googleapis.com/auth/admin.directory.domain', 
+    'https://www.googleapis.com/auth/admin.directory.group',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/contacts.readonly'
+  ];
+
+  const handleCopy = async (text: string, type: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedText(type);
+      setTimeout(() => setCopiedText(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  const openAdminConsole = () => {
+    window.open('https://admin.google.com/ac/owl/domainwidedelegation', '_blank');
+  };
   const scenarios = [
     {
       type: 'single-super-admin' as MigrationScenario,
@@ -67,10 +150,6 @@ export function ScenarioSelector({ selectedScenario, onScenarioSelect }: Scenari
 
   return (
     <div className="space-y-6">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Migration Scenario</h2>
-        <p className="text-gray-600">Select the type of migration that matches your organizational structure</p>
-      </div>
 
       <div className="grid md:grid-cols-2 gap-6">
         {scenarios.map((scenario) => {
@@ -169,13 +248,126 @@ export function ScenarioSelector({ selectedScenario, onScenarioSelect }: Scenari
       </div>
 
       {selectedScenario && (
-        <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <h3 className="font-medium text-blue-900 mb-2">Selected: {scenarios.find(s => s.type === selectedScenario)?.title}</h3>
-          <p className="text-blue-800 text-sm">
-            {getScenarioDescription(selectedScenario)}
-          </p>
+        <div className="mt-6 p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Shield className="h-5 w-5 mr-2 text-blue-600" />
+            Domain-wide Delegation Setup
+          </h3>
+
+          {/* Direct Link Section */}
+          <div className="mb-6">
+            <h4 className="font-medium text-gray-900 mb-3">Direct Link to Domain-wide Delegation:</h4>
+            <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg">
+              <code className="flex-1 text-sm text-gray-700">
+                https://admin.google.com/ac/owl/domainwidedelegation
+              </code>
+              <button
+                onClick={() => handleCopy('https://admin.google.com/ac/owl/domainwidedelegation', 'link')}
+                className="flex items-center space-x-1 px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm transition-colors"
+              >
+                <Copy className="h-4 w-4" />
+                <span>{copiedText === 'link' ? 'Copied!' : 'Copy'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Client ID Section */}
+          <div className="mb-6">
+            <h4 className="font-medium text-gray-900 mb-3">Service Account Client ID</h4>
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-blue-900">Client ID</span>
+                {serviceAccountInfo?.clientId && (
+                  <button
+                    onClick={() => handleCopy(serviceAccountInfo.clientId, 'clientId')}
+                    className="flex items-center space-x-1 px-3 py-1 bg-blue-200 hover:bg-blue-300 rounded text-sm transition-colors"
+                  >
+                    <Copy className="h-4 w-4" />
+                    <span>{copiedText === 'clientId' ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                )}
+              </div>
+              <div className="text-sm text-blue-800 bg-blue-100 p-2 rounded font-mono break-all">
+                {loadingServiceAccount 
+                  ? 'Loading...' 
+                  : serviceAccountInfo?.clientId || 'Service account not configured'
+                }
+              </div>
+              <p className="text-xs text-blue-700 mt-2">
+                This is the Client ID from your service account JSON file that you'll enter in the Google Admin Console.
+              </p>
+              {serviceAccountInfo?.email && (
+                <p className="text-xs text-blue-600 mt-1">
+                  Service Account: {serviceAccountInfo.email}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* OAuth Scopes Section */}
+          <div className="mb-6">
+            <h4 className="font-medium text-gray-900 mb-3">Required OAuth Scopes</h4>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">All scopes (comma-separated)</span>
+                <button
+                  onClick={() => handleCopy(REQUIRED_SCOPES.join(','), 'scopes')}
+                  className="flex items-center space-x-1 px-3 py-1 bg-green-200 hover:bg-green-300 rounded text-sm transition-colors"
+                >
+                  <Copy className="h-4 w-4" />
+                  <span>{copiedText === 'scopes' ? 'Copied!' : 'Copy All'}</span>
+                </button>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg max-h-32 overflow-y-auto">
+                <code className="text-xs text-gray-700 break-all">
+                  {REQUIRED_SCOPES.join(',')}
+                </code>
+              </div>
+              <p className="text-xs text-gray-600">
+                Copy and paste this comma-separated list of scopes into the OAuth scopes field in the Google Admin Console.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Access Section */}
+          <div className="mb-6">
+            <h4 className="font-medium text-gray-900 mb-3">Quick Access to Domain-wide Delegation</h4>
+            <p className="text-sm text-gray-600 mb-3">
+              Click the button below to go directly to the Domain-wide Delegation page in your Google Admin Console:
+            </p>
+            <button
+              onClick={openAdminConsole}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span>Open Google Admin Console</span>
+            </button>
+            <div className="flex items-start space-x-2 mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <Info className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-yellow-800">
+                Make sure you're signed in with a super admin account that has domain management permissions.
+              </p>
+            </div>
+          </div>
+
+          {/* Integration Note */}
+          <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start space-x-2">
+              <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h5 className="font-medium text-green-900 mb-1">Automatic Setup Available</h5>
+                <p className="text-sm text-green-800">
+                  This setup process can be automated. Click "Generate Setup Instructions" in the service account setup to get your specific Client ID and follow the guided configuration.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
-}
+});
+
+ScenarioSelector.displayName = 'ScenarioSelector';
+
+export default ScenarioSelector;

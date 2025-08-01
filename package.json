@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "analyze": "ANALYZE=true npm run build",
+    "analyze:server": "ANALYZE=true npm run build && open .next/analyze/server.html",
+    "analyze:client": "ANALYZE=true npm run build && open .next/analyze/client.html"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.0.1",
@@ -48,6 +51,7 @@
     "@types/geojson": "^7946.0.16",
     "@types/jest": "^29.5.0",
     "jest": "^29.5.0",
-    "jest-environment-jsdom": "^29.5.0"
+    "jest-environment-jsdom": "^29.5.0",
+    "webpack-bundle-analyzer": "^4.10.2"
   }
 }

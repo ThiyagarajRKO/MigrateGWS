@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, memo } from 'react'
 import { 
   Copy, 
   CheckCircle, 
@@ -26,6 +26,7 @@ import {
 interface DomainWideDelegationSetupProps {
   sourceAccount?: string
   destAccount?: string
+  destAccounts?: {[domain: string]: string} // For multiple target domains
   onComplete?: () => void
   className?: string
 }
@@ -95,9 +96,10 @@ const chunkScopes = (scopes: string[], chunkSize: number): string[][] => {
   return chunks
 }
 
-export default function DomainWideDelegationSetup({ 
+const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({ 
   sourceAccount, 
   destAccount, 
+  destAccounts = {},
   onComplete, 
   className = '' 
 }: DomainWideDelegationSetupProps) {
@@ -308,7 +310,7 @@ export default function DomainWideDelegationSetup({
         '• Secure, auditable access control',
         '',
         '🔧 **Setup Requirements:**',
-        '• Super Admin access to both source and destination domains',
+        '• Super Admin access to source and target domains',
         '• Google Cloud Project with enabled APIs',
         '• Service Account with Domain-wide Delegation configured',
         '',
@@ -459,17 +461,34 @@ export default function DomainWideDelegationSetup({
               <Users className="h-4 w-4" />
               Migration Accounts
             </h3>
-            <div className="grid md:grid-cols-2 gap-4 text-sm">
+            <div className="space-y-4 text-sm">
               {sourceAccount && (
                 <div>
                   <div className="text-blue-700 font-medium">Source Domain Admin</div>
                   <div className="text-blue-800">{sourceAccount}</div>
                 </div>
               )}
-              {destAccount && (
+              
+              {/* Single destination domain */}
+              {destAccount && Object.keys(destAccounts).length === 0 && (
                 <div>
                   <div className="text-blue-700 font-medium">Destination Domain Admin</div>
                   <div className="text-blue-800">{destAccount}</div>
+                </div>
+              )}
+              
+              {/* Multiple destination domains */}
+              {Object.keys(destAccounts).length > 0 && (
+                <div>
+                  <div className="text-blue-700 font-medium mb-2">Destination Domain Admins</div>
+                  <div className="space-y-2">
+                    {Object.entries(destAccounts).map(([domain, email]) => (
+                      <div key={domain} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg">
+                        <span className="text-blue-600 font-mono text-xs">{domain}</span>
+                        <span className="text-blue-800 text-sm">{email}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -837,4 +856,8 @@ export default function DomainWideDelegationSetup({
       </div>
     </div>
   )
-}
+})
+
+DomainWideDelegationSetup.displayName = 'DomainWideDelegationSetup'
+
+export default DomainWideDelegationSetup

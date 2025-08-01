@@ -191,42 +191,6 @@ export default function Dashboard() {
             </Link>
           </div>
 
-          {/* Service Account Setup Banner */}
-          {(!validationData?.valid) && (
-            <div className="mb-8 bg-amber-50 border border-amber-200 rounded-lg p-6">
-              <div className="flex items-start gap-4">
-                <div className="p-2 bg-amber-100 rounded-lg">
-                  <Shield className="w-6 h-6 text-amber-600" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-amber-900 mb-2">
-                    Service Account Setup Required
-                  </h3>
-                  <p className="text-amber-800 mb-4">
-                    To enable Google Workspace migrations, you need to configure domain-wide delegation 
-                    in your Google Admin Console. This is a one-time setup that allows secure access 
-                    to your organization's data.
-                  </p>
-                  <div className="flex gap-3">
-                    <Link
-                      href="/setup"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
-                    >
-                      <Shield className="w-4 h-4" />
-                      Start Setup Process
-                    </Link>
-                    <button
-                      onClick={() => validateAccess()}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Re-check Access
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -281,43 +245,45 @@ export default function Dashboard() {
 
           {/* Google Workspace Info */}
           {user?.provider === 'google' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Google Workspace Domains</h3>
-                {domainsData?.domains ? (
-                  <div className="space-y-2">
-                    {domainsData.domains.map((domain: any, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <span className="font-medium">{domain.domainName}</span>
-                        <div className="flex items-center space-x-2">
-                          {domain.isPrimary && (
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Primary</span>
-                          )}
-                          {domain.verified && (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          )}
+            <div className="space-y-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Google Workspace Domains</h3>
+                  {domainsData?.domains ? (
+                    <div className="space-y-2">
+                      {domainsData.domains.map((domain: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <span className="font-medium">{domain.domainName}</span>
+                          <div className="flex items-center space-x-2">
+                            {domain.isPrimary && (
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Primary</span>
+                            )}
+                            {domain.verified && (
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500">Loading domain information...</p>
-                )}
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">User Count</h3>
-                {usersData?.count !== undefined ? (
-                  <div className="flex items-center">
-                    <Users className="h-8 w-8 text-blue-600 mr-3" />
-                    <div>
-                      <p className="text-2xl font-bold text-gray-900">{usersData.count}</p>
-                      <p className="text-sm text-gray-500">Google Workspace users</p>
+                      ))}
                     </div>
-                  </div>
-                ) : (
-                  <p className="text-gray-500">Loading user information...</p>
-                )}
+                  ) : (
+                    <p className="text-gray-500">Loading domain information...</p>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">User Count</h3>
+                  {usersData?.count !== undefined ? (
+                    <div className="flex items-center">
+                      <Users className="h-8 w-8 text-blue-600 mr-3" />
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{usersData.count}</p>
+                        <p className="text-sm text-gray-500">Google Workspace users</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">Loading user information...</p>
+                  )}
+                </div>
               </div>
             </div>
           )}

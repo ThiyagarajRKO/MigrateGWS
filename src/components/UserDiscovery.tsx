@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { 
   Users, 
   Search, 
@@ -41,7 +41,7 @@ interface UserDiscoveryProps {
   onComplete?: () => void;
 }
 
-export function UserDiscovery({ 
+export const UserDiscovery = memo(function UserDiscovery({ 
   sourceDomain, 
   targetDomain, 
   onUsersSelected, 
@@ -445,4 +445,8 @@ export function UserDiscovery({
       </div>
     </div>
   );
-}
+});
+
+UserDiscovery.displayName = 'UserDiscovery';
+
+export default UserDiscovery;

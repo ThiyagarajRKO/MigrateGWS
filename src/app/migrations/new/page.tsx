@@ -1,11 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { ScenarioSelector } from '@/components/ScenarioSelector';
-import { DomainMappingSelector } from '@/components/DomainMappingSelector';
-import { MigrationProgress } from '@/components/MigrationProgress';
 import { 
   MigrationScenario, 
   MigrationStatus,
@@ -37,10 +34,30 @@ import {
   PlayCircle,
   Eye,
   Cog,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
-import DomainWideDelegationSetup from '@/components/DomainWideDelegationSetup';
-import { UserDiscovery } from '@/components/UserDiscovery';
+
+// Dynamic imports for heavy components
+const ScenarioSelector = lazy(() => import('@/components/ScenarioSelector'));
+const DomainMappingSelector = lazy(() => import('@/components/DomainMappingSelector'));
+const DomainWideDelegationSetup = lazy(() => import('@/components/DomainWideDelegationSetup'));
+const UserDiscovery = lazy(() => import('@/components/UserDiscovery'));
+const MigrationProgress = lazy(() => import('@/components/MigrationProgress'));
+
+// Loading component
+const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
+  <Suspense fallback={
+    <div className="flex items-center justify-center py-12">
+      <div className="text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+        <p className="text-gray-600">Loading component...</p>
+      </div>
+    </div>
+  }>
+    {children}
+  </Suspense>
+);
 
 type WizardStep = 'scenario' | 'domain-mapping' | 'configuration' | 'review' | 'migration';
 
@@ -83,7 +100,9 @@ export default function NewMigration() {
   // Domain-wide Delegation state
   const [dwdSetupComplete, setDwdSetupComplete] = useState(false);
   const [sourceAdminEmail, setSourceAdminEmail] = useState('');
+  const [sourceAdminEmails, setSourceAdminEmails] = useState<{[domain: string]: string}>({});
   const [targetAdminEmail, setTargetAdminEmail] = useState('');
+  const [targetAdminEmails, setTargetAdminEmails] = useState<{[domain: string]: string}>({});
   const [showDwdSetup, setShowDwdSetup] = useState(false);
 
   // User Discovery state
@@ -99,12 +118,38 @@ export default function NewMigration() {
 
   const handleDomainMappingSelect = (mapping: DomainMappingConfig) => {
     setDomainMapping(mapping);
+    
+    // Determine target domain for migration config
+    let targetDomain = mapping.targetDomain;
+    if (mapping.type === 'one-to-many' && mapping.multiTargetConfig && mapping.multiTargetConfig.length > 0) {
+      targetDomain = mapping.multiTargetConfig[0].domain;
+    }
+    
     // Auto-populate source and target domains from mapping
     setMigrationConfig(prev => ({
       ...prev,
       sourceDomain: mapping.sourceDomains[0] || '',
-      targetDomain: mapping.targetDomain
+      targetDomain: targetDomain
     }));
+    
+    // Initialize source admin emails for multiple source domains (cross-tenant only)
+    if (selectedScenario === 'cross-tenant' && mapping.sourceDomains.length > 1) {
+      const newSourceAdminEmails: {[domain: string]: string} = {};
+      mapping.sourceDomains.forEach(domain => {
+        newSourceAdminEmails[domain] = sourceAdminEmails[domain] || '';
+      });
+      setSourceAdminEmails(newSourceAdminEmails);
+    }
+    
+    // Initialize target admin emails for multiple target domains
+    if (mapping.type === 'one-to-many' && mapping.multiTargetConfig) {
+      const newTargetAdminEmails: {[domain: string]: string} = {};
+      mapping.multiTargetConfig.forEach(config => {
+        newTargetAdminEmails[config.domain] = targetAdminEmails[config.domain] || '';
+      });
+      setTargetAdminEmails(newTargetAdminEmails);
+    }
+    
     setCurrentStep('configuration');
   };
 
@@ -182,6 +227,60 @@ export default function NewMigration() {
     setShowDwdSetup(false);
   };
 
+  // Get target domains for multi-target scenarios
+  const getTargetDomains = (): string[] => {
+    if (!domainMapping) return [migrationConfig.targetDomain].filter(Boolean);
+    
+    if (domainMapping.type === 'one-to-many' && domainMapping.multiTargetConfig) {
+      return domainMapping.multiTargetConfig.map(config => config.domain).filter(Boolean);
+    }
+    
+    return [domainMapping.targetDomain].filter(Boolean);
+  };
+
+  // Get source domains for multi-source scenarios
+  const getSourceDomains = (): string[] => {
+    if (!domainMapping) return [migrationConfig.sourceDomain].filter(Boolean);
+    
+    return domainMapping.sourceDomains.filter(Boolean);
+  };
+
+  // Check if all required admin emails are provided
+  const areAllAdminEmailsProvided = (): boolean => {
+    if (selectedScenario === 'single-super-admin') {
+      if (!sourceAdminEmail) return false;
+      
+      // Check if target admin emails are needed for multiple targets
+      const targetDomains = getTargetDomains();
+      if (targetDomains.length <= 1) {
+        return true; // Single target domain - sourceAdminEmail is sufficient
+      } else {
+        // Multiple target domains - check all have admin emails
+        return targetDomains.every(domain => !!targetAdminEmails[domain]);
+      }
+    }
+    
+    // Cross-tenant scenario
+    const sourceDomains = getSourceDomains();
+    const targetDomains = getTargetDomains();
+    
+    // Check source domains
+    if (sourceDomains.length <= 1) {
+      if (!sourceAdminEmail) return false;
+    } else {
+      // Multiple source domains - check all have admin emails
+      if (!sourceDomains.every(domain => !!sourceAdminEmails[domain])) return false;
+    }
+    
+    // Check target domains
+    if (targetDomains.length <= 1) {
+      return !!targetAdminEmail;
+    } else {
+      // Multiple target domains - check all have admin emails
+      return targetDomains.every(domain => !!targetAdminEmails[domain]);
+    }
+  };
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 'scenario':
@@ -204,10 +303,12 @@ export default function NewMigration() {
 
             {/* Scenario Selection */}
             <div className="max-w-4xl mx-auto">
-              <ScenarioSelector 
-                selectedScenario={selectedScenario} 
-                onScenarioSelect={handleScenarioSelect} 
-              />
+              <ComponentLoader>
+                <ScenarioSelector 
+                  selectedScenario={selectedScenario} 
+                  onScenarioSelect={handleScenarioSelect} 
+                />
+              </ComponentLoader>
             </div>
 
             {/* Info Panel */}
@@ -255,11 +356,13 @@ export default function NewMigration() {
 
             {/* Domain Mapping Component */}
             <div className="max-w-4xl mx-auto">
-              <DomainMappingSelector
-                selectedScenario={selectedScenario}
-                selectedMapping={domainMapping}
-                onMappingSelect={handleDomainMappingSelect}
-              />
+              <ComponentLoader>
+                <DomainMappingSelector
+                  selectedScenario={selectedScenario}
+                  selectedMapping={domainMapping}
+                  onMappingSelect={handleDomainMappingSelect}
+                />
+              </ComponentLoader>
             </div>
           </div>
         );
@@ -336,38 +439,183 @@ export default function NewMigration() {
               </div>
 
               {/* Admin Email Configuration */}
-              <div className="grid md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Source Domain Admin Email
-                  </label>
-                  <input
-                    type="email"
-                    value={sourceAdminEmail}
-                    onChange={(e) => setSourceAdminEmail(e.target.value)}
-                    placeholder="admin@source-domain.com"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Super admin email for the source Google Workspace domain
-                  </p>
-                </div>
+              <div className="mb-4">
+                {selectedScenario === 'single-super-admin' ? (
+                  // Single Super Admin - Source admin email + target admin emails if multiple targets
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Super Admin Email
+                      </label>
+                      <input
+                        type="email"
+                        value={sourceAdminEmail}
+                        onChange={(e) => setSourceAdminEmail(e.target.value)}
+                        placeholder="admin@your-domain.com"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Super admin email with access to both source and target domains
+                      </p>
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Target Domain Admin Email
-                  </label>
-                  <input
-                    type="email"
-                    value={targetAdminEmail}
-                    onChange={(e) => setTargetAdminEmail(e.target.value)}
-                    placeholder="admin@target-domain.com"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Super admin email for the target Google Workspace domain
-                  </p>
-                </div>
+                    {/* Target Domain Admin Emails for Multiple Targets */}
+                    {(() => {
+                      const targetDomains = getTargetDomains();
+                      
+                      if (targetDomains.length > 1) {
+                        return (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-3">
+                              Target Domain Admin Emails
+                            </label>
+                            <div className="space-y-3">
+                              {targetDomains.map((domain, index) => (
+                                <div key={domain} className="flex items-center space-x-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-1">
+                                      <span className="text-sm font-medium text-gray-600">
+                                        Target Domain {index + 1}:
+                                      </span>
+                                      <span className="text-sm text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded">
+                                        {domain}
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="email"
+                                      value={targetAdminEmails[domain] || ''}
+                                      onChange={(e) => setTargetAdminEmails(prev => ({
+                                        ...prev,
+                                        [domain]: e.target.value
+                                      }))}
+                                      placeholder={`admin@${domain}`}
+                                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                              <p className="text-xs text-gray-500 mt-2">
+                                Admin email for each target Google Workspace domain (may be the same as super admin if cross-domain access is configured)
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                ) : (
+                  // Cross-Tenant - Source admin email + target admin emails
+                  <div className="space-y-4">
+                    {/* Source Domain Admin Email(s) */}
+                    <div className="space-y-3">
+                      {getSourceDomains().length > 1 ? (
+                        // Multiple source domains
+                        getSourceDomains().map((domain, index) => (
+                          <div key={domain}>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              {index === 0 ? 'Primary ' : ''}Source Domain Admin Email {domain && `(${domain})`}
+                            </label>
+                            <input
+                              type="email"
+                              value={sourceAdminEmails[domain] || ''}
+                              onChange={(e) => setSourceAdminEmails(prev => ({
+                                ...prev,
+                                [domain]: e.target.value
+                              }))}
+                              placeholder={`admin@${domain}`}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Super admin email for {domain}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        // Single source domain
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Source Domain Admin Email
+                          </label>
+                          <input
+                            type="email"
+                            value={sourceAdminEmail}
+                            onChange={(e) => setSourceAdminEmail(e.target.value)}
+                            placeholder="admin@source-domain.com"
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Super admin email for the source Google Workspace domain
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Target Domain Admin Emails */}
+                    {(() => {
+                      const targetDomains = getTargetDomains();
+                      
+                      if (targetDomains.length <= 1) {
+                        // Single target domain
+                        return (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Target Domain Admin Email
+                            </label>
+                            <input
+                              type="email"
+                              value={targetAdminEmail}
+                              onChange={(e) => setTargetAdminEmail(e.target.value)}
+                              placeholder="admin@target-domain.com"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Super admin email for the target Google Workspace domain
+                            </p>
+                          </div>
+                        );
+                      } else {
+                        // Multiple target domains
+                        return (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-3">
+                              Target Domain Admin Emails
+                            </label>
+                            <div className="space-y-3">
+                              {targetDomains.map((domain, index) => (
+                                <div key={domain} className="flex items-center space-x-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-1">
+                                      <span className="text-sm font-medium text-gray-600">
+                                        Domain {index + 1}:
+                                      </span>
+                                      <span className="text-sm text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded">
+                                        {domain}
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="email"
+                                      value={targetAdminEmails[domain] || ''}
+                                      onChange={(e) => setTargetAdminEmails(prev => ({
+                                        ...prev,
+                                        [domain]: e.target.value
+                                      }))}
+                                      placeholder={`admin@${domain}`}
+                                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                              <p className="text-xs text-gray-500 mt-2">
+                                Super admin email for each target Google Workspace domain
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Setup Actions */}
@@ -375,7 +623,7 @@ export default function NewMigration() {
                 {!dwdSetupComplete ? (
                   <button
                     onClick={() => setShowDwdSetup(true)}
-                    disabled={!sourceAdminEmail || !targetAdminEmail}
+                    disabled={!areAllAdminEmailsProvided()}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                   >
                     <Settings className="h-4 w-4" />
@@ -392,9 +640,42 @@ export default function NewMigration() {
                 )}
                 
                 <div className="text-sm text-gray-500">
-                  {sourceAdminEmail && targetAdminEmail 
+                  {areAllAdminEmailsProvided()
                     ? 'Ready to configure delegation' 
-                    : 'Enter admin emails to begin setup'
+                    : selectedScenario === 'single-super-admin'
+                      ? (() => {
+                          if (!sourceAdminEmail) return 'Enter super admin email to begin setup';
+                          
+                          const targetDomains = getTargetDomains();
+                          if (targetDomains.length > 1) {
+                            const missingCount = targetDomains.length - targetDomains.filter(domain => targetAdminEmails[domain]).length;
+                            if (missingCount > 0) return `Enter admin emails for ${missingCount} remaining target domain${missingCount > 1 ? 's' : ''}`;
+                          }
+                          
+                          return 'Enter admin emails to begin setup';
+                        })()
+                      : (() => {
+                          const sourceDomains = getSourceDomains();
+                          const targetDomains = getTargetDomains();
+                          
+                          // Check source domains
+                          if (sourceDomains.length <= 1) {
+                            if (!sourceAdminEmail) return 'Enter source admin email to begin setup';
+                          } else {
+                            const missingSourceCount = sourceDomains.length - sourceDomains.filter(domain => sourceAdminEmails[domain]).length;
+                            if (missingSourceCount > 0) return `Enter admin emails for ${missingSourceCount} remaining source domain${missingSourceCount > 1 ? 's' : ''}`;
+                          }
+                          
+                          // Check target domains
+                          if (targetDomains.length <= 1) {
+                            if (!targetAdminEmail) return 'Enter target admin email to begin setup';
+                          } else {
+                            const missingTargetCount = targetDomains.length - targetDomains.filter(domain => targetAdminEmails[domain]).length;
+                            if (missingTargetCount > 0) return `Enter admin emails for ${missingTargetCount} remaining target domain${missingTargetCount > 1 ? 's' : ''}`;
+                          }
+                          
+                          return 'Enter admin emails to begin setup';
+                        })()
                   }
                 </div>
               </div>
@@ -414,12 +695,15 @@ export default function NewMigration() {
                     </button>
                   </div>
                   
-                  <DomainWideDelegationSetup
-                    sourceAccount={sourceAdminEmail}
-                    destAccount={targetAdminEmail}
-                    onComplete={handleDwdSetupComplete}
-                    className="bg-white"
-                  />
+                  <ComponentLoader>
+                    <DomainWideDelegationSetup
+                      sourceAccount={sourceAdminEmail}
+                      destAccount={getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
+                      destAccounts={getTargetDomains().length > 1 ? targetAdminEmails : undefined}
+                      onComplete={handleDwdSetupComplete}
+                      className="bg-white"
+                    />
+                  </ComponentLoader>
                 </div>
               )}
 
@@ -440,12 +724,14 @@ export default function NewMigration() {
                     </div>
                     
                     <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-                      <UserDiscovery
-                        sourceDomain={migrationConfig.sourceDomain}
-                        targetDomain={migrationConfig.targetDomain}
-                        onUsersSelected={setSelectedUsers}
-                        onComplete={() => setShowUserDiscovery(false)}
-                      />
+                      <ComponentLoader>
+                        <UserDiscovery
+                          sourceDomain={migrationConfig.sourceDomain}
+                          targetDomain={migrationConfig.targetDomain}
+                          onUsersSelected={setSelectedUsers}
+                          onComplete={() => setShowUserDiscovery(false)}
+                        />
+                      </ComponentLoader>
                     </div>
                   </div>
                 </div>
@@ -463,7 +749,7 @@ export default function NewMigration() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Source Domain
+                        {getSourceDomains().length > 1 ? 'Primary Source Domain' : 'Source Domain'}
                       </label>
                       <input
                         type="text"
@@ -473,11 +759,40 @@ export default function NewMigration() {
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
+                      {getSourceDomains().length > 1 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Primary domain for migration. Total source domains: {getSourceDomains().length}
+                        </p>
+                      )}
                     </div>
+
+                    {/* Multiple Source Domains Display */}
+                    {getSourceDomains().length > 1 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          All Source Domains
+                        </label>
+                        <div className="space-y-2">
+                          {getSourceDomains().map((domain, index) => (
+                            <div key={domain} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm text-gray-500">#{index + 1}</span>
+                                <span className="font-mono text-sm text-gray-900">{domain}</span>
+                                {index === 0 && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    Primary
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Target Domain
+                        {getTargetDomains().length > 1 ? 'Primary Target Domain' : 'Target Domain'}
                       </label>
                       <input
                         type="text"
@@ -487,7 +802,36 @@ export default function NewMigration() {
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
+                      {getTargetDomains().length > 1 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Primary domain for migration. Total target domains: {getTargetDomains().length}
+                        </p>
+                      )}
                     </div>
+                    
+                    {/* Multiple Target Domains Display */}
+                    {getTargetDomains().length > 1 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          All Target Domains
+                        </label>
+                        <div className="space-y-2">
+                          {getTargetDomains().map((domain, index) => (
+                            <div key={domain} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm text-gray-500">#{index + 1}</span>
+                                <span className="font-mono text-sm text-gray-900">{domain}</span>
+                                {index === 0 && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    Primary
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -675,13 +1019,6 @@ export default function NewMigration() {
                                 <div key={idx} className="text-green-600">→ {target}</div>
                               ))}
                             </div>
-                            {domainMapping.distributionRule && (
-                              <div className="mt-3 pt-3 border-t border-gray-200">
-                                <span className="text-xs text-purple-600 font-medium">
-                                  Distribution: {domainMapping.distributionRule}
-                                </span>
-                              </div>
-                            )}
                           </div>
                         ) : (
                           <div className="flex items-center justify-center space-x-4">
@@ -733,15 +1070,77 @@ export default function NewMigration() {
                     </div>
                   </div>
                   
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-sm text-gray-600 mb-1">Source Admin Email</div>
-                      <div className="font-medium text-gray-900">{sourceAdminEmail}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600 mb-1">Target Admin Email</div>
-                      <div className="font-medium text-gray-900">{targetAdminEmail}</div>
-                    </div>
+                  <div className="space-y-4">
+                    {(() => {
+                      const sourceDomains = getSourceDomains();
+                      
+                      if (selectedScenario === 'single-super-admin') {
+                        return (
+                          <div>
+                            <div className="text-sm text-gray-600 mb-1">Super Admin Email</div>
+                            <div className="font-medium text-gray-900">{sourceAdminEmail}</div>
+                          </div>
+                        );
+                      } else if (sourceDomains.length <= 1) {
+                        return (
+                          <div>
+                            <div className="text-sm text-gray-600 mb-1">Source Admin Email</div>
+                            <div className="font-medium text-gray-900">{sourceAdminEmail}</div>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div>
+                            <div className="text-sm text-gray-600 mb-2">Source Admin Emails</div>
+                            <div className="space-y-2">
+                              {sourceDomains.map((domain, index) => (
+                                <div key={domain} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-gray-500">Domain {index + 1}:</span>
+                                    <span className="text-sm font-mono text-green-600 bg-green-50 px-2 py-1 rounded">
+                                      {domain}
+                                    </span>
+                                  </div>
+                                  <div className="font-medium text-gray-900">{sourceAdminEmails[domain]}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
+                    
+                    {(() => {
+                      const targetDomains = getTargetDomains();
+                      
+                      if (targetDomains.length <= 1) {
+                        return selectedScenario === 'cross-tenant' ? (
+                          <div>
+                            <div className="text-sm text-gray-600 mb-1">Target Admin Email</div>
+                            <div className="font-medium text-gray-900">{targetAdminEmail}</div>
+                          </div>
+                        ) : null; // For single super admin with single target, no separate target admin needed
+                      } else {
+                        return (
+                          <div>
+                            <div className="text-sm text-gray-600 mb-2">Target Admin Emails</div>
+                            <div className="space-y-2">
+                              {targetDomains.map((domain, index) => (
+                                <div key={domain} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-gray-500">Domain {index + 1}:</span>
+                                    <span className="text-sm font-mono text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                      {domain}
+                                    </span>
+                                  </div>
+                                  <div className="font-medium text-gray-900">{targetAdminEmails[domain]}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
                   </div>
                 </div>
               </div>
@@ -895,14 +1294,16 @@ export default function NewMigration() {
             </div>
 
             {/* Migration Progress Component */}
-            <MigrationProgress 
-              migrationStatus={migrationStatus}
-              steps={scenario.steps}
-              onStepAction={(stepId, action) => {
-                console.log(`Step action: ${action} on step ${stepId}`);
-                // TODO: Implement step action handling
-              }}
-            />
+            <ComponentLoader>
+              <MigrationProgress 
+                migrationStatus={migrationStatus}
+                steps={scenario.steps}
+                onStepAction={(stepId, action) => {
+                  console.log(`Step action: ${action} on step ${stepId}`);
+                  // TODO: Implement step action handling
+                }}
+              />
+            </ComponentLoader>
           </div>
         );
 
@@ -944,8 +1345,7 @@ export default function NewMigration() {
                migrationConfig.targetDomain && 
                migrationConfig.services.length > 0 &&
                dwdSetupComplete &&
-               sourceAdminEmail &&
-               targetAdminEmail &&
+               areAllAdminEmailsProvided() &&
                selectedUsers.length > 0; // Require users to be selected
       case 'review':
         return true;

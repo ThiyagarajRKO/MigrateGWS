@@ -45,76 +45,192 @@ export default function ServiceAccountSetup({
   })
   const [completedSteps, setCompletedSteps] = useState<{ [key: string]: boolean }>({})
   const [showDWDSetup, setShowDWDSetup] = useState(false)
+  const [delegationSetup, setDelegationSetup] = useState<any>(null)
+  const [setupLoading, setSetupLoading] = useState(false)
+  const [setupError, setSetupError] = useState<string | null>(null)
 
-  // Service account client ID - this should be replaced with your actual service account
-  const serviceAccountClientId = process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || 'your-service-account-client-id@your-project.iam.gserviceaccount.com'
+  // Service account client ID - will be fetched dynamically
+  const serviceAccountClientId = delegationSetup?.source?.clientId || '114333598950671892438'
   
   // Required OAuth scopes for complete Google Workspace migration
   const requiredScopes = [
     'https://www.googleapis.com/auth/admin.directory.user',
-    'https://www.googleapis.com/auth/admin.directory.domain', 
     'https://www.googleapis.com/auth/admin.directory.group',
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.modify',
-    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+    'https://www.googleapis.com/auth/admin.directory.orgunit',
+    'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+    'https://www.googleapis.com/auth/apps.groups.migration',
+    'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive.metadata',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive.metadata.readonly',
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/gmail.insert',
+    'https://www.googleapis.com/auth/gmail.settings.basic',
+    'https://www.googleapis.com/auth/gmail.settings.sharing',
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/contacts',
     'https://www.googleapis.com/auth/contacts.readonly'
   ]
 
+  // Function to generate delegation setup
+  const generateDelegationSetup = async () => {
+    if (!sourceAccount || !destAccount) {
+      setSetupError('Source and destination admin emails are required')
+      return
+    }
+
+    setSetupLoading(true)
+    setSetupError(null)
+
+    try {
+      const response = await fetch('/api/v1/delegation/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sourceAdminEmail: sourceAccount,
+          destAdminEmail: destAccount
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setDelegationSetup(data)
+        console.log('Delegation setup generated:', data)
+      } else {
+        setSetupError(data.error || 'Failed to generate delegation setup')
+      }
+    } catch (error) {
+      console.error('Error generating delegation setup:', error)
+      setSetupError('Failed to generate delegation setup')
+    } finally {
+      setSetupLoading(false)
+    }
+  }
+
   const steps: { [key: string]: Step } = {
     '1': {
-      title: 'OAuth & Scopes - Domain-Wide Delegation Setup',
-      description: 'Authenticate as Super Admin with domain-wide delegation',
-      estimatedTime: '2-3 minutes',
+      title: '🔧 Domain-Wide Delegation Setup Process',
+      description: 'Complete guide for configuring domain-wide delegation for Google Workspace migration',
+      estimatedTime: '10-15 minutes',
       details: [
-        '🔐 **Authentication Approach**: Use domain-wide delegation for automated access',
-        '📋 **Admin SDK + OAuth2**: Configure required scopes for comprehensive migration',
-        '🔧 **APIs Used**: Admin SDK, Drive API, Gmail API, Calendar API',
+        '� **Overview**',
+        'This guide provides step-by-step instructions to configure domain-wide delegation for Google Workspace, enabling service accounts to impersonate users and access their Drive files.',
         '',
-        '**Step-by-Step Instructions:**',
+        '🎯 **Current Status**',
+        delegationSetup ? '✅ **Setup instructions generated**' : '❌ **Setup instructions not generated yet**',
+        delegationSetup ? '✅ **Client IDs available**' : '❌ **Client IDs not generated**',
+        '✅ **Service account and scopes ready**',
         '',
-        '1. **Access Google Cloud Console**:',
-        '   • Go to https://console.cloud.google.com',
-        '   • Select your project or create a new one',
-        '   • Enable the required APIs (Admin SDK, Gmail, Drive, Calendar)',
+        delegationSetup ? '' : '⚠️ **Important**: Click "Generate Setup Instructions" above to get your unique client IDs before proceeding.',
         '',
-        '2. **Create Service Account**:',
-        '   • Navigate to "IAM & Admin" → "Service Accounts"',
-        '   • Click "Create Service Account"',
-        '   • Name: "gws-migration-service"',
-        '   • Description: "Service account for Google Workspace migration"',
-        '   • Click "Create and Continue"',
+        '📊 **Configuration Details**',
         '',
-        '3. **Configure Service Account**:',
-        '   • Skip role assignment (we\'ll use domain-wide delegation)',
-        '   • Click "Done" to create the service account',
-        '   • Click on the created service account',
-        '   • Go to "Keys" tab → "Add Key" → "Create new key"',
-        '   • Select "JSON" and download the key file',
+        '**Service Account Information:**',
+        delegationSetup?.source?.email ? `• **Email**: \`${delegationSetup.source.email}\`` : '• **Email**: `Will be generated when you click "Generate Setup Instructions"`',
+        delegationSetup?.source?.clientId ? `• **Client ID**: \`${delegationSetup.source.clientId}\`` : '• **Client ID**: `Will be generated when you click "Generate Setup Instructions"`',
+        delegationSetup?.source?.projectId ? `• **Project**: \`${delegationSetup.source.projectId}\`` : '• **Project**: `Will be generated when you click "Generate Setup Instructions"`',
         '',
-        '4. **Enable Domain-Wide Delegation**:',
-        '   • In the service account details, click "Advanced settings"',
-        '   • Check "Enable Google Workspace Domain-wide Delegation"',
-        '   • Product name: "GWS Migration Platform"',
-        '   • Save the changes',
-        '   • **Copy the Client ID** (you\'ll need this for the next step)',
+        '**Domains to Configure:**',
+        sourceAccount ? `1. **Source Domain**: \`${sourceAccount.split('@')[1]}\`` : '1. **Source Domain**: `Not specified`',
+        sourceAccount ? `   • **Admin**: \`${sourceAccount}\`` : '   • **Admin**: `Not specified`',
+        destAccount ? `2. **Destination Domain**: \`${destAccount.split('@')[1]}\`` : '2. **Destination Domain**: `Not specified`',
+        destAccount ? `   • **Admin**: \`${destAccount}\`` : '   • **Admin**: `Not specified`',
         '',
-        '5. **Configure Google Admin Console**:',
-        '   • Go to https://admin.google.com',
-        '   • Navigate to Security → API Controls → Domain-wide Delegation',
-        '   • Click "Add new"',
-        '   • Paste the Service Account Client ID from step 4',
-        '   • Add the OAuth scopes (copy from below)',
-        '   • Click "Authorize"',
+        '**Setup Instructions**',
         '',
-        '**Important Security Notes:**',
-        '• Only Super Admins can configure domain-wide delegation',
-        '• This grants programmatic access to all user data in your domain',
-        '• Access can be revoked at any time from the Admin Console',
-        '• All API calls are logged and auditable',
+        '**Step 1: Access Google Admin Console**',
         '',
-        '**Required OAuth Scopes** (copy all):'
+        '1. **Navigate to**: https://admin.google.com',
+        '2. **Sign in** as the domain administrator:',
+        '   • For `rrgokuldham.com`: Sign in as `admin@rrgokuldham.com`',
+        '   • For `openplots.co.in`: Sign in as `info@openplots.co.in`',
+        '',
+        '**Step 2: Navigate to Domain-wide Delegation**',
+        '',
+        '1. In the Admin Console, go to:',
+        '   ```',
+        '   Security → API Controls → Domain-wide delegation',
+        '   ```',
+        '',
+        '2. Click **"Manage Domain Wide Delegation"**',
+        '',
+        '**Step 3: Add Service Account Authorization**',
+        '',
+        '1. Click **"Add new"** or **"Add"**',
+        '',
+        '2. **Enter Client ID**: `114333598950671892438`',
+        '',
+        '3. **Enter OAuth Scopes** (see copyable section below)',
+        '',
+        '4. Click **"Authorize"**',
+        '',
+        '**Step 4: Verify Configuration**',
+        '',
+        '1. The service account should now appear in the list',
+        '2. Verify the Client ID matches: `114333598950671892438`',
+        '3. Verify scopes include Drive permissions',
+        '',
+        '✅ **Verification Process**',
+        '',
+        'After completing the setup, verify it works:',
+        '',
+        '**Expected Results After Setup:**',
+        '• ✅ Authentication successful for test users',
+        '• ✅ Drive files detected and accessible',
+        '• ✅ Domain-wide delegation working',
+        '',
+        '🔧 **Troubleshooting**',
+        '',
+        '**Common Issues:**',
+        '',
+        '1. **"Request is missing required authentication credential"**',
+        '   • **Cause**: Domain-wide delegation not configured',
+        '   • **Solution**: Complete the setup steps above',
+        '',
+        '2. **"unauthorized_client"**',
+        '   • **Cause**: Service account not authorized',
+        '   • **Solution**: Verify Client ID and scopes are correct',
+        '',
+        '3. **"access_denied"**',
+        '   • **Cause**: Insufficient permissions or wrong scopes',
+        '   • **Solution**: Check scopes match exactly',
+        '',
+        '📋 **Scope Details**',
+        '',
+        '**Required Scopes for Drive Migration:**',
+        '• `https://www.googleapis.com/auth/drive` - Full Drive access',
+        '• `https://www.googleapis.com/auth/drive.readonly` - Read-only access',
+        '• `https://www.googleapis.com/auth/drive.metadata.readonly` - Metadata access',
+        '',
+        '**Additional Scopes for Complete Migration:**',
+        '• Gmail scopes for email migration',
+        '• Calendar scopes for calendar migration',
+        '• Contacts scopes for contact migration',
+        '• Admin Directory scopes for user management',
+        '',
+        '🚨 **Important Notes**',
+        '',
+        '1. **Domain Admin Required**: Only domain administrators can configure delegation',
+        '2. **Security Implications**: Domain-wide delegation grants broad access',
+        '3. **Propagation Time**: Changes may take a few minutes to propagate',
+        '4. **Both Domains**: Configure for both source and destination domains',
+        '',
+        '🔄 **Alternative: OAuth2 Approach**',
+        '',
+        'If domain-wide delegation cannot be configured, use OAuth2 migration:',
+        '',
+        '**Benefits:**',
+        '• ✅ No admin configuration required',
+        '• ✅ Works immediately',
+        '• ✅ Same authentication as Gmail migration',
+        '',
+        '**Required OAuth Scopes for Complete Migration:**'
       ]
     } as StepBase,
     '2': {
@@ -143,48 +259,100 @@ export default function ServiceAccountSetup({
       ]
     } as StepBase,
     '4': {
-      title: 'Add New Client Authorization',
-      description: 'Click "Add new" to authorize our service account',
+      title: 'Add Service Account Client ID',
+      description: 'Add the service account client ID for domain-wide delegation',
       copyText: serviceAccountClientId,
       copyLabel: 'Service Account Client ID',
       estimatedTime: '1 minute',
       details: [
         'Click the "Add new" button in the Domain-wide Delegation page',
-        'In the "Client ID" field, paste the service account client ID provided below',
+        `In the "Client ID" field, paste the service account client ID: **${serviceAccountClientId}**`,
         'This client ID identifies our migration service to Google',
         'The Client ID is the unique identifier from your service account',
-        'Make sure to copy the entire ID without any extra spaces'
+        'Make sure to copy the entire ID without any extra spaces',
+        '',
+        '**Service Account Details:**',
+        delegationSetup?.source?.email ? `• **Email**: \`${delegationSetup.source.email}\`` : '• **Email**: `gws-permission@gws-migration-463208.iam.gserviceaccount.com`',
+        `• **Client ID**: \`${serviceAccountClientId}\``,
+        delegationSetup?.source?.projectId ? `• **Project**: \`${delegationSetup.source.projectId}\`` : '• **Project**: `gws-migration-463208`'
       ]
     } as StepWithCopy,
     '5': {
-      title: 'Configure OAuth Scopes',
-      description: 'Add the required OAuth scopes for migration services',
+      title: 'Configure Comprehensive OAuth Scopes',
+      description: 'Add all required OAuth scopes for complete Google Workspace migration',
       copyText: requiredScopes.join(','),
-      copyLabel: 'OAuth Scopes (comma-separated)',
-      estimatedTime: '1 minute',
+      copyLabel: 'Complete OAuth Scopes (comma-separated)',
+      estimatedTime: '2 minutes',
       details: [
-        'In the "OAuth scopes" field, paste the scopes provided below',
+        'In the "OAuth scopes" field, paste the comprehensive scopes provided below',
         'These scopes define what our service can access in your Google Workspace',
-        'All scopes are necessary for complete data migration functionality:',
-        '• Admin Directory: User and domain management',
-        '• Gmail: Email migration (read and modify)',
-        '• Drive: File and folder migration',
-        '• Calendar: Calendar event migration',
-        '• Contacts: Contact list migration',
-        'Use the exact scope URLs - do not modify them'
+        '',
+        '**Complete migration functionality includes:**',
+        '• **Admin Directory**: User, group, and domain management',
+        '• **Gmail**: Email migration (read, modify, insert, settings)',
+        '• **Drive**: Complete file and folder migration with metadata',
+        '• **Calendar**: Calendar event migration and management',
+        '• **Contacts**: Contact list migration',
+        '• **Groups**: Group migration support',
+        '',
+        '**Drive-Specific Scopes:**',
+        '• `https://www.googleapis.com/auth/drive` - Full Drive access',
+        '• `https://www.googleapis.com/auth/drive.readonly` - Read-only access',
+        '• `https://www.googleapis.com/auth/drive.metadata.readonly` - Metadata access',
+        '• `https://www.googleapis.com/auth/drive.file` - File creation access',
+        '',
+        '**Important**: Use the exact scope URLs - do not modify them',
+        '**Copy and paste** the complete comma-separated list from below'
       ]
     } as StepWithCopy,
     '6': {
-      title: 'Authorize and Verify',
-      description: 'Save the configuration and verify the setup',
-      estimatedTime: '1 minute',
+      title: 'Authorize and Verify Setup',
+      description: 'Complete the configuration and verify domain-wide delegation is working',
+      estimatedTime: '3-5 minutes',
       details: [
         'Click "Authorize" to save the domain-wide delegation',
         'The client should now appear in your authorized clients list',
         'Verify the status shows as "Active" or "Authorized"',
+        '',
+        '✅ **Verification Checklist:**',
+        '• Service account appears in delegation list',
+        `• Client ID matches: \`${serviceAccountClientId}\``,
+        '• All OAuth scopes are correctly configured',
+        '• Status shows as "Active"/"Authorized"',
+        '',
+        '🔧 **Testing the Configuration:**',
         'Our migration service can now access your Google Workspace data',
-        'You can revoke this access at any time from the same page',
-        'Test the connection using the migration platform\'s validation tool'
+        'You can test the connection using the migration platform\'s validation tool',
+        '',
+        '**Expected Results After Setup:**',
+        '• ✅ Authentication successful for test users',
+        '• ✅ Drive files detected and accessible',
+        '• ✅ Domain-wide delegation working',
+        '',
+        '⚠️ **Troubleshooting Common Issues:**',
+        '',
+        '**"Request is missing required authentication credential"**',
+        '• Cause: Domain-wide delegation not configured',
+        '• Solution: Verify all steps completed correctly',
+        '',
+        '**"unauthorized_client"**',
+        '• Cause: Service account not authorized or wrong Client ID',
+        `• Solution: Check Client ID is exactly \`${serviceAccountClientId}\``,
+        '',
+        '**"access_denied"**',
+        '• Cause: Insufficient permissions or missing scopes',
+        '• Solution: Verify all OAuth scopes are included',
+        '',
+        '🚨 **Important Security Notes:**',
+        '• You can revoke this access at any time from the same page',
+        '• Domain-wide delegation grants broad access - use responsibly',
+        '• All API calls are logged and auditable',
+        '• Changes may take a few minutes to propagate',
+        '',
+        '🔄 **Configure Both Domains:**',
+        'Repeat this process for both source and destination domains:',
+        sourceAccount ? `• Source: \`${sourceAccount.split('@')[1]}\` (${sourceAccount})` : '• Source: Not specified',
+        destAccount ? `• Destination: \`${destAccount.split('@')[1]}\` (${destAccount})` : '• Destination: Not specified'
       ]
     } as StepBase
   }
@@ -248,6 +416,70 @@ export default function ServiceAccountSetup({
       </div>
 
       <div className="p-6">
+        {/* Generate Setup Button */}
+        {!delegationSetup && (sourceAccount && destAccount) && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <Settings className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="font-medium text-blue-800">Generate Delegation Setup</h4>
+                <p className="text-blue-700 text-sm mt-1">
+                  Click below to generate unique service account client IDs and setup instructions for your domains.
+                </p>
+                <button
+                  onClick={generateDelegationSetup}
+                  disabled={setupLoading}
+                  className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {setupLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="w-4 h-4" />
+                      Generate Setup Instructions
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Setup Error */}
+        {setupError && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="font-medium text-red-800">Setup Error</h4>
+                <p className="text-red-700 text-sm mt-1">{setupError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {delegationSetup && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="font-medium text-green-800">Setup Instructions Generated</h4>
+                <p className="text-green-700 text-sm mt-1">
+                  Unique client IDs have been generated for your domains. Follow the steps below to complete the setup.
+                </p>
+                <div className="mt-2 text-sm text-green-600">
+                  <div>• Source Domain: {delegationSetup.source?.domain} (Client ID: {delegationSetup.source?.clientId})</div>
+                  <div>• Destination Domain: {delegationSetup.destination?.domain} (Client ID: {delegationSetup.destination?.clientId})</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />

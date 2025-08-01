@@ -5,14 +5,21 @@ export type MigrationScenario = 'single-super-admin' | 'cross-tenant';
 // Domain mapping types
 export type DomainMappingType = 'one-to-one' | 'one-to-many' | 'many-to-one' | 'subdomain';
 
+export interface TargetDomainConfig {
+  domain: string;
+  conflictResolution: 'prefix' | 'suffix' | 'manual';
+  preserveGroups: boolean;
+  emailForwarding: boolean;
+}
+
 export interface DomainMappingConfig {
   type: DomainMappingType;
   sourceDomains: string[];
   targetDomain: string;
-  targetDomains?: string[]; // For one-to-many scenarios
+  targetDomains?: string[]; // For one-to-many scenarios (deprecated)
+  multiTargetConfig?: TargetDomainConfig[]; // New multi-target configuration
   preserveSourceAsAlias?: boolean;
   conflictResolution?: 'prefix' | 'suffix' | 'manual';
-  distributionRule?: 'department' | 'alphabetical' | 'custom'; // For one-to-many
   description: string;
 }
 
@@ -21,8 +28,6 @@ export interface DomainMappingOption {
   title: string;
   description: string;
   example: string;
-  advantages: string[];
-  considerations: string[];
   complexity: 'Low' | 'Medium' | 'High';
   requiresConflictHandling: boolean;
   supportedScenarios: MigrationScenario[];
@@ -195,18 +200,6 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     title: 'One-to-One Mapping',
     description: 'Same username, different domain - most common scenario',
     example: 'alice@oldcompany.com → alice@newcompany.com',
-    advantages: [
-      'Simple and straightforward',
-      'Users keep familiar usernames',
-      'No conflict resolution needed',
-      'Easy to communicate to users'
-    ],
-    considerations: [
-      'Requires MX record switch',
-      'Reapplication of file/email sharing settings',
-      'DNS propagation time',
-      'User notification required'
-    ],
     complexity: 'Low',
     requiresConflictHandling: false,
     supportedScenarios: ['single-super-admin', 'cross-tenant']
@@ -216,18 +209,6 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     title: 'One-to-Many Domain Distribution',
     description: 'Distribute users from single source domain to multiple target domains',
     example: 'user@company.com → user@division1.com, user@division2.com',
-    advantages: [
-      'Organizational restructuring support',
-      'Division-specific domain assignment',
-      'Improved brand segmentation',
-      'Flexible user distribution rules'
-    ],
-    considerations: [
-      'Complex user assignment logic required',
-      'Multiple domain management overhead',
-      'User communication complexity',
-      'Cross-domain collaboration setup'
-    ],
     complexity: 'High',
     requiresConflictHandling: false,
     supportedScenarios: ['single-super-admin', 'cross-tenant']
@@ -237,18 +218,6 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     title: 'Many-to-One Domain Merge',
     description: 'Multiple source domains consolidated into single destination',
     example: 'user@brandA.com, user@brandB.com → user@mainbrand.com',
-    advantages: [
-      'Domain consolidation',
-      'Simplified management',
-      'Cost optimization',
-      'Unified brand identity'
-    ],
-    considerations: [
-      'Duplicate username conflicts',
-      'Group policy review and merge',
-      'Complex user communication',
-      'Potential data conflicts'
-    ],
     complexity: 'High',
     requiresConflictHandling: true,
     supportedScenarios: ['single-super-admin', 'cross-tenant']
@@ -258,18 +227,6 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     title: 'Subdomain Mapping',
     description: 'Map from subdomain to main domain or different structure',
     example: 'user@sub.olddomain.com → user@newdomain.com',
-    advantages: [
-      'Organizational restructuring',
-      'Simplified domain hierarchy',
-      'Better DNS management',
-      'Cleaner email addresses'
-    ],
-    considerations: [
-      'Custom routing/DNS configuration',
-      'Multi-tenant setup complexity',
-      'Email forwarding rules',
-      'Subdomain deprecation planning'
-    ],
     complexity: 'Medium',
     requiresConflictHandling: false,
     supportedScenarios: ['single-super-admin', 'cross-tenant']
