@@ -19,7 +19,10 @@ import {
   DOMAIN_MAPPING_OPTIONS,
   getSupportedMappingTypes,
   MigrationScenario,
-  TargetDomainConfig
+  TargetDomainConfig,
+  getAvailableTargetDomains,
+  getAvailableSourceDomains,
+  validateNoDomainConflicts
 } from '@/types/migration-scenarios';
 import { useDomains } from '@/hooks/useGoogleWorkspaceDomains';
 import { MultiTargetDomainSelector } from './MultiTargetDomainSelector';
@@ -177,6 +180,16 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   const canConfirm = () => {
     if (!selectedType || sourceDomains.some(d => !d.trim())) return false;
     
+    // Check for domain conflicts (source domains cannot be target domains)
+    const allTargetDomains = selectedType === 'one-to-many' 
+      ? (multiTargetConfig.length > 0 
+          ? multiTargetConfig.map(config => config.domain) 
+          : targetDomains)
+      : [targetDomain];
+    
+    const { isValid } = validateNoDomainConflicts(sourceDomains, allTargetDomains);
+    if (!isValid) return false;
+    
     if (selectedType === 'one-to-many') {
       // Check if using advanced multi-target config or simple target domains
       if (multiTargetConfig.length > 0) {
@@ -188,6 +201,38 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       return targetDomain.trim() !== '';
     }
   };
+
+  // Get available domains for source selection (excluding already selected targets)
+  const getAvailableSourceDomainsForIndex = (currentIndex: number) => {
+    const allTargetDomains = selectedType === 'one-to-many' 
+      ? (multiTargetConfig.length > 0 
+          ? multiTargetConfig.map(config => config.domain) 
+          : targetDomains)
+      : [targetDomain];
+    
+    const otherSourceDomains = sourceDomains.filter((_, idx) => idx !== currentIndex);
+    
+    return getAvailableSourceDomains(domains, allTargetDomains, otherSourceDomains);
+  };
+
+  // Get available domains for target selection (excluding already selected sources)
+  const getAvailableTargetDomainsForIndex = (currentIndex: number) => {
+    const otherTargetDomains = targetDomains.filter((_, idx) => idx !== currentIndex);
+    return getAvailableTargetDomains(domains, sourceDomains, otherTargetDomains);
+  };
+
+  // Check for domain conflicts and show warning
+  const getDomainConflicts = () => {
+    const allTargetDomains = selectedType === 'one-to-many' 
+      ? (multiTargetConfig.length > 0 
+          ? multiTargetConfig.map(config => config.domain) 
+          : targetDomains)
+      : [targetDomain];
+    
+    return validateNoDomainConflicts(sourceDomains, allTargetDomains);
+  };
+
+  const domainConflicts = getDomainConflicts();
 
   return (
     <div className="space-y-6">
@@ -241,6 +286,22 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
         <div className="bg-gray-50 rounded-lg p-6 space-y-4">
           <h4 className="font-medium text-gray-900">Configure Domain Mapping</h4>
           
+          {/* Domain Conflict Warning */}
+          {!domainConflicts.isValid && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center gap-2 text-red-800">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="font-medium">Domain Conflict Detected:</span>
+              </div>
+              <p className="text-red-700 mt-1">
+                The following domains are selected as both source and target: <strong>{domainConflicts.conflicts.join(', ')}</strong>
+              </p>
+              <p className="text-red-600 text-sm mt-1">
+                Please choose different domains for source and target to avoid conflicts.
+              </p>
+            </div>
+          )}
+          
           {/* Source Domains */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -284,7 +345,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                     }`}
                   >
                     <option value="">Select a domain...</option>
-                    {domains.map((d) => (
+                    {getAvailableSourceDomainsForIndex(index).map((d) => (
                       <option key={d.domainName} value={d.domainName}>
                         {d.domainName} {d.isPrimary ? '(Primary)' : ''}
                       </option>
@@ -385,6 +446,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                   className="border-0 shadow-none"
                   minTargets={1}
                   maxTargets={5}
+                  excludedSourceDomains={sourceDomains}
                 />
               ) : (
                 /* Simple Target Domain Selection */
@@ -411,7 +473,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                           }`}
                         >
                           <option value="">Select a domain...</option>
-                          {domains.map((d) => (
+                          {getAvailableTargetDomainsForIndex(index).map((d) => (
                             <option key={d.domainName} value={d.domainName}>
                               {d.domainName} {d.isPrimary ? '(Primary)' : ''}
                             </option>
@@ -474,7 +536,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                 }`}
               >
                 <option value="">Select a domain...</option>
-                {domains.map((d) => (
+                {getAvailableTargetDomains(domains, sourceDomains).map((d) => (
                   <option key={d.domainName} value={d.domainName}>
                     {d.domainName} {d.isPrimary ? '(Primary)' : ''}
                   </option>

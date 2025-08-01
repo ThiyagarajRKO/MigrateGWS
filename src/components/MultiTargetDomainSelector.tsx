@@ -15,18 +15,12 @@ import {
   Copy,
   ExternalLink
 } from 'lucide-react';
+import { TargetDomainConfig, getAvailableTargetDomains } from '@/types/migration-scenarios';
 
 interface Domain {
   domainName: string;
   isPrimary?: boolean;
   verified?: boolean;
-}
-
-interface TargetDomainConfig {
-  domain: string;
-  conflictResolution: 'prefix' | 'suffix' | 'manual';
-  preserveGroups: boolean;
-  emailForwarding: boolean;
 }
 
 interface MultiTargetDomainSelectorProps {
@@ -38,6 +32,7 @@ interface MultiTargetDomainSelectorProps {
   className?: string;
   minTargets?: number;
   maxTargets?: number;
+  excludedSourceDomains?: string[];
 }
 
 export const MultiTargetDomainSelector = memo(function MultiTargetDomainSelector({
@@ -48,7 +43,8 @@ export const MultiTargetDomainSelector = memo(function MultiTargetDomainSelector
   error = null,
   className = '',
   minTargets = 1,
-  maxTargets = 10
+  maxTargets = 10,
+  excludedSourceDomains = []
 }: MultiTargetDomainSelectorProps) {
   const [targets, setTargets] = useState<TargetDomainConfig[]>(
     selectedTargets.length > 0 
@@ -64,6 +60,20 @@ export const MultiTargetDomainSelector = memo(function MultiTargetDomainSelector
       emailForwarding: true
     };
   }
+
+  // Get available domains for target selection (excluding source domains and already selected targets)
+  const getAvailableDomainsForIndex = (currentIndex: number) => {
+    const otherSelectedDomains = targets
+      .map(t => t.domain)
+      .filter((domain, idx) => idx !== currentIndex && domain.trim() !== '');
+    
+    const allExcludedDomains = [
+      ...excludedSourceDomains.filter(d => d.trim() !== ''),
+      ...otherSelectedDomains
+    ];
+
+    return getAvailableTargetDomains(availableDomains, allExcludedDomains);
+  };
 
   useEffect(() => {
     if (selectedTargets.length > 0) {
@@ -239,17 +249,16 @@ export const MultiTargetDomainSelector = memo(function MultiTargetDomainSelector
                       className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
                         target.domain === '' 
                           ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
-                          : !availableDomains.some(d => d.domainName === target.domain)
+                          : !getAvailableDomainsForIndex(index).some(d => d.domainName === target.domain) && !availableDomains.some(d => d.domainName === target.domain)
                           ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                           : 'border-green-300 focus:border-green-500 focus:ring-green-500'
                       }`}
                     >
                       <option value="">Select a domain...</option>
-                      {availableDomains.map((domain) => (
+                      {getAvailableDomainsForIndex(index).map((domain) => (
                         <option 
                           key={domain.domainName} 
                           value={domain.domainName}
-                          disabled={targets.some((t, i) => i !== index && t.domain === domain.domainName)}
                         >
                           {domain.domainName} {domain.isPrimary ? '(Primary)' : ''}
                         </option>
@@ -261,13 +270,19 @@ export const MultiTargetDomainSelector = memo(function MultiTargetDomainSelector
                         Please select a target domain
                       </p>
                     )}
-                    {target.domain && !availableDomains.some(d => d.domainName === target.domain) && (
+                    {target.domain && !getAvailableDomainsForIndex(index).some(d => d.domainName === target.domain) && excludedSourceDomains.includes(target.domain) && (
+                      <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        This domain is already selected as a source domain
+                      </p>
+                    )}
+                    {target.domain && !availableDomains.some(d => d.domainName === target.domain) && !excludedSourceDomains.includes(target.domain) && (
                       <p className="text-sm text-red-600 mt-1 flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
                         This domain is not available or verified
                       </p>
                     )}
-                    {target.domain && availableDomains.some(d => d.domainName === target.domain) && (
+                    {target.domain && availableDomains.some(d => d.domainName === target.domain) && !excludedSourceDomains.includes(target.domain) && (
                       <p className="text-sm text-green-600 mt-1 flex items-center gap-1">
                         <CheckCircle className="h-3 w-3" />
                         Domain verified and available

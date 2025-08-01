@@ -71,11 +71,31 @@ const SERVICE_ICONS = {
 } as const;
 
 const STEP_CONFIG = {
-  scenario: { icon: Users, title: 'Choose Migration Type', description: 'Select your migration scenario' },
-  'domain-mapping': { icon: Database, title: 'Configure Domains', description: 'Set up domain relationships' },
-  configuration: { icon: Cog, title: 'Migration Settings', description: 'Configure services and options' },
-  review: { icon: Eye, title: 'Review & Confirm', description: 'Review your migration setup' },
-  migration: { icon: PlayCircle, title: 'Migration in Progress', description: 'Monitoring your migration' }
+  scenario: { 
+    icon: Users, 
+    title: 'Choose Migration Type', 
+    description: 'Select your migration scenario' 
+  },
+  'domain-mapping': { 
+    icon: Database, 
+    title: 'Configure Domains', 
+    description: 'Set up source and target domain relationships' 
+  },
+  configuration: { 
+    icon: Cog, 
+    title: 'Migration Settings', 
+    description: 'Configure services, options, and user mappings' 
+  },
+  review: { 
+    icon: Eye, 
+    title: 'Review & Confirm', 
+    description: 'Review your migration setup before execution' 
+  },
+  migration: { 
+    icon: PlayCircle, 
+    title: 'Migration in Progress', 
+    description: 'Monitor your migration progress in real-time' 
+  }
 } as const;
 
 export default function NewMigration() {
@@ -1360,10 +1380,10 @@ export default function NewMigration() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Enhanced Progress Steps */}
           <div className="mb-12">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex items-center justify-between relative">
+            <div className="max-w-5xl mx-auto">
+              <div className="flex items-start justify-between relative px-4">
                 {/* Progress Line */}
-                <div className="absolute top-6 left-0 right-0 h-0.5 bg-gray-200">
+                <div className="absolute top-6 left-16 right-16 h-0.5 bg-gray-200">
                   <div 
                     className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-500"
                     style={{ width: `${((getStepNumber() - 1) / 4) * 100}%` }}
@@ -1378,7 +1398,7 @@ export default function NewMigration() {
                   const IconComponent = config.icon;
                   
                   return (
-                    <div key={stepKey} className="relative flex flex-col items-center">
+                    <div key={stepKey} className="relative flex flex-col items-center min-w-0 flex-1">
                       {/* Step Circle */}
                       <div className={`relative z-10 flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
                         isCompleted 
@@ -1395,13 +1415,13 @@ export default function NewMigration() {
                       </div>
                       
                       {/* Step Info */}
-                      <div className="mt-3 text-center">
-                        <div className={`text-sm font-semibold ${
+                      <div className="mt-4 text-center max-w-36 px-2">
+                        <div className={`text-sm font-clash text-heading mb-1 ${
                           isActive ? 'text-blue-600' : isCompleted ? 'text-gray-900' : 'text-gray-500'
                         }`}>
                           {config.title}
                         </div>
-                        <div className={`text-xs mt-1 max-w-24 ${
+                        <div className={`text-xs font-clash text-subheading leading-relaxed ${
                           isActive ? 'text-blue-500' : 'text-gray-400'
                         }`}>
                           {config.description}

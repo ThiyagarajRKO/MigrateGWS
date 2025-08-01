@@ -124,15 +124,15 @@ export default function Dashboard() {
               <div className="flex items-center">
                 <Database className="h-8 w-8 text-blue-600 mr-3" />
                 <Link href="/">
-                  <h1 className="text-2xl font-bold text-gray-900">GWS Migration Platform</h1>
+                  <h1 className="text-3xl font-clash text-display text-gray-900">GWS Migration Platform</h1>
                 </Link>
               </div>
               <div className="flex items-center space-x-4">
                 <nav className="flex space-x-8">
-                  <Link href="/dashboard" className="text-blue-600 font-semibold">Dashboard</Link>
-                  <Link href="/migrations" className="text-gray-600 hover:text-blue-600">Migrations</Link>
-                  <Link href="/setup" className="text-gray-600 hover:text-blue-600">Setup</Link>
-                  <Link href="/settings" className="text-gray-600 hover:text-blue-600">Settings</Link>
+                  <Link href="/dashboard" className="text-blue-600 font-clash text-heading text-base">Dashboard</Link>
+                  <Link href="/migrations" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Migrations</Link>
+                  <Link href="/setup" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Setup</Link>
+                  <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Settings</Link>
                 </nav>
                 
                 {/* User Menu */}
@@ -149,7 +149,7 @@ export default function Dashboard() {
                         <User className="h-4 w-4 text-white" />
                       </div>
                     )}
-                    <span className="text-sm font-medium text-gray-700">{user?.name || user?.email}</span>
+                    <span className="text-sm font-clash text-subheading text-gray-700">{user?.name || user?.email}</span>
                     {user?.provider === 'google' && (
                       <div title="Google Workspace Authenticated">
                         <Shield className="h-4 w-4 text-green-600" />
@@ -173,10 +173,10 @@ export default function Dashboard() {
           {/* Page Header */}
           <div className="flex justify-between items-center mb-8">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-gray-600 mt-1">Monitor your Google Workspace migrations</p>
+              <h1 className="text-4xl font-clash text-display text-gray-900 mb-2">Dashboard</h1>
+              <p className="text-lg font-clash text-subheading text-gray-600">Monitor your Google Workspace migrations</p>
               {user?.provider === 'google' && validationData?.valid && (
-                <p className="text-green-600 text-sm mt-1 flex items-center">
+                <p className="text-green-600 text-sm mt-2 flex items-center font-clash">
                   <CheckCircle className="h-4 w-4 mr-1" />
                   Google Workspace API access verified
                 </p>
@@ -184,7 +184,7 @@ export default function Dashboard() {
             </div>
             <Link 
               href="/migrations/new"
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold flex items-center"
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-clash text-heading flex items-center text-base transition-colors"
             >
               <Plus className="h-5 w-5 mr-2" />
               New Migration

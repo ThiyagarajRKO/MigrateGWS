@@ -12,9 +12,19 @@ import {
   Info,
   ExternalLink,
   Copy,
-  Settings
+  Settings,
+  Target,
+  GitBranch,
+  Shuffle,
+  Network
 } from 'lucide-react';
-import { MigrationScenario, getScenarioDescription, getEstimatedTotalDuration, SINGLE_SUPER_ADMIN_STEPS, CROSS_TENANT_STEPS } from '@/types/migration-scenarios';
+import { 
+  MigrationScenario, 
+  getScenarioDescription, 
+  getEstimatedTotalDuration, 
+  SINGLE_SUPER_ADMIN_STEPS, 
+  CROSS_TENANT_STEPS
+} from '@/types/migration-scenarios';
 
 interface ScenarioSelectorProps {
   selectedScenario: MigrationScenario | null;
@@ -104,16 +114,16 @@ export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenari
   const scenarios = [
     {
       type: 'single-super-admin' as MigrationScenario,
-      title: 'Single Super Admin (Multi-Domain)',
-      subtitle: 'Within One Google Workspace Account',
+      title: 'Single Super Admin (1:1)',
+      subtitle: 'One Domain to One Domain',
       description: 'Map and migrate data between two domains under the same Google Workspace account',
       icon: Building,
-      complexity: 'Medium',
+      complexity: 'Low',
       steps: SINGLE_SUPER_ADMIN_STEPS.length,
       estimatedTime: getEstimatedTotalDuration(SINGLE_SUPER_ADMIN_STEPS),
       requirements: [
         'Single Google Workspace Super Admin account',
-        'Multiple verified domains in one workspace',
+        'Two verified domains in one workspace',
         'Domain-wide delegation enabled',
         'Appropriate API scopes configured'
       ],
@@ -126,7 +136,7 @@ export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenari
     },
     {
       type: 'cross-tenant' as MigrationScenario,
-      title: 'Cross-Tenant Migration',
+      title: 'Cross-Tenant Migration (1:1)',
       subtitle: 'Between Separate Google Workspace Accounts',
       description: 'Fully migrate data between two separate Google Workspace accounts/domains',
       icon: ArrowRightLeft,
@@ -151,7 +161,7 @@ export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenari
   return (
     <div className="space-y-6">
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {scenarios.map((scenario) => {
           const Icon = scenario.icon;
           const isSelected = selectedScenario === scenario.type;
@@ -188,7 +198,9 @@ export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenari
                 <div>
                   <span className="font-medium text-gray-700">Complexity:</span>
                   <span className={`ml-2 px-2 py-1 rounded text-xs ${
-                    scenario.complexity === 'High' 
+                    scenario.complexity === 'Very High' 
+                      ? 'bg-red-200 text-red-900'
+                      : scenario.complexity === 'High' 
                       ? 'bg-red-100 text-red-800' 
                       : 'bg-yellow-100 text-yellow-800'
                   }`}>
