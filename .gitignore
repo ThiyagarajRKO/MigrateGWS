@@ -23,7 +23,13 @@ yarn-debug.log*
 yarn-error.log*
 
 # Local env files
+.env
 .env*.local
+
+# Google Cloud credentials
+source-service-account-key.json
+*-service-account-key.json
+google-credentials.json
 
 # Vercel
 .vercel
