@@ -95,7 +95,12 @@ export const ScenarioSelector = memo(function ScenarioSelector({ selectedScenari
     'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/contacts.readonly'
+    'https://www.googleapis.com/auth/contacts.readonly',
+    'https://www.googleapis.com/auth/photoslibrary.readonly',
+    'https://www.googleapis.com/auth/chat.messages.readonly',
+    'https://www.googleapis.com/auth/presentations.readonly',
+    'https://www.googleapis.com/auth/forms.body.readonly',
+    'https://www.googleapis.com/auth/cloud-identity.groups.readonly'
   ];
 
   const handleCopy = async (text: string, type: string) => {

@@ -2,21 +2,42 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as fs from 'fs'
 import * as path from 'path'
 
-// Load the actual service account from the JSON file
+// In-memory cache for service account data to avoid repeated file reads
+let serviceAccountCache: any = null
+let cacheTimestamp = 0
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+// Load the actual service account from the JSON file with caching
 const loadServiceAccount = () => {
+  // Check if cache is still valid
+  if (serviceAccountCache && Date.now() - cacheTimestamp < CACHE_DURATION) {
+    return serviceAccountCache
+  }
+
   try {
     const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
     const serviceAccountData = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+    
+    // Cache the result
+    serviceAccountCache = serviceAccountData
+    cacheTimestamp = Date.now()
+    
     return serviceAccountData
   } catch (error) {
     console.error('Failed to load service account:', error)
     // Fallback to mock data if file is not found
-    return {
+    const fallbackData = {
       client_id: '114333598950671892438',
       client_email: 'gws-permission@gws-migration-463208.iam.gserviceaccount.com',
       project_id: 'gws-migration-463208',
       type: 'service_account'
     }
+    
+    // Cache the fallback data too
+    serviceAccountCache = fallbackData
+    cacheTimestamp = Date.now()
+    
+    return fallbackData
   }
 }
 
@@ -50,9 +71,22 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
 
+    // Debug logging
+    console.log('[API Setup] Received request:', {
+      sourceAdminEmail,
+      destAdminEmail,
+      adminEmail,
+      migrationScenario,
+      bodyKeys: Object.keys(body || {}),
+      fullBody: body
+    })
+
     // Handle Single Super Admin scenario
     if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {
+      console.log('[API Setup] Processing single super admin scenario')
+      
       if (!adminEmail) {
+        console.error('[API Setup] Missing adminEmail for single super admin scenario')
         return NextResponse.json(
           { 
             success: false, 
@@ -62,8 +96,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      console.log('[API Setup] Extracting domain from adminEmail:', adminEmail)
       const domain = adminEmail.split('@')[1]
+      console.log('[API Setup] Extracted domain:', domain)
+      
       if (!domain) {
+        console.error('[API Setup] Invalid email address - no domain found:', adminEmail)
         return NextResponse.json(
           { 
             success: false, 
@@ -107,7 +145,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return NextResponse.json(response)
+      return NextResponse.json(response, {
+        headers: {
+          'Cache-Control': 'private, max-age=300, s-maxage=300', // Cache for 5 minutes
+          'X-API-Cache': 'SETUP-RESPONSE'
+        }
+      })
     }
 
     // Handle Cross-Tenant scenario (existing logic)
@@ -194,7 +237,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json(response)
+    return NextResponse.json(response, {
+      headers: {
+        'Cache-Control': 'private, max-age=300, s-maxage=300', // Cache for 5 minutes
+        'X-API-Cache': 'SETUP-RESPONSE'
+      }
+    })
 
   } catch (error) {
     console.error('Delegation setup error:', error)

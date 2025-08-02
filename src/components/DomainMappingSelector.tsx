@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useState, useEffect, memo } from 'react';
 import { 
   ArrowRight,
@@ -28,7 +29,6 @@ import {
   isMultiSourceMapping
 } from '@/types/migration-scenarios';
 import { useFastDomainLoader } from '@/hooks/useFastDomainLoader';
-import { MultiTargetDomainSelector } from './MultiTargetDomainSelector';
 import { DomainLoadingStats } from './DomainLoadingStats';
 
 interface DomainMappingSelectorProps {
@@ -141,10 +141,10 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     
     if (isMultiTargetMapping(option.type)) {
       setTargetDomains(['', '']); // Start with 2 target domains for multi-target mappings
-      setMultiTargetConfig([]); // Reset advanced config
+      setMultiTargetConfig([]); // Reset multi-target config
     } else {
       setTargetDomains(['']); // Single target for other types
-      setMultiTargetConfig([]); // Reset advanced config
+      setMultiTargetConfig([]); // Reset multi-target config
     }
   };
 
@@ -231,7 +231,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     
     // Multi-target validation
     if (isMultiTargetMapping(selectedType)) {
-      // Check if using advanced multi-target config or simple target domains
+      // Check if using multi-target config or target domains
       if (multiTargetConfig.length > 0) {
         const validTargetConfigs = multiTargetConfig.filter(config => config.domain.trim() !== '');
         return validTargetConfigs.length >= 2 && multiTargetConfig.every(config => config.domain.trim() !== '');
@@ -462,74 +462,10 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                 <label className="block text-sm font-medium text-gray-700">
                   Target Domains Configuration
                 </label>
-                <div className="text-xs text-gray-500">
-                  Choose between simple or advanced configuration
-                </div>
               </div>
               
-              {/* Configuration Mode Selector */}
-              <div className="flex gap-2 p-1 bg-gray-100 rounded-lg w-fit">
-                <button
-                  onClick={() => {
-                    if (multiTargetConfig.length === 0) {
-                      // Switch to simple mode - use existing targetDomains
-                      setMultiTargetConfig([]);
-                    }
-                  }}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    multiTargetConfig.length === 0
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Simple
-                </button>
-                <button
-                  onClick={() => {
-                    if (multiTargetConfig.length === 0) {
-                      // Switch to advanced mode - convert existing targetDomains
-                      const newConfig = targetDomains
-                        .filter(d => d.trim())
-                        .map(domain => ({
-                          domain,
-                          conflictResolution: 'prefix' as const,
-                          preserveGroups: true,
-                          emailForwarding: true
-                        }));
-                      setMultiTargetConfig(newConfig.length > 0 ? newConfig : [{
-                        domain: '',
-                        conflictResolution: 'prefix' as const,
-                        preserveGroups: true,
-                        emailForwarding: true
-                      }]);
-                    }
-                  }}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    multiTargetConfig.length > 0
-                      ? 'bg-white text-gray-900 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Advanced
-                </button>
-              </div>
-
-              {multiTargetConfig.length > 0 ? (
-                /* Advanced Multi-Target Configuration */
-                <MultiTargetDomainSelector
-                  availableDomains={domains}
-                  selectedTargets={multiTargetConfig}
-                  onTargetsChange={setMultiTargetConfig}
-                  loading={domainsLoading}
-                  error={domainsError}
-                  className="border-0 shadow-none"
-                  minTargets={isMultiTargetMapping(selectedType) ? 2 : 1}
-                  maxTargets={5}
-                  excludedSourceDomains={sourceDomains}
-                />
-              ) : (
-                /* Simple Target Domain Selection */
-                <div>
+              {/* Target Domain Selection */}
+              <div>
                   {domainsLoading && (
                     <div className="flex items-center space-x-2 text-gray-500 mb-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -599,18 +535,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                       })()}
                     </div>
                   )}
-                  
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="text-sm text-blue-800">
-                      <p className="font-medium">💡 Want more control?</p>
-                      <p className="text-blue-700 mt-1">
-                        Switch to Advanced mode to configure conflict resolution 
-                        and migration options for each target domain.
-                      </p>
-                    </div>
-                  </div>
                 </div>
-              )}
             </div>
           ) : (
             <div>

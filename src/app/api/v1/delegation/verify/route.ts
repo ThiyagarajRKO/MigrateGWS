@@ -50,13 +50,89 @@ const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail, sourceEmail, destEmail } = body
+    const { sourceAdminEmail, destAdminEmail, sourceEmail, destEmail, adminEmail, migrationScenario } = body
 
+    // Handle Single Super Admin scenario
+    if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {
+      if (!adminEmail) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'adminEmail is required for single super admin scenario' 
+          },
+          { status: 400 }
+        )
+      }
+
+      const domain = adminEmail.split('@')[1]
+      if (!domain) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Invalid email address provided' 
+          },
+          { status: 400 }
+        )
+      }
+
+      // Mock client ID for single domain
+      const clientId = process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || `mock-client-id-${domain.replace(/\./g, '-')}`
+
+      // Verify the single domain
+      const domainVerification = await verifyDomainAccess(domain, clientId, adminEmail)
+
+      const response = {
+        success: true,
+        migrationScenario: 'single-super-admin',
+        verification: {
+          domain: domainVerification,
+          overall: {
+            configured: domainVerification.configured,
+            verified: domainVerification.verified,
+            readyForMigration: domainVerification.verified
+          }
+        },
+        recommendations: [] as Array<{
+          type: 'error' | 'warning' | 'success'
+          domain: string
+          message: string
+          action: string
+        }>
+      }
+
+      // Add recommendations based on verification results
+      if (!domainVerification.configured) {
+        response.recommendations.push({
+          type: 'error',
+          domain: domain,
+          message: 'Domain delegation is not configured. Please complete the setup process.',
+          action: 'Configure domain-wide delegation for your domain'
+        })
+      } else if (!domainVerification.verified) {
+        response.recommendations.push({
+          type: 'warning',
+          domain: domain,
+          message: 'Domain delegation is configured but verification failed. Check admin permissions.',
+          action: 'Verify admin email has sufficient permissions'
+        })
+      } else {
+        response.recommendations.push({
+          type: 'success',
+          domain: domain,
+          message: 'Domain delegation is properly configured and verified.',
+          action: 'Ready to start migration'
+        })
+      }
+
+      return NextResponse.json(response)
+    }
+
+    // Handle Cross-Tenant scenario (existing logic)
     if (!sourceAdminEmail || !destAdminEmail) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Both sourceAdminEmail and destAdminEmail are required' 
+          error: 'Both sourceAdminEmail and destAdminEmail are required for cross-tenant migration' 
         },
         { status: 400 }
       )

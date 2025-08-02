@@ -15,40 +15,56 @@ export default function Home() {
         }}
       />
       
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 landing-page font-manrope">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
+        {/* Animated Background Elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-400/20 to-indigo-600/20 rounded-full blur-3xl animate-float"></div>
+          <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-purple-400/20 to-pink-600/20 rounded-full blur-3xl animate-float-delayed"></div>
+          <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-gradient-to-br from-cyan-400/20 to-blue-600/20 rounded-full blur-3xl animate-float-slow"></div>
+        </div>
+
         {/* Header */}
-        <header className="bg-white/80 backdrop-blur-xl shadow-sm border-b border-blue-100 sticky top-0 z-50" role="banner">
+        <header className="bg-white/90 backdrop-blur-xl shadow-lg border-b border-white/20 sticky top-0 z-50" role="banner">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-6">
-              <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl mr-3 shadow-lg">
-                  <Database className="h-6 w-6 text-white" aria-hidden="true" />
+            <div className="flex justify-between items-center py-4">
+              <div className="flex items-center group">
+                <div className="p-3 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-2xl mr-4 shadow-xl group-hover:shadow-2xl transition-all duration-300 group-hover:scale-105">
+                  <Database className="h-7 w-7 text-white" aria-hidden="true" />
                 </div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                  MigrateGWS
-                </span>
+                <div>
+                  <span className="text-2xl font-black bg-gradient-to-r from-gray-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent">
+                    MigrateGWS
+                  </span>
+                  <div className="text-xs text-gray-500 font-medium tracking-wide">
+                    Secure Google Workspace Migration
+                  </div>
+                </div>
               </div>
               <nav className="hidden md:flex items-center space-x-8" role="navigation" aria-label="Main navigation">
-                <Link href="/dashboard" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
+                <Link href="/dashboard" className="text-gray-600 hover:text-blue-600 font-semibold transition-all duration-300 hover:scale-105 transform relative group">
                   Dashboard
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 group-hover:w-full transition-all duration-300"></span>
                 </Link>
-                <Link href="/migrations" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
+                <Link href="/migrations" className="text-gray-600 hover:text-blue-600 font-semibold transition-all duration-300 hover:scale-105 transform relative group">
                   Migrations
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 group-hover:w-full transition-all duration-300"></span>
                 </Link>
-                <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
+                <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600 font-semibold transition-all duration-300 hover:scale-105 transform relative group">
                   User Mapping
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 group-hover:w-full transition-all duration-300"></span>
                 </Link>
-                <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
+                <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-semibold transition-all duration-300 hover:scale-105 transform relative group">
                   Settings
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 group-hover:w-full transition-all duration-300"></span>
                 </Link>
-                <Link href="/login" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2.5 rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                <Link href="/login" className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white px-8 py-3 rounded-2xl hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 font-bold transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1">
                   Sign In
                 </Link>
               </nav>
               
               {/* Mobile menu button */}
               <div className="md:hidden">
-                <button className="p-2 rounded-lg text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                <button className="p-3 rounded-2xl text-gray-600 hover:text-blue-600 hover:bg-white/50 transition-all duration-300 backdrop-blur-sm shadow-lg">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
@@ -59,172 +75,223 @@ export default function Home() {
         </header>
 
         {/* Hero Section */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16" role="main">
-          <section className="text-center mb-20" aria-labelledby="hero-heading">
-            {/* Floating elements background */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
-              <div className="absolute top-40 right-10 w-72 h-72 bg-indigo-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse delay-1000"></div>
-              <div className="absolute bottom-40 left-1/4 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse delay-2000"></div>
+        <main className="relative z-10" role="main">
+          <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center" aria-labelledby="hero-heading">
+            {/* Status Badge */}
+            <div className="inline-flex items-center px-6 py-3 rounded-full bg-gradient-to-r from-blue-100 via-indigo-100 to-purple-100 text-blue-800 text-sm font-bold mb-8 shadow-xl backdrop-blur-sm border border-white/20 hover:scale-105 transition-transform duration-300">
+              <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full mr-3 animate-pulse shadow-lg"></div>
+              Built for IT Professionals & Resellers
+              <svg className="w-4 h-4 ml-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
             </div>
             
-            <div className="relative">
-              <div className="inline-flex items-center px-4 py-2 rounded-full bg-blue-100 text-blue-800 text-sm font-medium mb-8 shadow-sm">
-                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></span>
-                Built for IT Professionals & Resellers
+            {/* Main Title */}
+            <h1 id="hero-heading" className="relative mb-12">
+              <div className="text-7xl md:text-8xl lg:text-9xl font-black leading-none tracking-tight mb-4">
+                <span className="block bg-gradient-to-r from-slate-900 via-gray-800 to-slate-900 bg-clip-text text-transparent drop-shadow-sm">
+                  Migrate Your
+                </span>
+                <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-gradient-x drop-shadow-xl">
+                  Google Workspace
+                </span>
+              </div>
+              <div className="text-4xl md:text-5xl lg:text-6xl font-light bg-gradient-to-r from-gray-600 via-gray-800 to-gray-600 bg-clip-text text-transparent tracking-wide">
+                with Confidence
               </div>
               
-              <h1 id="hero-heading" className="hero-title text-5xl md:text-7xl lg:text-8xl font-black mb-8 leading-none tracking-tight">
-                <span className="block bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 bg-clip-text text-transparent drop-shadow-sm">
-                  Moving Google
-                </span>
-                <span className="block bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent mt-2 animate-gradient-x drop-shadow-lg">
-                  Workspaces
-                </span>
-                <span className="block text-4xl md:text-5xl lg:text-6xl font-light bg-gradient-to-r from-gray-600 via-gray-800 to-gray-600 bg-clip-text text-transparent mt-4 tracking-wide">
-                  Just Got Easier
-                </span>
-              </h1>
-              
-              <p className="hero-subtitle text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-6 font-medium leading-relaxed">
-                Built by IT pros, for IT pros and resellers who need to migrate data between Google Workspace domains.
+              {/* Decorative elements */}
+              <div className="absolute -top-4 -left-4 w-8 h-8 bg-gradient-to-br from-blue-400 to-indigo-600 rounded-full opacity-60 animate-bounce"></div>
+              <div className="absolute top-1/2 -right-8 w-6 h-6 bg-gradient-to-br from-purple-400 to-pink-600 rounded-full opacity-60 animate-bounce delay-500"></div>
+            </h1>
+            
+            {/* Subtitle */}
+            <div className="max-w-5xl mx-auto mb-12">
+              <p className="text-xl md:text-2xl text-gray-700 font-semibold leading-relaxed mb-6">
+                Seamlessly transfer your Gmail, Drive, Calendar, and other Google Workspace data between domains with our enterprise-grade migration platform.
               </p>
-              
-              <p className="hero-subtitle text-lg md:text-xl text-gray-500 max-w-5xl mx-auto mb-12 leading-relaxed">
-                We know tenant-to-tenant migrations are a pain. This platform handles Gmail, Drive, Calendar, Contacts, and Shared Drives 
-                while giving you real visibility into what's happening. Set up domain mappings, track progress in real-time, 
-                and stop worrying about whether everything made it across.
+              <p className="text-lg md:text-xl text-gray-600 leading-relaxed">
+                Built by IT professionals who understand the pain of tenant-to-tenant migrations. 
+                Get real visibility, proper security, and actually finish your projects on time.
               </p>
-              
-              <div className="flex flex-col sm:flex-row justify-center gap-4 mb-16">
-                <Link href="/migrations/new" className="group bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold text-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 inline-flex items-center justify-center">
-                  <span>Start Migration</span>
-                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            </div>
+            
+            {/* Feature Highlights */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto mb-12">
+              <div className="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 hover:scale-105 transition-transform duration-300">
+                <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full shadow-lg"></div>
+                <span className="text-gray-700 font-semibold text-sm">Cross-tenant migration support</span>
+              </div>
+              <div className="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 hover:scale-105 transition-transform duration-300">
+                <div className="w-3 h-3 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full shadow-lg"></div>
+                <span className="text-gray-700 font-semibold text-sm">Advanced domain & user mapping</span>
+              </div>
+              <div className="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 hover:scale-105 transition-transform duration-300">
+                <div className="w-3 h-3 bg-gradient-to-r from-purple-400 to-pink-500 rounded-full shadow-lg"></div>
+                <span className="text-gray-700 font-semibold text-sm">Real-time progress monitoring</span>
+              </div>
+              <div className="flex items-center gap-3 p-4 bg-white/60 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 hover:scale-105 transition-transform duration-300">
+                <div className="w-3 h-3 bg-gradient-to-r from-orange-400 to-red-500 rounded-full shadow-lg"></div>
+                <span className="text-gray-700 font-semibold text-sm">Comprehensive audit reports</span>
+              </div>
+            </div>
+            
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row justify-center gap-6 mb-20">
+              <Link href="/migrations/new" className="group relative bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white px-10 py-5 rounded-2xl font-bold text-lg transition-all duration-300 shadow-2xl hover:shadow-3xl transform hover:scale-105 hover:-translate-y-2 overflow-hidden">
+                <span className="absolute inset-0 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                <span className="relative flex items-center justify-center">
+                  Start Migration
+                  <svg className="ml-3 w-6 h-6 group-hover:translate-x-2 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                   </svg>
-                </Link>
-                <Link href="/dashboard" className="group bg-white/80 backdrop-blur text-blue-600 border-2 border-blue-200 px-8 py-4 rounded-xl hover:bg-blue-50 hover:border-blue-300 font-semibold text-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 inline-flex items-center justify-center">
-                  <span>View Dashboard</span>
-                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                </span>
+              </Link>
+              <Link href="/dashboard" className="group relative bg-white/90 backdrop-blur-sm text-gray-800 border-2 border-gray-200 px-10 py-5 rounded-2xl font-bold text-lg transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-2 hover:bg-white hover:border-blue-300">
+                <span className="flex items-center justify-center">
+                  View Dashboard
+                  <svg className="ml-3 w-6 h-6 group-hover:translate-x-2 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                </Link>
-              </div>
+                </span>
+              </Link>
             </div>
-        </section>
+          </section>
 
-        {/* Feature Cards */}
-        <section className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-20" aria-labelledby="features-heading">
-          <h2 id="features-heading" className="sr-only">Platform Features</h2>
-          
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-blue-100 hover:border-blue-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <Users className="h-8 w-8 text-white" aria-hidden="true" />
+          {/* Feature Cards */}
+          <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-20" aria-labelledby="features-heading">
+            <div className="text-center mb-16">
+              <div className="inline-flex items-center px-6 py-3 rounded-full bg-gradient-to-r from-gray-100 to-blue-100 text-gray-800 text-sm font-bold mb-6">
+                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                </svg>
+                Platform Features
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-blue-900 transition-colors">Smart User Mapping</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Map users between domains however you need - one-to-one, split accounts, or merge them together
+              <h2 id="features-heading" className="text-5xl md:text-6xl font-black mb-6 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                Why IT Pros Choose Us
+              </h2>
+              <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+                Enterprise-grade features designed for complex migration scenarios
               </p>
             </div>
-            <div className="flex items-center text-blue-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+            
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+          
+          <article className="group relative bg-gradient-to-br from-white/80 to-blue-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-blue-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-blue-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-blue-500 to-blue-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <Users className="h-10 w-10 text-white" aria-hidden="true" />
+              </div>
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-blue-900 transition-colors">Smart User Mapping</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Intelligent user mapping between domains - handle one-to-one, split accounts, merges, and complex scenarios with visual drag-and-drop tools.
+              </p>
+              <div className="flex items-center text-blue-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>Explore mapping tools</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
           
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-green-100 hover:border-green-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <Shield className="h-8 w-8 text-white" aria-hidden="true" />
+          <article className="group relative bg-gradient-to-br from-white/80 to-green-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-green-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-green-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <Shield className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-green-900 transition-colors">Actually Secure</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Uses proper Google OAuth and domain delegation - no sketchy workarounds or storing passwords
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-green-900 transition-colors">Enterprise Security</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Built on Google's OAuth 2.0 and domain-wide delegation. No password storage, no API key exposure - just secure, auditable access control.
               </p>
-            </div>
-            <div className="flex items-center text-green-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center text-green-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>Security overview</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
           
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-purple-100 hover:border-purple-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <BarChart3 className="h-8 w-8 text-white" aria-hidden="true" />
+          <article className="group relative bg-gradient-to-br from-white/80 to-purple-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-purple-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-purple-500 to-purple-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <BarChart3 className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-purple-900 transition-colors">See What's Happening</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Real progress tracking so you know if something's stuck (and can actually do something about it)
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-purple-900 transition-colors">Real-Time Visibility</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Live progress tracking with detailed insights. Know exactly what's happening, identify bottlenecks, and get actionable alerts when intervention is needed.
               </p>
-            </div>
-            <div className="flex items-center text-purple-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center text-purple-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>View monitoring</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
           
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-orange-100 hover:border-orange-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <Settings className="h-8 w-8 text-white" aria-hidden="true" />
+          <article className="group relative bg-gradient-to-br from-white/80 to-orange-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-orange-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-orange-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <Settings className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-orange-900 transition-colors">Visual Setup</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Drag and drop to set up domain mappings - no more spreadsheets or config files to mess with
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-orange-900 transition-colors">Visual Configuration</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Intuitive drag-and-drop interface for complex domain mappings. No more spreadsheets or config files - visualize your migration strategy.
               </p>
-            </div>
-            <div className="flex items-center text-orange-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center text-orange-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>Try visual setup</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
           
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-indigo-100 hover:border-indigo-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <Database className="h-8 w-8 text-white" aria-hidden="true" />
+          <article className="group relative bg-gradient-to-br from-white/80 to-indigo-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-indigo-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-indigo-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <Database className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-indigo-900 transition-colors">Everything Gets Moved</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Gmail, Drive files, calendars, contacts, shared drives - if it's in Workspace, we'll move it
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-indigo-900 transition-colors">Complete Data Migration</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Gmail, Drive files, calendars, contacts, shared drives, Chat spaces - comprehensive migration of all Google Workspace services.
               </p>
-            </div>
-            <div className="flex items-center text-indigo-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center text-indigo-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>See all services</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
           
-          <article className="group bg-white/70 backdrop-blur-sm rounded-2xl p-8 hover:bg-white hover:shadow-2xl transition-all duration-500 border border-red-100 hover:border-red-200 transform hover:-translate-y-2">
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
-                <FileText className="h-8 w-8 text-white" aria-hidden="true" />
+          <article className="group relative bg-gradient-to-br from-white/80 to-red-50/50 backdrop-blur-sm rounded-3xl p-8 hover:shadow-2xl transition-all duration-500 border border-white/30 hover:border-red-200/50 transform hover:-translate-y-3 hover:scale-105 overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-red-100/50 to-transparent rounded-3xl"></div>
+            <div className="relative">
+              <div className="w-18 h-18 bg-gradient-to-br from-red-500 to-red-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-xl">
+                <FileText className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
-              <h3 className="feature-title text-2xl font-bold mb-3 text-gray-900 group-hover:text-red-900 transition-colors">Proper Documentation</h3>
-              <p className="feature-description text-gray-600 leading-relaxed">
-                Get detailed reports of what moved, what didn't, and why - for your records and peace of mind
+              <h3 className="text-2xl font-black mb-4 text-gray-900 group-hover:text-red-900 transition-colors">Comprehensive Reporting</h3>
+              <p className="text-gray-600 leading-relaxed mb-6">
+                Detailed audit trails, migration reports, and compliance documentation. Track what moved, what didn't, and why - for your peace of mind.
               </p>
-            </div>
-            <div className="flex items-center text-red-600 font-medium group-hover:translate-x-2 transition-transform duration-300">
-              <span className="text-sm">Learn more</span>
-              <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center text-red-600 font-bold group-hover:translate-x-3 transition-transform duration-300">
+                <span>View sample reports</span>
+                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </div>
             </div>
           </article>
-        </section>
+        </div>
+      </section>
 
         {/* Migration Types */}
         <section className="relative bg-gradient-to-br from-white via-blue-50 to-indigo-50 rounded-3xl p-12 shadow-2xl border border-blue-100" aria-labelledby="migration-types-heading">

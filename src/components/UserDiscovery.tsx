@@ -32,6 +32,7 @@ interface User {
   creationTime: string;
   orgUnitPath: string;
   customerId: string;
+  sourceDomain?: string; // Track which domain this user came from
 }
 
 interface UserDiscoveryError {
@@ -45,17 +46,21 @@ interface UserDiscoveryError {
 }
 
 interface UserDiscoveryProps {
-  sourceDomain: string;
+  sourceDomain?: string; // Single source domain (for backward compatibility)
+  sourceDomains?: string[]; // Multiple source domains
   targetDomain?: string;
-  sourceAdminEmail?: string; // Add admin email prop
+  sourceAdminEmail?: string; // Single admin email (for backward compatibility)
+  sourceAdminEmails?: {[domain: string]: string}; // Multiple admin emails by domain
   onUsersSelected?: (users: User[]) => void;
   onComplete?: () => void;
 }
 
 export const UserDiscovery = memo(function UserDiscovery({ 
   sourceDomain, 
+  sourceDomains,
   targetDomain, 
   sourceAdminEmail,
+  sourceAdminEmails,
   onUsersSelected, 
   onComplete 
 }: UserDiscoveryProps) {
@@ -66,6 +71,26 @@ export const UserDiscovery = memo(function UserDiscovery({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
+  const [domainProgress, setDomainProgress] = useState<{[domain: string]: {loading: boolean, users: User[], error?: string}}>({});
+  
+  // Helper function to get domains to process
+  const getDomainsToProcess = (): string[] => {
+    if (sourceDomains && sourceDomains.length > 0) {
+      return sourceDomains;
+    }
+    if (sourceDomain) {
+      return [sourceDomain];
+    }
+    return [];
+  };
+
+  // Helper function to get admin email for a domain
+  const getAdminEmailForDomain = (domain: string): string => {
+    if (sourceAdminEmails && sourceAdminEmails[domain]) {
+      return sourceAdminEmails[domain];
+    }
+    return sourceAdminEmail || '';
+  };
   
   // Filter states
   const [filterAdmin, setFilterAdmin] = useState<'all' | 'admin' | 'non-admin'>('all');
@@ -73,58 +98,173 @@ export const UserDiscovery = memo(function UserDiscovery({
   const [sortBy, setSortBy] = useState<'name' | 'email' | 'lastLogin' | 'created'>('name');
 
   const fetchUsers = useCallback(async () => {
+    const domainsToProcess = getDomainsToProcess();
+    
+    if (domainsToProcess.length === 0) {
+      setError({
+        type: 'general',
+        title: 'No Source Domain',
+        message: 'Please provide at least one source domain to discover users from.'
+      });
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setDomainProgress({});
 
     try {
-      const params = new URLSearchParams({
-        action: 'users',
-        domain: sourceDomain
+      // Initialize progress tracking for each domain
+      const initialProgress: {[domain: string]: {loading: boolean, users: User[], error?: string}} = {};
+      domainsToProcess.forEach(domain => {
+        initialProgress[domain] = { loading: true, users: [] };
       });
-      
-      // Add admin email if provided for service account authentication
-      if (sourceAdminEmail) {
-        params.append('adminEmail', sourceAdminEmail);
-      }
-      
-      const response = await fetch(`/api/google-workspace?${params.toString()}`);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        if (errorData?.error === 'Domain-wide delegation not configured') {
-          // Set detailed error for domain-wide delegation issues
-          setError({
-            type: 'delegation',
-            title: 'Domain-wide Delegation Required',
-            message: errorData.message,
-            details: errorData.details,
-            actionRequired: errorData.actionRequired,
-            domain: errorData.domain,
-            adminEmail: errorData.adminEmail
+      setDomainProgress(initialProgress);
+
+      // Fetch users from all domains concurrently
+      const fetchPromises = domainsToProcess.map(async (domain) => {
+        try {
+          const params = new URLSearchParams({
+            action: 'users',
+            domain: domain
           });
-        } else {
-          setError({
-            type: 'general',
-            title: 'Error Fetching Users',
-            message: errorData?.message || `Failed to fetch users: ${response.statusText}`
-          });
+          
+          // Add admin email for this specific domain
+          const adminEmail = getAdminEmailForDomain(domain);
+          if (adminEmail) {
+            params.append('adminEmail', adminEmail);
+          }
+          
+          const response = await fetch(`/api/google-workspace?${params.toString()}`);
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.message || `Failed to fetch users from ${domain}: ${response.statusText}`;
+            
+            // Update progress for this domain with error
+            setDomainProgress(prev => ({
+              ...prev,
+              [domain]: {
+                ...prev[domain],
+                loading: false,
+                error: errorMessage
+              }
+            }));
+
+            if (errorData?.error === 'Domain-wide delegation not configured') {
+              throw {
+                type: 'delegation',
+                title: 'Domain-wide Delegation Required',
+                message: errorData.message,
+                details: errorData.details,
+                actionRequired: errorData.actionRequired,
+                domain: errorData.domain,
+                adminEmail: errorData.adminEmail
+              };
+            } else {
+              throw new Error(errorMessage);
+            }
+          }
+
+          const data = await response.json();
+          const domainUsers = (data.users || []).map((user: any) => ({
+            ...user,
+            sourceDomain: domain // Add source domain to each user
+          }));
+
+          // Update progress for this domain with success
+          setDomainProgress(prev => ({
+            ...prev,
+            [domain]: {
+              ...prev[domain],
+              loading: false,
+              users: domainUsers
+            }
+          }));
+
+          return { domain, users: domainUsers, success: true };
+        } catch (error: any) {
+          // Update progress for this domain with error
+          setDomainProgress(prev => ({
+            ...prev,
+            [domain]: {
+              ...prev[domain],
+              loading: false,
+              error: error.message || `Failed to fetch users from ${domain}`
+            }
+          }));
+
+          return { domain, error, success: false };
         }
+      });
+
+      const results = await Promise.allSettled(fetchPromises);
+      
+      // Collect all users and errors
+      const allUsers: User[] = [];
+      const errors: string[] = [];
+      let delegationError: any = null;
+
+      results.forEach((result, index) => {
+        const domain = domainsToProcess[index];
+        
+        if (result.status === 'fulfilled') {
+          const { users, error, success } = result.value;
+          if (success && users) {
+            allUsers.push(...users);
+          } else if (error) {
+            if (error.type === 'delegation') {
+              delegationError = error;
+            } else {
+              errors.push(`${domain}: ${error.message || error}`);
+            }
+          }
+        } else {
+          errors.push(`${domain}: ${result.reason?.message || result.reason}`);
+        }
+      });
+
+      if (delegationError) {
+        setError(delegationError);
         return;
       }
 
-      const data = await response.json();
-      setUsers(data.users || []);
-    } catch (err) {
+      if (allUsers.length === 0 && errors.length > 0) {
+        setError({
+          type: 'general',
+          title: 'Failed to Fetch Users',
+          message: `Could not fetch users from any domain:\n${errors.join('\n')}`
+        });
+        return;
+      }
+
+      // Set all discovered users
+      setUsers(allUsers);
+      
+      // Auto-select all users initially
+      const userIds = new Set(allUsers.map(user => user.id));
+      setSelectedUsers(userIds);
+      
+      // Notify parent component
+      if (onUsersSelected) {
+        onUsersSelected(allUsers);
+      }
+
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
       setError({
-        type: 'general',
-        title: 'Error Fetching Users',
-        message: err instanceof Error ? err.message : 'Failed to fetch users'
+        type: error.type || 'general',
+        title: error.title || 'Error Fetching Users',
+        message: error.message || 'An unexpected error occurred while fetching users.',
+        details: error.details,
+        actionRequired: error.actionRequired,
+        domain: error.domain,
+        adminEmail: error.adminEmail
       });
-      console.error('Error fetching users:', err);
     } finally {
       setLoading(false);
     }
-  }, [sourceDomain, sourceAdminEmail]);
+  }, [getDomainsToProcess, getAdminEmailForDomain, onUsersSelected]);
 
   const applyFilters = useCallback(() => {
     let filtered = [...users];
@@ -174,10 +314,11 @@ export const UserDiscovery = memo(function UserDiscovery({
 
   // Effects - must come after function definitions due to dependencies
   useEffect(() => {
-    if (sourceDomain) {
+    const domainsToProcess = getDomainsToProcess();
+    if (domainsToProcess.length > 0) {
       fetchUsers();
     }
-  }, [sourceDomain, fetchUsers]);
+  }, [sourceDomain, sourceDomains, fetchUsers]);
 
   useEffect(() => {
     applyFilters();
@@ -309,7 +450,16 @@ export const UserDiscovery = memo(function UserDiscovery({
             </div>
             <div>
               <h2 className="text-xl font-semibold text-gray-900">User Discovery</h2>
-              <p className="text-gray-600">Found {filteredUsers.length} users in {sourceDomain}</p>
+              <p className="text-gray-600">
+                {(() => {
+                  const domainsToProcess = getDomainsToProcess();
+                  if (domainsToProcess.length === 1) {
+                    return `Found ${filteredUsers.length} users in ${domainsToProcess[0]}`;
+                  } else {
+                    return `Found ${filteredUsers.length} users across ${domainsToProcess.length} domains`;
+                  }
+                })()}
+              </p>
             </div>
           </div>
           
@@ -337,6 +487,41 @@ export const UserDiscovery = memo(function UserDiscovery({
           </div>
         </div>
       </div>
+
+      {/* Domain Progress (for multiple domains) */}
+      {getDomainsToProcess().length > 1 && Object.keys(domainProgress).length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Domain Discovery Progress</h3>
+          <div className="space-y-3">
+            {getDomainsToProcess().map(domain => {
+              const progress = domainProgress[domain];
+              if (!progress) return null;
+              
+              return (
+                <div key={domain} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <div className="font-mono text-sm text-gray-900">{domain}</div>
+                    {progress.loading && (
+                      <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                    )}
+                    {!progress.loading && !progress.error && (
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                    )}
+                    {progress.error && (
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                    )}
+                  </div>
+                  <div className="text-sm">
+                    {progress.loading && 'Discovering users...'}
+                    {!progress.loading && !progress.error && `${progress.users.length} users found`}
+                    {progress.error && progress.error}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       {showFilters && (
@@ -476,6 +661,11 @@ export const UserDiscovery = memo(function UserDiscovery({
                               <Mail className="h-4 w-4 mr-1" />
                               {user.primaryEmail}
                             </span>
+                            {user.sourceDomain && getDomainsToProcess().length > 1 && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {user.sourceDomain}
+                              </span>
+                            )}
                             <span>{user.orgUnitPath}</span>
                           </div>
                         </div>

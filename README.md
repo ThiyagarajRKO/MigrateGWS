@@ -136,13 +136,22 @@ REDIS_URL=your_redis_url
 4. Create credentials for web application
 5. Set up domain-wide delegation (if required)
 
-### Required Scopes
-- `https://www.googleapis.com/auth/gmail.readonly`
-- `https://www.googleapis.com/auth/gmail.modify`
-- `https://www.googleapis.com/auth/drive`
-- `https://www.googleapis.com/auth/calendar`
-- `https://www.googleapis.com/auth/contacts`
-- `https://www.googleapis.com/auth/admin.directory.user`
+### 🎯 All Scopes (Recommended):
+- `https://www.googleapis.com/auth/gmail.readonly` - Read Gmail messages
+- `https://www.googleapis.com/auth/gmail.modify` - Modify Gmail messages
+- `https://www.googleapis.com/auth/drive` - Access Google Drive files
+- `https://www.googleapis.com/auth/calendar` - Access Google Calendar
+- `https://www.googleapis.com/auth/contacts` - Access Google Contacts
+- `https://www.googleapis.com/auth/admin.directory.user` - Manage directory users
+- `https://www.googleapis.com/auth/admin.directory.group` - Manage directory groups
+- `https://www.googleapis.com/auth/photoslibrary` - Access Google Photos
+- `https://www.googleapis.com/auth/chat.spaces` - Access Google Chat spaces
+- `https://www.googleapis.com/auth/presentations` - Access Google Slides presentations
+- `https://www.googleapis.com/auth/forms` - Access Google Forms
+- `https://www.googleapis.com/auth/drive.file` - Access specific Drive files
+- `https://www.googleapis.com/auth/spreadsheets` - Access Google Sheets (for Forms responses)
+- `https://www.googleapis.com/auth/admin.directory.domain` - Manage domain settings
+- `https://www.googleapis.com/auth/admin.directory.orgunit` - Manage organizational units
 
 ## 🧪 Testing Strategy
 

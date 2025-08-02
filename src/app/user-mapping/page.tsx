@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   UserPlus, 
@@ -11,17 +12,28 @@ import {
   Database,
   FileText,
   Settings,
-  Plus
+  Plus,
+  Search
 } from 'lucide-react';
 import IndividualUserMapper from '@/components/IndividualUserMapper';
 import UserMappingVisualizer, { UserMapping } from '@/components/UserMappingVisualizer';
 import CSVMappingManager from '@/components/CSVMappingManager';
+import UserDiscoveryMapping from '@/components/UserMapping';
 
 export default function UserMappingPage() {
+  const searchParams = useSearchParams();
   const [mappings, setMappings] = useState<UserMapping[]>([]);
   const [showMapper, setShowMapper] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'individual' | 'bulk' | 'csv'>('individual');
+  const [activeTab, setActiveTab] = useState<'discovery' | 'individual' | 'bulk' | 'csv'>('discovery');
+
+  // Handle tab parameter from URL
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['discovery', 'individual', 'bulk', 'csv'].includes(tab)) {
+      setActiveTab(tab as 'discovery' | 'individual' | 'bulk' | 'csv');
+    }
+  }, [searchParams]);
 
   const handleSaveMapping = (mapping: UserMapping) => {
     if (editingIndex !== null) {
@@ -53,6 +65,7 @@ export default function UserMappingPage() {
   const currentMapping = editingIndex !== null ? mappings[editingIndex] : undefined;
 
   const tabs = [
+    { id: 'discovery' as const, label: 'User Discovery', icon: Search },
     { id: 'individual' as const, label: 'Individual Mapper', icon: UserPlus },
     { id: 'bulk' as const, label: 'Bulk Manager', icon: List },
     { id: 'csv' as const, label: 'CSV Import/Export', icon: FileText }
@@ -169,6 +182,23 @@ export default function UserMappingPage() {
           </div>
 
           <div className="p-6">
+            {/* User Discovery Tab */}
+            {activeTab === 'discovery' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                      User Discovery & Cloning
+                    </h3>
+                    <p className="text-gray-600 text-sm mt-1">
+                      Discover users from source domain and automatically clone missing users to target domains
+                    </p>
+                  </div>
+                </div>
+                <UserDiscoveryMapping />
+              </div>
+            )}
+
             {/* Individual Mapper Tab */}
             {activeTab === 'individual' && (
               <div className="space-y-6">
@@ -276,18 +306,15 @@ export default function UserMappingPage() {
             </Link>
             
             <button
-              onClick={() => {
-                setActiveTab('individual');
-                setShowMapper(true);
-              }}
+              onClick={() => setActiveTab('discovery')}
               className="flex items-center gap-3 p-4 bg-white/80 rounded-lg hover:bg-white/90 transition-all duration-200 border border-blue-100"
             >
               <div className="p-2 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg">
-                <UserPlus className="h-5 w-5 text-white" />
+                <Search className="h-5 w-5 text-white" />
               </div>
               <div>
-                <div className="font-semibold text-gray-900">Create Mapping</div>
-                <div className="text-sm text-gray-600">Add individual user mapping</div>
+                <div className="font-semibold text-gray-900">Discover Users</div>
+                <div className="text-sm text-gray-600">Find and clone source users</div>
               </div>
             </button>
             

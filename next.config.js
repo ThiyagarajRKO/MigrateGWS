@@ -2,6 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  // Enable compression
+  compress: true,
+  // Optimize package imports
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
   // Bundle size optimization
   webpack: (config, { isServer }) => {
     // Analyze bundle in production

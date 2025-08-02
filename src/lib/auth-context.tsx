@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { ExtendedSession } from '@/lib/auth-options'
 import { AuthUser } from '@/types'
+import cacheManager from '@/lib/cache-manager'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -104,6 +105,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setError(null)
       setUser(null)
+      
+      // Clear all cached data before signing out
+      cacheManager.clearAll()
+      console.log('[Auth] Cleared all caches on logout')
+      
       await signOut({ callbackUrl: '/login' })
     } catch (err) {
       setError('Failed to sign out. Please try again.')

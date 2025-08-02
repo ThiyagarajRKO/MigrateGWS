@@ -123,6 +123,26 @@ export class GoogleWorkspaceService {
     }
   }
 
+  // Test connection to verify domain-wide delegation is working
+  async testConnection(domain?: string): Promise<boolean> {
+    try {
+      const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
+      
+      // Simple test: try to get a minimal user list or domain info
+      const response = await admin.users.list({
+        domain,
+        maxResults: 1, // Just one user to test connection
+        orderBy: 'email'
+      })
+      
+      // If we get here without error, delegation is working
+      return true
+    } catch (error: any) {
+      console.error('Test connection failed:', error)
+      throw new Error(`Domain-wide delegation error: ${error.message}`)
+    }
+  }
+
   // Admin Directory API - Users
   async getUsers(domain?: string, maxResults: number = 100): Promise<GWSUser[]> {
     try {
@@ -274,6 +294,67 @@ export class GoogleWorkspaceService {
     } catch (error) {
       console.error('Error fetching user:', error)
       return null
+    }
+  }
+
+  // Create a new user in Google Workspace
+  async createUser(userData: {
+    primaryEmail: string;
+    name: {
+      givenName: string;
+      familyName: string;
+    };
+    password: string;
+    changePasswordAtNextLogin?: boolean;
+    orgUnitPath?: string;
+    suspended?: boolean;
+  }): Promise<GWSUser> {
+    try {
+      const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
+      
+      const response = await admin.users.insert({
+        requestBody: {
+          primaryEmail: userData.primaryEmail,
+          name: {
+            givenName: userData.name.givenName,
+            familyName: userData.name.familyName,
+            fullName: `${userData.name.givenName} ${userData.name.familyName}`.trim()
+          },
+          password: userData.password,
+          changePasswordAtNextLogin: userData.changePasswordAtNextLogin !== undefined ? userData.changePasswordAtNextLogin : true,
+          orgUnitPath: userData.orgUnitPath || '/',
+          suspended: userData.suspended || false
+        }
+      })
+
+      const user = response.data
+
+      return {
+        id: user.id!,
+        primaryEmail: user.primaryEmail!,
+        name: {
+          givenName: user.name?.givenName || '',
+          familyName: user.name?.familyName || '',
+          fullName: user.name?.fullName || '',
+        },
+        isAdmin: user.isAdmin || false,
+        isDelegatedAdmin: user.isDelegatedAdmin || false,
+        lastLoginTime: user.lastLoginTime || undefined,
+        creationTime: user.creationTime!,
+        suspended: user.suspended || false,
+        orgUnitPath: user.orgUnitPath || '/',
+      }
+    } catch (error: any) {
+      console.error('Error creating user:', error)
+      
+      // Handle specific error cases
+      if (error?.response?.data?.error?.errors) {
+        const errors = error.response.data.error.errors
+        const errorMessages = errors.map((err: any) => err.message || err.reason).join(', ')
+        throw new Error(`Failed to create user: ${errorMessages}`)
+      }
+      
+      throw new Error(`Failed to create user: ${error.message || 'Unknown error'}`)
     }
   }
 

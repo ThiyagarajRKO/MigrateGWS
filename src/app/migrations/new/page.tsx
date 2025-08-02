@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { 
@@ -35,23 +36,44 @@ import {
   Eye,
   Cog,
   X,
-  Loader2
+  Loader2,
+  Presentation,
+  ClipboardList
 } from 'lucide-react';
 
-// Dynamic imports for heavy components
-const ScenarioSelector = lazy(() => import('@/components/ScenarioSelector'));
-const DomainMappingSelector = lazy(() => import('@/components/DomainMappingSelector'));
-const DomainWideDelegationSetup = lazy(() => import('@/components/DomainWideDelegationSetup'));
-const UserDiscovery = lazy(() => import('@/components/UserDiscovery'));
-const MigrationProgress = lazy(() => import('@/components/MigrationProgress'));
+// Dynamic imports for heavy components with better loading strategies
+const ScenarioSelector = lazy(() => 
+  import('@/components/ScenarioSelector').then(module => ({ default: module.default }))
+);
+const DomainMappingSelector = lazy(() => 
+  import('@/components/DomainMappingSelector').then(module => ({ default: module.default }))
+);
+const DomainWideDelegationSetup = lazy(() => 
+  import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }))
+);
+const UserDiscovery = lazy(() => 
+  import('@/components/UserDiscovery').then(module => ({ default: module.default }))
+);
+const UserMapping = lazy(() => 
+  import('@/components/UserMapping').then(module => ({ default: module.UserMapping }))
+);
+const MigrationProgress = lazy(() => 
+  import('@/components/MigrationProgress').then(module => ({ default: module.default }))
+);
 
-// Loading component
+// Optimized loading component with skeleton
 const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={
-    <div className="flex items-center justify-center py-12">
-      <div className="text-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
-        <p className="text-gray-600">Loading component...</p>
+    <div className="animate-pulse space-y-4">
+      <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+      <div className="space-y-3">
+        <div className="h-4 bg-gray-200 rounded"></div>
+        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+        <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="h-32 bg-gray-200 rounded"></div>
+        <div className="h-32 bg-gray-200 rounded"></div>
       </div>
     </div>
   }>
@@ -59,7 +81,7 @@ const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-type WizardStep = 'scenario' | 'domain-mapping' | 'configuration' | 'review' | 'migration';
+type WizardStep = 'scenario' | 'domain-mapping' | 'delegation' | 'user-discovery' | 'user-mapping' | 'configuration' | 'review' | 'migration';
 
 const SERVICE_ICONS = {
   'Gmail': Mail,
@@ -67,7 +89,10 @@ const SERVICE_ICONS = {
   'Calendar': Calendar,
   'Contacts': Phone,
   'Photos': Image,
-  'Chat': MessageSquare
+  'Chat': MessageSquare,
+  'Groups': Users,
+  'Forms': ClipboardList,
+  'Slides': Presentation
 } as const;
 
 const STEP_CONFIG = {
@@ -81,10 +106,25 @@ const STEP_CONFIG = {
     title: 'Configure Domains', 
     description: 'Set up source and target domain relationships' 
   },
+  delegation: { 
+    icon: Shield, 
+    title: 'Setup Delegation', 
+    description: 'Configure domain-wide delegation and permissions' 
+  },
+  'user-discovery': { 
+    icon: Users, 
+    title: 'Discover Users', 
+    description: 'Find and list all users from source domains' 
+  },
+  'user-mapping': { 
+    icon: ArrowRight, 
+    title: 'Map Users', 
+    description: 'Configure how users will be mapped to target domains' 
+  },
   configuration: { 
     icon: Cog, 
     title: 'Migration Settings', 
-    description: 'Configure services, options, and user mappings' 
+    description: 'Configure services, schedule, and notifications' 
   },
   review: { 
     icon: Eye, 
@@ -100,6 +140,7 @@ const STEP_CONFIG = {
 
 export default function NewMigration() {
   const { user } = useAuth();
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState<WizardStep>('scenario');
   const [selectedScenario, setSelectedScenario] = useState<MigrationScenario | null>(null);
   const [domainMapping, setDomainMapping] = useState<DomainMappingConfig | null>(null);
@@ -140,6 +181,7 @@ export default function NewMigration() {
 
   // Domain-wide Delegation state
   const [dwdSetupComplete, setDwdSetupComplete] = useState(false);
+  const [dwdVerificationStatus, setDwdVerificationStatus] = useState(false);
   const [sourceAdminEmail, setSourceAdminEmail] = useState('');
   const [sourceAdminEmails, setSourceAdminEmails] = useState<{[domain: string]: string}>({});
   const [targetAdminEmail, setTargetAdminEmail] = useState('');
@@ -148,9 +190,66 @@ export default function NewMigration() {
 
   // User Discovery state
   const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
-  const [showUserDiscovery, setShowUserDiscovery] = useState(false);
+  const [discoveredUsers, setDiscoveredUsers] = useState<any[]>([]);
+  const [userMappings, setUserMappings] = useState<any[]>([]);
 
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
+
+  // Preload next components based on current step
+  useEffect(() => {
+    const preloadNext = () => {
+      switch (currentStep) {
+        case 'scenario':
+          // Preload domain mapping selector
+          import('@/components/DomainMappingSelector');
+          break;
+        case 'domain-mapping':
+          // Preload delegation setup
+          import('@/components/DomainWideDelegationSetup');
+          break;
+        case 'delegation':
+          // Preload user discovery
+          import('@/components/UserDiscovery');
+          break;
+        case 'user-discovery':
+          // Preload user mapping
+          import('@/components/UserMapping');
+          break;
+        case 'user-mapping':
+          // Preload configuration components
+          import('@/components/MigrationProgress');
+          break;
+        case 'configuration':
+          // Migration progress will be needed soon
+          import('@/components/MigrationProgress');
+          break;
+      }
+    };
+
+    // Delay preloading to not block initial render
+    const timer = setTimeout(preloadNext, 100);
+    return () => clearTimeout(timer);
+  }, [currentStep]);
+
+  // Debug useEffect to track verification status changes
+  useEffect(() => {
+    console.log('[Migration Wizard] dwdVerificationStatus changed:', dwdVerificationStatus, {
+      currentStep,
+      dwdSetupComplete,
+      canProceedDelegation: currentStep === 'delegation' ? (dwdSetupComplete && areAllAdminEmailsProvided() && dwdVerificationStatus) : 'N/A'
+    })
+  }, [dwdVerificationStatus, dwdSetupComplete, currentStep])
+
+  // Debug useEffect to track admin email changes
+  useEffect(() => {
+    console.log('[Migration Wizard] Admin emails changed:', {
+      sourceAdminEmail,
+      targetAdminEmail,
+      sourceAdminEmails,
+      targetAdminEmails,
+      areAllAdminEmailsProvided: areAllAdminEmailsProvided()
+    });
+  }, [sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
 
   const handleScenarioSelect = (scenario: MigrationScenario) => {
     setSelectedScenario(scenario);
@@ -190,7 +289,7 @@ export default function NewMigration() {
       setTargetAdminEmails(newTargetAdminEmails);
     }
     
-    setCurrentStep('configuration');
+    setCurrentStep('delegation');
   };
 
   const handleServiceToggle = (service: string) => {
@@ -208,6 +307,15 @@ export default function NewMigration() {
         setCurrentStep('domain-mapping');
         break;
       case 'domain-mapping':
+        setCurrentStep('delegation');
+        break;
+      case 'delegation':
+        setCurrentStep('user-discovery');
+        break;
+      case 'user-discovery':
+        setCurrentStep('user-mapping');
+        break;
+      case 'user-mapping':
         setCurrentStep('configuration');
         break;
       case 'configuration':
@@ -224,8 +332,17 @@ export default function NewMigration() {
       case 'domain-mapping':
         setCurrentStep('scenario');
         break;
-      case 'configuration':
+      case 'delegation':
         setCurrentStep('domain-mapping');
+        break;
+      case 'user-discovery':
+        setCurrentStep('delegation');
+        break;
+      case 'user-mapping':
+        setCurrentStep('user-discovery');
+        break;
+      case 'configuration':
+        setCurrentStep('user-mapping');
         break;
       case 'review':
         setCurrentStep('configuration');
@@ -265,6 +382,56 @@ export default function NewMigration() {
   const handleDwdSetupComplete = () => {
     setDwdSetupComplete(true);
     setShowDwdSetup(false);
+  };
+
+  // Handle verification status change
+  const handleVerificationStatusChange = (isVerified: boolean) => {
+    console.log('[Migration Wizard] Verification status changed:', isVerified, {
+      currentStep,
+      dwdSetupComplete,
+      previousVerificationStatus: dwdVerificationStatus,
+      adminEmailsProvided: areAllAdminEmailsProvided(),
+      sourceAdminEmail,
+      targetAdminEmail
+    })
+    setDwdVerificationStatus(isVerified);
+    
+    // Force a re-evaluation of canProceed after status change
+    setTimeout(() => {
+      console.log('[Migration Wizard] After verification status update:', {
+        dwdVerificationStatus: isVerified,
+        dwdSetupComplete,
+        areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
+        canProceedNow: (dwdSetupComplete && areAllAdminEmailsProvided() && isVerified)
+      });
+    }, 100);
+  };
+
+  // Handle admin email changes from DomainWideDelegationSetup component
+  const handleAdminEmailChange = (email: string) => {
+    console.log('[Migration Wizard] Admin email changed:', email);
+    // For single super admin, this serves as the source admin email
+    setSourceAdminEmail(email);
+  };
+
+  const handleSourceEmailChange = (email: string) => {
+    console.log('[Migration Wizard] Source email changed:', email);
+    setSourceAdminEmail(email);
+  };
+
+  const handleDestEmailChange = (email: string) => {
+    console.log('[Migration Wizard] Dest email changed:', email);
+    setTargetAdminEmail(email);
+  };
+
+  const handleSourceEmailsChange = (emails: {[domain: string]: string}) => {
+    console.log('[Migration Wizard] Source emails changed:', emails);
+    setSourceAdminEmails(emails);
+  };
+
+  const handleDestEmailsChange = (emails: {[domain: string]: string}) => {
+    console.log('[Migration Wizard] Dest emails changed:', emails);
+    setTargetAdminEmails(emails);
   };
 
   // Get target domains for multi-target scenarios
@@ -411,6 +578,268 @@ export default function NewMigration() {
           </div>
         );
 
+      case 'delegation':
+        return (
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
+                  <Shield className="h-8 w-8 text-green-600" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                Setup Domain-wide Delegation
+              </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                Configure secure access permissions and service account delegation for your Google Workspace domains.
+              </p>
+            </div>
+
+            {/* Configuration Summary */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                    <Shield className="h-5 w-5 mr-2" />
+                    Migration Type
+                  </h3>
+                  <p className="text-blue-800 text-sm">
+                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                    <Database className="h-5 w-5 mr-2" />
+                    Domain Configuration
+                  </h3>
+                  <p className="text-blue-800 text-sm">
+                    {domainMapping ? domainMapping.description : 'Not configured'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Domain-wide Delegation Setup */}
+            <div className="max-w-4xl mx-auto">
+              <ComponentLoader>
+                <DomainWideDelegationSetup
+                  sourceAccount={sourceAdminEmail}
+                  destAccount={getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
+                  destAccounts={getTargetDomains().length > 1 ? targetAdminEmails : undefined}
+                  migrationScenario={selectedScenario || undefined}
+                  domainMapping={domainMapping || undefined}
+                  onComplete={handleDwdSetupComplete}
+                  onVerificationStatusChange={handleVerificationStatusChange}
+                  onAdminEmailChange={handleAdminEmailChange}
+                  onSourceEmailChange={handleSourceEmailChange}
+                  onDestEmailChange={handleDestEmailChange}
+                  onSourceEmailsChange={handleSourceEmailsChange}
+                  onDestEmailsChange={handleDestEmailsChange}
+                  className="bg-white"
+                />
+              </ComponentLoader>
+            </div>
+
+            {/* Status Indicator */}
+            <div className="flex justify-center">
+              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                dwdSetupComplete && dwdVerificationStatus
+                  ? 'bg-green-100 text-green-800' 
+                  : dwdSetupComplete
+                  ? 'bg-yellow-100 text-yellow-800'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                {dwdSetupComplete && dwdVerificationStatus ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Domain-wide delegation verified successfully
+                  </>
+                ) : dwdSetupComplete ? (
+                  <>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Verify delegation configuration to continue
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Complete setup to continue
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'user-discovery':
+        return (
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl">
+                  <Users className="h-8 w-8 text-blue-600" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                Discover Users
+              </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                Find and list all users from your source domains for migration.
+              </p>
+            </div>
+
+            {/* Configuration Summary */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
+                    <Database className="h-5 w-5 mr-2" />
+                    Source Domain
+                  </h3>
+                  <p className="text-green-800 text-sm">
+                    {domainMapping?.sourceDomains?.[0] || 'Not configured'}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
+                    <Shield className="h-5 w-5 mr-2" />
+                    Delegation Status
+                  </h3>
+                  <p className="text-green-800 text-sm">
+                    {dwdSetupComplete && dwdVerificationStatus ? 'Verified' : dwdSetupComplete ? 'Setup Complete' : 'Pending'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* User Discovery Component */}
+            <div className="max-w-4xl mx-auto">
+              <ComponentLoader>
+                <UserDiscovery
+                  sourceDomains={getSourceDomains()}
+                  sourceAdminEmails={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
+                  sourceAdminEmail={selectedScenario === 'single-super-admin' || getSourceDomains().length <= 1 ? sourceAdminEmail : undefined}
+                  onUsersSelected={(users: any[]) => {
+                    setDiscoveredUsers(users);
+                    setSelectedUsers(users); // Initially select all users
+                  }}
+                />
+              </ComponentLoader>
+            </div>
+
+            {/* Status Indicator */}
+            <div className="flex justify-center">
+              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                discoveredUsers.length > 0
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {discoveredUsers.length > 0 ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    {discoveredUsers.length} users discovered
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Discovering users...
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'user-mapping':
+        return (
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl">
+                  <ArrowRight className="h-8 w-8 text-indigo-600" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                Map Users
+              </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                Configure how users from source domains will be mapped to target domains.
+              </p>
+            </div>
+
+            {/* Discovery Summary */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
+              <div className="grid md:grid-cols-3 gap-6">
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                    <Users className="h-5 w-5 mr-2" />
+                    Discovered Users
+                  </h3>
+                  <p className="text-blue-800 text-sm">
+                    {discoveredUsers.length} users found
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                    <Database className="h-5 w-5 mr-2" />
+                    Source Domain
+                  </h3>
+                  <p className="text-blue-800 text-sm">
+                    {domainMapping?.sourceDomains?.[0] || 'Not configured'}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                    <ArrowRight className="h-5 w-5 mr-2" />
+                    Target Domains
+                  </h3>
+                  <p className="text-blue-800 text-sm">
+                    {domainMapping ? formatTargetDomains(domainMapping) : 'Not configured'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* User Mapping Component */}
+            <div className="max-w-6xl mx-auto">
+              <ComponentLoader>
+                <UserMapping
+                  sourceDomain={getSourceDomains()[0] || ''}
+                  targetDomains={getTargetDomains()}
+                  sourceAdminEmail={sourceAdminEmail}
+                  targetAdminEmails={targetAdminEmails}
+                  onMappingComplete={(mappings) => {
+                    setUserMappings(mappings);
+                  }}
+                />
+              </ComponentLoader>
+            </div>
+
+            {/* Status Indicator */}
+            <div className="flex justify-center">
+              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                userMappings.length > 0
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {userMappings.length > 0 ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    {userMappings.length} users mapped
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Configure user mappings
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+
       case 'configuration':
         return (
           <div className="space-y-8">
@@ -468,13 +897,18 @@ export default function NewMigration() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {dwdSetupComplete ? (
+                  {dwdSetupComplete && dwdVerificationStatus ? (
                     <div className="flex items-center gap-2 text-green-600">
                       <CheckCircle className="h-5 w-5" />
-                      <span className="text-sm font-medium">Setup Complete</span>
+                      <span className="text-sm font-medium">Verified</span>
+                    </div>
+                  ) : dwdSetupComplete ? (
+                    <div className="flex items-center gap-2 text-yellow-600">
+                      <AlertCircle className="h-5 w-5" />
+                      <span className="text-sm font-medium">Verification Required</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 text-yellow-600">
+                    <div className="flex items-center gap-2 text-red-600">
                       <AlertCircle className="h-5 w-5" />
                       <span className="text-sm font-medium">Setup Required</span>
                     </div>
@@ -632,120 +1066,7 @@ export default function NewMigration() {
                 )}
               </div>
 
-              {/* Setup Actions */}
-              <div className="flex items-center gap-3 pt-3 border-t border-gray-200">
-                {!dwdSetupComplete ? (
-                  <button
-                    onClick={() => setShowDwdSetup(true)}
-                    disabled={!areAllAdminEmailsProvided()}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Configure Domain-wide Delegation
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowDwdSetup(true)}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Reconfigure Setup
-                  </button>
-                )}
-                
-                <div className="text-sm text-gray-500">
-                  {areAllAdminEmailsProvided()
-                    ? 'Ready to configure delegation' 
-                    : selectedScenario === 'single-super-admin'
-                      ? (() => {
-                          if (!sourceAdminEmail) return 'Enter super admin email to begin setup';
-                          return 'Ready to configure delegation';
-                        })()
-                      : (() => {
-                          const sourceDomains = getSourceDomains();
-                          const targetDomains = getTargetDomains();
-                          
-                          // Check source domains
-                          if (sourceDomains.length <= 1) {
-                            if (!sourceAdminEmail) return 'Enter source admin email to begin setup';
-                          } else {
-                            const missingSourceCount = sourceDomains.length - sourceDomains.filter(domain => sourceAdminEmails[domain]).length;
-                            if (missingSourceCount > 0) return `Enter admin emails for ${missingSourceCount} remaining source domain${missingSourceCount > 1 ? 's' : ''}`;
-                          }
-                          
-                          // Check target domains
-                          if (targetDomains.length <= 1) {
-                            if (!targetAdminEmail) return 'Enter target admin email to begin setup';
-                          } else {
-                            const missingTargetCount = targetDomains.length - targetDomains.filter(domain => targetAdminEmails[domain]).length;
-                            if (missingTargetCount > 0) return `Enter admin emails for ${missingTargetCount} remaining target domain${missingTargetCount > 1 ? 's' : ''}`;
-                          }
-                          
-                          return 'Enter admin emails to begin setup';
-                        })()
-                  }
-                </div>
-              </div>
-
-              {/* DWD Setup Modal/Expanded View */}
-              {showDwdSetup && (
-                <div className="mt-6 p-6 bg-gray-50 border border-gray-200 rounded-xl">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-lg font-semibold text-gray-900">
-                      Domain-wide Delegation Configuration
-                    </h4>
-                    <button
-                      onClick={() => setShowDwdSetup(false)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                  
-                  <ComponentLoader>
-                    <DomainWideDelegationSetup
-                      sourceAccount={sourceAdminEmail}
-                      destAccount={getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
-                      destAccounts={getTargetDomains().length > 1 ? targetAdminEmails : undefined}
-                      migrationScenario={selectedScenario || undefined}
-                      domainMapping={domainMapping || undefined}
-                      onComplete={handleDwdSetupComplete}
-                      className="bg-white"
-                    />
-                  </ComponentLoader>
-                </div>
-              )}
-
-              {/* User Discovery Modal */}
-              {showUserDiscovery && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                  <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
-                    <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                      <h4 className="text-xl font-semibold text-gray-900">
-                        User Discovery - {migrationConfig.sourceDomain}
-                      </h4>
-                      <button
-                        onClick={() => setShowUserDiscovery(false)}
-                        className="text-gray-500 hover:text-gray-700"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
-                    </div>
-                    
-                    <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-                      <ComponentLoader>
-                        <UserDiscovery
-                          sourceDomain={migrationConfig.sourceDomain}
-                          targetDomain={migrationConfig.targetDomain}
-                          sourceAdminEmail={sourceAdminEmails[migrationConfig.sourceDomain] || sourceAdminEmail}
-                          onUsersSelected={setSelectedUsers}
-                          onComplete={() => setShowUserDiscovery(false)}
-                        />
-                      </ComponentLoader>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* User Discovery Modal - REMOVED */}
             </div>
 
             <div className="grid lg:grid-cols-2 gap-8">
@@ -886,8 +1207,8 @@ export default function NewMigration() {
                   <Zap className="h-5 w-5 mr-2 text-gray-600" />
                   Services to Migrate
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  {['Gmail', 'Drive', 'Calendar', 'Contacts', 'Photos', 'Chat'].map(service => {
+                <div className="grid grid-cols-3 gap-4">
+                  {['Gmail', 'Drive', 'Calendar', 'Contacts', 'Photos', 'Chat', 'Groups', 'Forms', 'Slides'].map(service => {
                     const IconComponent = SERVICE_ICONS[service as keyof typeof SERVICE_ICONS];
                     const isSelected = migrationConfig.services.includes(service);
                     
@@ -923,7 +1244,7 @@ export default function NewMigration() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Selected Services:</span>
                     <span className="font-medium text-gray-900">
-                      {migrationConfig.services.length} of 6 services
+                      {migrationConfig.services.length} of 9 services
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -933,30 +1254,6 @@ export default function NewMigration() {
                       </span>
                     ))}
                   </div>
-                  
-                  {/* Discover Users Button */}
-                  {migrationConfig.services.length > 0 && migrationConfig.sourceDomain && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <button
-                        onClick={() => setShowUserDiscovery(true)}
-                        className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
-                      >
-                        <Users className="h-5 w-5" />
-                        <span>Discover Users in {migrationConfig.sourceDomain}</span>
-                      </button>
-                      
-                      {selectedUsers.length > 0 && (
-                        <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center text-green-800">
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            <span className="text-sm font-medium">
-                              {selectedUsers.length} users selected for migration
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1346,9 +1643,12 @@ export default function NewMigration() {
     switch (currentStep) {
       case 'scenario': return 1;
       case 'domain-mapping': return 2;
-      case 'configuration': return 3;
-      case 'review': return 4;
-      case 'migration': return 5;
+      case 'delegation': return 3;
+      case 'user-discovery': return 4;
+      case 'user-mapping': return 5;
+      case 'configuration': return 6;
+      case 'review': return 7;
+      case 'migration': return 8;
       default: return 1;
     }
   };
@@ -1359,17 +1659,56 @@ export default function NewMigration() {
         return selectedScenario !== null;
       case 'domain-mapping':
         return domainMapping !== null;
+      case 'delegation':
+        const adminEmailsProvided = areAllAdminEmailsProvided();
+        const canProceedDelegation = dwdSetupComplete && adminEmailsProvided && dwdVerificationStatus;
+        console.log('[Migration Wizard] canProceed delegation:', {
+          dwdSetupComplete,
+          areAllAdminEmailsProvided: adminEmailsProvided,
+          dwdVerificationStatus,
+          canProceed: canProceedDelegation,
+          // Additional debug info
+          selectedScenario,
+          sourceAdminEmail,
+          targetAdminEmail,
+          sourceAdminEmails,
+          targetAdminEmails,
+          sourceDomains: getSourceDomains(),
+          targetDomains: getTargetDomains()
+        });
+        return canProceedDelegation;
+      case 'user-discovery':
+        return discoveredUsers.length > 0;
+      case 'user-mapping':
+        return userMappings.length > 0;
       case 'configuration':
         return migrationConfig.sourceDomain && 
                migrationConfig.targetDomain && 
                migrationConfig.services.length > 0 &&
-               dwdSetupComplete &&
-               areAllAdminEmailsProvided() &&
                selectedUsers.length > 0; // Require users to be selected
       case 'review':
         return true;
       default:
         return false;
+    }
+  };
+
+  const getNextButtonText = () => {
+    switch (currentStep) {
+      case 'scenario':
+        return 'Configure Domains';
+      case 'domain-mapping':
+        return 'Setup Delegation';
+      case 'delegation':
+        return 'Discover Users';
+      case 'user-discovery':
+        return 'Map Users';
+      case 'user-mapping':
+        return 'Configure Settings';
+      case 'configuration':
+        return 'Review & Confirm';
+      default:
+        return 'Continue';
     }
   };
 
@@ -1385,7 +1724,7 @@ export default function NewMigration() {
                 <div className="absolute top-6 left-16 right-16 h-0.5 bg-gray-200">
                   <div 
                     className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-500"
-                    style={{ width: `${((getStepNumber() - 1) / 4) * 100}%` }}
+                    style={{ width: `${((getStepNumber() - 1) / 6) * 100}%` }}
                   />
                 </div>
                 
@@ -1445,14 +1784,14 @@ export default function NewMigration() {
                     </h1>
                     {currentStep !== 'scenario' && (
                       <p className="text-blue-100 mt-1">
-                        Step {getStepNumber()} of 5: {STEP_CONFIG[currentStep].title}
+                        Step {getStepNumber()} of 7: {STEP_CONFIG[currentStep].title}
                       </p>
                     )}
                   </div>
                   {currentStep !== 'scenario' && currentStep !== 'migration' && (
                     <div className="flex items-center space-x-2 text-blue-100">
                       <Clock className="h-4 w-4" />
-                      <span className="text-sm">Est. {5 - getStepNumber()} steps remaining</span>
+                      <span className="text-sm">Est. {7 - getStepNumber()} steps remaining</span>
                     </div>
                   )}
                 </div>
@@ -1503,7 +1842,7 @@ export default function NewMigration() {
                           </>
                         ) : (
                           <>
-                            Continue
+                            {getNextButtonText()}
                             <ArrowRight className="h-4 w-4 ml-2" />
                           </>
                         )}

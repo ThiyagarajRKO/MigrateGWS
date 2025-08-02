@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useDomainLoadingPerformance } from './useDomainLoadingPerformance';
+import cacheManager from '@/lib/cache-manager';
 
 export interface Domain {
   domainName: string;
@@ -11,14 +12,6 @@ export interface Domain {
   creationTime: string;
   aliases?: string[];
 }
-
-// Enhanced cache for domains to avoid repeated API calls
-const domainsCache = {
-  data: null as Domain[] | null,
-  timestamp: 0,
-  expiryTime: 2 * 60 * 1000, // Reduced to 2 minutes for faster updates
-  loading: false, // Prevent multiple simultaneous requests
-};
 
 export function useDomains() {
   const { user } = useAuth();
@@ -34,15 +27,22 @@ export function useDomains() {
       return;
     }
 
+    const userEmail = user.email;
+    const loadingKey = `domains_${userEmail}`;
+    
     // Check cache first
-    const now = Date.now();
-    if (domainsCache.data && (now - domainsCache.timestamp) < domainsCache.expiryTime) {
-      setDomains(domainsCache.data);
-      return;
+    const cached = cacheManager.getDomains(userEmail);
+    if (cached.exists && cached.data) {
+      setDomains(cached.data);
+      if (!cached.isStale) {
+        // Fresh cache, no need to fetch
+        return;
+      }
+      // Stale cache, continue to fetch in background
     }
 
     // Prevent multiple simultaneous requests
-    if (domainsCache.loading) {
+    if (cacheManager.isLoading(loadingKey)) {
       return;
     }
 
@@ -52,7 +52,7 @@ export function useDomains() {
     }
     
     abortControllerRef.current = new AbortController();
-    domainsCache.loading = true;
+    cacheManager.setLoading(loadingKey, true);
     setLoading(true);
     setError(null);
     markStart();
@@ -75,11 +75,11 @@ export function useDomains() {
       }
 
       if (data.domains) {
-        // Update cache
-        domainsCache.data = data.domains;
-        domainsCache.timestamp = now;
+        // Update cache with new data
+        cacheManager.setDomains(userEmail, data.domains);
         setDomains(data.domains);
         markSuccess();
+        console.log(`[Domains] Cached ${data.domains.length} domains for ${userEmail}`);
       } else {
         const errorMessage = 'No domains found in response';
         setError(errorMessage);
@@ -101,7 +101,7 @@ export function useDomains() {
       setError(errorMessage);
       markError(errorMessage);
     } finally {
-      domainsCache.loading = false;
+      cacheManager.setLoading(loadingKey, false);
       setLoading(false);
     }
   };
@@ -120,12 +120,25 @@ export function useDomains() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  const clearCache = useCallback(() => {
+    if (user) {
+      cacheManager.invalidateDomains(user.email);
+      console.log(`[Domains] Cleared cache for ${user.email}`);
+    }
+  }, [user]);
+
+  const getCacheStats = useCallback(() => {
+    return cacheManager.getStats();
+  }, []);
+
   return {
     domains,
     loading,
     error,
     refetch: fetchDomains,
-    metrics
+    metrics,
+    clearCache,
+    getCacheStats
   };
 }
 
