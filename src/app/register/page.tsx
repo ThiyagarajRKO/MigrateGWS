@@ -87,7 +87,7 @@ export default function RegisterPage() {
             
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Request Submitted</h2>
             <p className="text-gray-600 mb-6">
-              Thank you for your interest in the GWS Migration Platform. Our team will review your request and contact you within 24-48 hours.
+              Thank you for your interest in MigrateGWS. Our team will review your request and contact you within 24-48 hours.
             </p>
             
             <div className="space-y-4">
@@ -121,7 +121,9 @@ export default function RegisterPage() {
             <div className="flex items-center mb-8">
               <Database className="h-10 w-10 mr-4" />
               <div>
-                <h1 className="text-2xl font-bold">GWS Migration Platform</h1>
+                        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          MigrateGWS
+        </h1>
                 <p className="text-blue-100">Enterprise Access Request</p>
               </div>
             </div>
@@ -166,7 +168,7 @@ export default function RegisterPage() {
             <div className="flex items-center justify-center mb-8 lg:hidden">
               <Database className="h-8 w-8 text-blue-600 mr-3" />
               <div className="text-center">
-                <h1 className="text-xl font-bold text-gray-900">GWS Migration Platform</h1>
+                <h1 className="text-xl font-bold text-gray-900">MigrateGWS</h1>
                 <p className="text-gray-600 text-sm">Enterprise Access Request</p>
               </div>
             </div>

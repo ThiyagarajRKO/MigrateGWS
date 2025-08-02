@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 import { 
   Users, 
   Search, 
@@ -34,9 +34,20 @@ interface User {
   customerId: string;
 }
 
+interface UserDiscoveryError {
+  type: 'general' | 'delegation';
+  title: string;
+  message: string;
+  details?: string[];
+  actionRequired?: string;
+  domain?: string;
+  adminEmail?: string;
+}
+
 interface UserDiscoveryProps {
   sourceDomain: string;
   targetDomain?: string;
+  sourceAdminEmail?: string; // Add admin email prop
   onUsersSelected?: (users: User[]) => void;
   onComplete?: () => void;
 }
@@ -44,13 +55,14 @@ interface UserDiscoveryProps {
 export const UserDiscovery = memo(function UserDiscovery({ 
   sourceDomain, 
   targetDomain, 
+  sourceAdminEmail,
   onUsersSelected, 
   onComplete 
 }: UserDiscoveryProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UserDiscoveryError | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
@@ -60,38 +72,61 @@ export const UserDiscovery = memo(function UserDiscovery({
   const [filterSuspended, setFilterSuspended] = useState<'all' | 'active' | 'suspended'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'email' | 'lastLogin' | 'created'>('name');
 
-  useEffect(() => {
-    if (sourceDomain) {
-      fetchUsers();
-    }
-  }, [sourceDomain]);
-
-  useEffect(() => {
-    applyFilters();
-  }, [users, searchTerm, filterAdmin, filterSuspended, sortBy]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/google-workspace?action=users&domain=${encodeURIComponent(sourceDomain)}`);
+      const params = new URLSearchParams({
+        action: 'users',
+        domain: sourceDomain
+      });
+      
+      // Add admin email if provided for service account authentication
+      if (sourceAdminEmail) {
+        params.append('adminEmail', sourceAdminEmail);
+      }
+      
+      const response = await fetch(`/api/google-workspace?${params.toString()}`);
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch users: ${response.statusText}`);
+        const errorData = await response.json().catch(() => null);
+        if (errorData?.error === 'Domain-wide delegation not configured') {
+          // Set detailed error for domain-wide delegation issues
+          setError({
+            type: 'delegation',
+            title: 'Domain-wide Delegation Required',
+            message: errorData.message,
+            details: errorData.details,
+            actionRequired: errorData.actionRequired,
+            domain: errorData.domain,
+            adminEmail: errorData.adminEmail
+          });
+        } else {
+          setError({
+            type: 'general',
+            title: 'Error Fetching Users',
+            message: errorData?.message || `Failed to fetch users: ${response.statusText}`
+          });
+        }
+        return;
       }
 
       const data = await response.json();
       setUsers(data.users || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch users');
+      setError({
+        type: 'general',
+        title: 'Error Fetching Users',
+        message: err instanceof Error ? err.message : 'Failed to fetch users'
+      });
       console.error('Error fetching users:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [sourceDomain, sourceAdminEmail]);
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     let filtered = [...users];
 
     // Search filter
@@ -135,7 +170,18 @@ export const UserDiscovery = memo(function UserDiscovery({
     });
 
     setFilteredUsers(filtered);
-  };
+  }, [users, searchTerm, filterAdmin, filterSuspended, sortBy]);
+
+  // Effects - must come after function definitions due to dependencies
+  useEffect(() => {
+    if (sourceDomain) {
+      fetchUsers();
+    }
+  }, [sourceDomain, fetchUsers]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
   const toggleUserSelection = (userId: string) => {
     const newSelected = new Set(selectedUsers);
@@ -212,12 +258,39 @@ export const UserDiscovery = memo(function UserDiscovery({
       <div className="bg-white rounded-lg shadow p-8">
         <div className="flex items-center space-x-3 text-red-600 mb-4">
           <AlertCircle className="h-6 w-6" />
-          <h3 className="text-lg font-medium">Error Fetching Users</h3>
+          <h3 className="text-lg font-medium">{error.title}</h3>
         </div>
-        <p className="text-gray-600 mb-4">{error}</p>
+        
+        <div className="space-y-4">
+          <p className="text-gray-600">{error.message}</p>
+          
+          {error.type === 'delegation' && error.details && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h4 className="font-medium text-yellow-800 mb-2">Setup Required:</h4>
+              <ul className="list-disc list-inside space-y-1 text-yellow-700 text-sm">
+                {error.details.map((detail, index) => (
+                  <li key={index}>{detail}</li>
+                ))}
+              </ul>
+              {error.actionRequired && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-blue-800 text-sm font-medium">{error.actionRequired}</p>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {error.domain && error.adminEmail && (
+            <div className="bg-gray-50 rounded-lg p-3 text-sm">
+              <p><strong>Domain:</strong> {error.domain}</p>
+              <p><strong>Admin Email:</strong> {error.adminEmail}</p>
+            </div>
+          )}
+        </div>
+        
         <button
           onClick={fetchUsers}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
         >
           Retry
         </button>

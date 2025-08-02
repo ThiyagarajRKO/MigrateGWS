@@ -12,7 +12,7 @@ import {
   ChevronUp,
   ExternalLink
 } from 'lucide-react';
-import { MigrationStep, MigrationStatus } from '@/types/migration-scenarios';
+import { MigrationStep, MigrationStatus, MigrationError } from '@/types/migration-scenarios';
 
 interface MigrationProgressProps {
   migrationStatus: MigrationStatus;

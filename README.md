@@ -1,4 +1,4 @@
-# GWS Migration Platform
+# MigrateGWS
 
 A comprehensive DIY Google Workspace to Google Workspace Migration Platform built with Next.js, TypeScript, and modern web technologies.
 

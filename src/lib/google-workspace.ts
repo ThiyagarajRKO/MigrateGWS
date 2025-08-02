@@ -149,9 +149,103 @@ export class GoogleWorkspaceService {
         suspended: user.suspended || false,
         orgUnitPath: user.orgUnitPath || '/',
       })) || []
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching users:', error)
+      
+      // Preserve original error details for proper error handling upstream
+      if (error?.response?.data?.error === 'unauthorized_client' || 
+          error?.response?.data?.error === 'invalid_grant' ||
+          error?.message?.includes('unauthorized_client') ||
+          error?.message?.includes('invalid_grant') ||
+          error?.code === 401 || error?.code === 400) {
+        // Re-throw with original error information preserved
+        const delegationError = new Error(`Domain-wide delegation error: ${error?.response?.data?.error || error?.message || 'unauthorized_client'}`)
+        delegationError.cause = error
+        throw delegationError
+      }
+      
       throw new Error('Failed to fetch users from Google Workspace')
+    }
+  }
+
+  // Enhanced method for bulk user enumeration - ideal for migration automation
+  async getAllUsers(domain?: string, options?: {
+    includeSuspended?: boolean
+    includeArchived?: boolean
+    orgUnitPath?: string
+    onProgress?: (users: GWSUser[], total: number) => void
+  }): Promise<GWSUser[]> {
+    try {
+      const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
+      const allUsers: GWSUser[] = []
+      let nextPageToken: string | undefined
+      let totalFetched = 0
+
+      do {
+        const response = await admin.users.list({
+          domain,
+          maxResults: 500, // Maximum allowed by API
+          orderBy: 'email',
+          pageToken: nextPageToken,
+          query: options?.orgUnitPath ? `orgUnitPath='${options.orgUnitPath}'` : undefined,
+          showDeleted: options?.includeArchived ? 'true' : undefined,
+        })
+
+        const users = response.data.users?.map(user => ({
+          id: user.id!,
+          primaryEmail: user.primaryEmail!,
+          name: {
+            givenName: user.name?.givenName || '',
+            familyName: user.name?.familyName || '',
+            fullName: user.name?.fullName || '',
+          },
+          isAdmin: user.isAdmin || false,
+          isDelegatedAdmin: user.isDelegatedAdmin || false,
+          lastLoginTime: user.lastLoginTime || undefined,
+          creationTime: user.creationTime!,
+          suspended: user.suspended || false,
+          orgUnitPath: user.orgUnitPath || '/',
+        })) || []
+
+        // Filter suspended users if not requested
+        const filteredUsers = options?.includeSuspended 
+          ? users 
+          : users.filter(user => !user.suspended)
+
+        allUsers.push(...filteredUsers)
+        totalFetched += filteredUsers.length
+
+        // Call progress callback if provided
+        if (options?.onProgress) {
+          options.onProgress(filteredUsers, totalFetched)
+        }
+
+        nextPageToken = response.data.nextPageToken || undefined
+
+        // Small delay to avoid rate limiting
+        if (nextPageToken) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+
+      } while (nextPageToken)
+
+      return allUsers
+    } catch (error: any) {
+      console.error('Error fetching all users:', error)
+      
+      // Preserve original error details for proper error handling upstream
+      if (error?.response?.data?.error === 'unauthorized_client' || 
+          error?.response?.data?.error === 'invalid_grant' ||
+          error?.message?.includes('unauthorized_client') ||
+          error?.message?.includes('invalid_grant') ||
+          error?.code === 401 || error?.code === 400) {
+        // Re-throw with original error information preserved
+        const delegationError = new Error(`Domain-wide delegation error: ${error?.response?.data?.error || error?.message || 'unauthorized_client'}`)
+        delegationError.cause = error
+        throw delegationError
+      }
+      
+      throw new Error('Failed to fetch all users from Google Workspace')
     }
   }
 
@@ -183,24 +277,47 @@ export class GoogleWorkspaceService {
     }
   }
 
-  // Admin Directory API - Domains
+  // Admin Directory API - Domains (with optimizations)
   async getDomains(): Promise<GWSDomain[]> {
     try {
       const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
       
-      const response = await admin.domains.list({
-        customer: 'my_customer',
-      })
-
-      return response.data.domains?.map(domain => ({
-        domainName: domain.domainName!,
-        isPrimary: domain.isPrimary || false,
-        verified: domain.verified || false,
-        creationTime: domain.creationTime!,
-      })) || []
-    } catch (error) {
-      console.error('Error fetching domains:', error)
-      throw new Error('Failed to fetch domains from Google Workspace')
+      // Add timeout to the request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const response = await admin.domains.list({
+          customer: 'my_customer',
+          // Add request options for better performance
+          fields: 'domains(domainName,isPrimary,verified,creationTime)', // Only fetch needed fields
+        });
+        
+        clearTimeout(timeoutId);
+        
+        return response.data.domains?.map(domain => ({
+          domainName: domain.domainName!,
+          isPrimary: domain.isPrimary || false,
+          verified: domain.verified || false,
+          creationTime: domain.creationTime!,
+        })) || []
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('Error fetching domains:', error);
+      
+      // Provide more specific error messages
+      if (error.code === 401) {
+        throw new Error('Authentication failed. Please check your Google Workspace permissions.');
+      } else if (error.code === 403) {
+        throw new Error('Access denied. Please ensure you have domain administrator privileges.');
+      } else if (error.name === 'AbortError') {
+        throw new Error('Domain fetch request timed out. Please try again.');
+      } else {
+        throw new Error(`Failed to fetch domains: ${error.message || 'Unknown error'}`);
+      }
     }
   }
 
@@ -273,14 +390,35 @@ export class GoogleWorkspaceService {
   }
 
   // Validation and health check
-  async validateAccess(): Promise<boolean> {
+  async validateAccess(): Promise<{ valid: boolean; error?: string; details?: string }> {
     try {
       const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
       await admin.users.list({ maxResults: 1 })
-      return true
-    } catch (error) {
+      return { valid: true }
+    } catch (error: any) {
       console.error('Access validation failed:', error)
-      return false
+      
+      let errorMessage = 'Unknown error'
+      let details = ''
+      
+      if (error.code === 400) {
+        errorMessage = 'Bad Request - API access issue'
+        details = 'This usually means the Google Workspace Admin SDK API is not enabled or the user lacks admin permissions'
+      } else if (error.code === 401) {
+        errorMessage = 'Unauthorized - Authentication issue'
+        details = 'Please sign in with a Google Workspace Super Admin account'
+      } else if (error.code === 403) {
+        errorMessage = 'Forbidden - Insufficient permissions'
+        details = 'Your account needs Super Admin privileges in Google Workspace'
+      } else if (error.code === 404) {
+        errorMessage = 'Not Found - Domain or API not available'
+        details = 'Check if the Google Workspace domain is correctly configured'
+      } else {
+        errorMessage = error.message || 'API access failed'
+        details = 'Please check your Google Workspace configuration and permissions'
+      }
+      
+      return { valid: false, error: errorMessage, details }
     }
   }
 

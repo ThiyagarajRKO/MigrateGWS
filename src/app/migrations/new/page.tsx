@@ -103,9 +103,30 @@ export default function NewMigration() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('scenario');
   const [selectedScenario, setSelectedScenario] = useState<MigrationScenario | null>(null);
   const [domainMapping, setDomainMapping] = useState<DomainMappingConfig | null>(null);
+
+  // Helper functions for domain handling
+  const getTargetDomainsFromMapping = (mapping: DomainMappingConfig) => {
+    if (mapping.type === 'one-to-many') {
+      if (mapping.multiTargetConfig && mapping.multiTargetConfig.length > 0) {
+        return mapping.multiTargetConfig.map(config => config.domain);
+      } else if (mapping.targetDomains && mapping.targetDomains.length > 0) {
+        return mapping.targetDomains.filter(domain => domain.trim() !== '');
+      }
+    }
+    return mapping.targetDomain ? [mapping.targetDomain] : [];
+  };
+
+  const formatTargetDomains = (mapping: DomainMappingConfig) => {
+    const targets = getTargetDomainsFromMapping(mapping);
+    if (targets.length === 1) {
+      return targets[0];
+    }
+    return targets.filter(Boolean).join(', ');
+  };
   const [migrationConfig, setMigrationConfig] = useState({
     sourceDomain: '',
     targetDomain: '',
+    targetDomains: [] as string[], // Add support for multiple target domains
     services: [] as string[],
     userMappings: [] as Array<{ sourceEmail: string; targetEmail: string }>,
     migrationOptions: {
@@ -139,17 +160,16 @@ export default function NewMigration() {
   const handleDomainMappingSelect = (mapping: DomainMappingConfig) => {
     setDomainMapping(mapping);
     
-    // Determine target domain for migration config
-    let targetDomain = mapping.targetDomain;
-    if (mapping.type === 'one-to-many' && mapping.multiTargetConfig && mapping.multiTargetConfig.length > 0) {
-      targetDomain = mapping.multiTargetConfig[0].domain;
-    }
+    // Use helper function to get target domains
+    const targetDomains = getTargetDomainsFromMapping(mapping);
+    const targetDomain = targetDomains[0] || '';
     
     // Auto-populate source and target domains from mapping
     setMigrationConfig(prev => ({
       ...prev,
       sourceDomain: mapping.sourceDomains[0] || '',
-      targetDomain: targetDomain
+      targetDomain: targetDomain || '',
+      targetDomains: targetDomains
     }));
     
     // Initialize source admin emails for multiple source domains (cross-tenant only)
@@ -162,10 +182,10 @@ export default function NewMigration() {
     }
     
     // Initialize target admin emails for multiple target domains
-    if (mapping.type === 'one-to-many' && mapping.multiTargetConfig) {
+    if (targetDomains.length > 1) {
       const newTargetAdminEmails: {[domain: string]: string} = {};
-      mapping.multiTargetConfig.forEach(config => {
-        newTargetAdminEmails[config.domain] = targetAdminEmails[config.domain] || '';
+      targetDomains.forEach(domain => {
+        newTargetAdminEmails[domain] = targetAdminEmails[domain] || '';
       });
       setTargetAdminEmails(newTargetAdminEmails);
     }
@@ -249,35 +269,39 @@ export default function NewMigration() {
 
   // Get target domains for multi-target scenarios
   const getTargetDomains = (): string[] => {
-    if (!domainMapping) return [migrationConfig.targetDomain].filter(Boolean);
-    
-    if (domainMapping.type === 'one-to-many' && domainMapping.multiTargetConfig) {
-      return domainMapping.multiTargetConfig.map(config => config.domain).filter(Boolean);
+    // First check if we have target domains array in migration config
+    if (migrationConfig.targetDomains && migrationConfig.targetDomains.length > 0) {
+      return migrationConfig.targetDomains.filter((domain): domain is string => Boolean(domain));
     }
     
-    return [domainMapping.targetDomain].filter(Boolean);
+    // Fallback to domain mapping configuration
+    if (!domainMapping) return [migrationConfig.targetDomain].filter((domain): domain is string => Boolean(domain));
+    
+    if (domainMapping.type === 'one-to-many') {
+      if (domainMapping.multiTargetConfig) {
+        return domainMapping.multiTargetConfig.map(config => config.domain).filter((domain): domain is string => Boolean(domain));
+      }
+      if (domainMapping.targetDomains) {
+        return domainMapping.targetDomains.filter((domain): domain is string => Boolean(domain));
+      }
+    }
+    
+    return [domainMapping.targetDomain].filter((domain): domain is string => Boolean(domain));
   };
 
   // Get source domains for multi-source scenarios
   const getSourceDomains = (): string[] => {
-    if (!domainMapping) return [migrationConfig.sourceDomain].filter(Boolean);
+    if (!domainMapping) return [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
     
-    return domainMapping.sourceDomains.filter(Boolean);
+    return domainMapping.sourceDomains.filter((domain): domain is string => Boolean(domain));
   };
 
   // Check if all required admin emails are provided
   const areAllAdminEmailsProvided = (): boolean => {
     if (selectedScenario === 'single-super-admin') {
-      if (!sourceAdminEmail) return false;
-      
-      // Check if target admin emails are needed for multiple targets
-      const targetDomains = getTargetDomains();
-      if (targetDomains.length <= 1) {
-        return true; // Single target domain - sourceAdminEmail is sufficient
-      } else {
-        // Multiple target domains - check all have admin emails
-        return targetDomains.every(domain => !!targetAdminEmails[domain]);
-      }
+      // For single super admin, only source admin email is required
+      // Target domain admin emails are not needed as the same admin manages both
+      return !!sourceAdminEmail;
     }
     
     // Cross-tenant scenario
@@ -483,44 +507,8 @@ export default function NewMigration() {
                     {(() => {
                       const targetDomains = getTargetDomains();
                       
-                      if (targetDomains.length > 1) {
-                        return (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-3">
-                              Target Domain Admin Emails
-                            </label>
-                            <div className="space-y-3">
-                              {targetDomains.map((domain, index) => (
-                                <div key={domain} className="flex items-center space-x-3">
-                                  <div className="flex-1">
-                                    <div className="flex items-center space-x-2 mb-1">
-                                      <span className="text-sm font-medium text-gray-600">
-                                        Target Domain {index + 1}:
-                                      </span>
-                                      <span className="text-sm text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded">
-                                        {domain}
-                                      </span>
-                                    </div>
-                                    <input
-                                      type="email"
-                                      value={targetAdminEmails[domain] || ''}
-                                      onChange={(e) => setTargetAdminEmails(prev => ({
-                                        ...prev,
-                                        [domain]: e.target.value
-                                      }))}
-                                      placeholder={`admin@${domain}`}
-                                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                              <p className="text-xs text-gray-500 mt-2">
-                                Admin email for each target Google Workspace domain (may be the same as super admin if cross-domain access is configured)
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
+                      // For single-super-admin, we don't need separate target domain admin emails
+                      // The super admin should have access to all domains
                       return null;
                     })()}
                   </div>
@@ -575,27 +563,29 @@ export default function NewMigration() {
                     {(() => {
                       const targetDomains = getTargetDomains();
                       
-                      if (targetDomains.length <= 1) {
-                        // Single target domain
-                        return (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Target Domain Admin Email
-                            </label>
-                            <input
-                              type="email"
-                              value={targetAdminEmail}
-                              onChange={(e) => setTargetAdminEmail(e.target.value)}
-                              placeholder="admin@target-domain.com"
-                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                              Super admin email for the target Google Workspace domain
-                            </p>
-                          </div>
-                        );
-                      } else {
-                        // Multiple target domains
+                      // Only show target domain admin emails for cross-tenant migrations
+                      if (selectedScenario === 'cross-tenant') {
+                        if (targetDomains.length <= 1) {
+                          // Single target domain
+                          return (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Target Domain Admin Email
+                              </label>
+                              <input
+                                type="email"
+                                value={targetAdminEmail}
+                                onChange={(e) => setTargetAdminEmail(e.target.value)}
+                                placeholder="admin@target-domain.com"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                Super admin email for the target Google Workspace domain
+                              </p>
+                            </div>
+                          );
+                        } else {
+                          // Multiple target domains
                         return (
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -632,7 +622,11 @@ export default function NewMigration() {
                             </div>
                           </div>
                         );
+                        }
                       }
+                      
+                      // For single super admin migrations, no target admin emails needed
+                      return null;
                     })()}
                   </div>
                 )}
@@ -665,14 +659,7 @@ export default function NewMigration() {
                     : selectedScenario === 'single-super-admin'
                       ? (() => {
                           if (!sourceAdminEmail) return 'Enter super admin email to begin setup';
-                          
-                          const targetDomains = getTargetDomains();
-                          if (targetDomains.length > 1) {
-                            const missingCount = targetDomains.length - targetDomains.filter(domain => targetAdminEmails[domain]).length;
-                            if (missingCount > 0) return `Enter admin emails for ${missingCount} remaining target domain${missingCount > 1 ? 's' : ''}`;
-                          }
-                          
-                          return 'Enter admin emails to begin setup';
+                          return 'Ready to configure delegation';
                         })()
                       : (() => {
                           const sourceDomains = getSourceDomains();
@@ -720,6 +707,8 @@ export default function NewMigration() {
                       sourceAccount={sourceAdminEmail}
                       destAccount={getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
                       destAccounts={getTargetDomains().length > 1 ? targetAdminEmails : undefined}
+                      migrationScenario={selectedScenario || undefined}
+                      domainMapping={domainMapping || undefined}
                       onComplete={handleDwdSetupComplete}
                       className="bg-white"
                     />
@@ -748,6 +737,7 @@ export default function NewMigration() {
                         <UserDiscovery
                           sourceDomain={migrationConfig.sourceDomain}
                           targetDomain={migrationConfig.targetDomain}
+                          sourceAdminEmail={sourceAdminEmails[migrationConfig.sourceDomain] || sourceAdminEmail}
                           onUsersSelected={setSelectedUsers}
                           onComplete={() => setShowUserDiscovery(false)}
                         />
@@ -1035,7 +1025,7 @@ export default function NewMigration() {
                             </div>
                             <div className="text-gray-700 mt-3 mb-2">Target Domains:</div>
                             <div className="ml-4 space-y-1">
-                              {domainMapping.targetDomains?.map((target, idx) => (
+                              {getTargetDomainsFromMapping(domainMapping).map((target, idx) => (
                                 <div key={idx} className="text-green-600">→ {target}</div>
                               ))}
                             </div>
@@ -1068,8 +1058,17 @@ export default function NewMigration() {
                       <div className="font-medium text-gray-900">{migrationConfig.sourceDomain}</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-600 mb-1">Target Domain</div>
-                      <div className="font-medium text-gray-900">{migrationConfig.targetDomain}</div>
+                      <div className="text-sm text-gray-600 mb-1">
+                        Target Domain{migrationConfig.targetDomains.length > 1 ? 's' : ''}
+                      </div>
+                      <div className="font-medium text-gray-900">
+                        {domainMapping ? formatTargetDomains(domainMapping) : migrationConfig.targetDomain}
+                      </div>
+                      {migrationConfig.targetDomains.length > 1 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {migrationConfig.targetDomains.length} target domains configured
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

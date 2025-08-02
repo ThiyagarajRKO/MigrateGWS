@@ -87,7 +87,7 @@ export default function LoginPage() {
                   <Database className="h-8 w-8" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight">GWS Migration Platform</h1>
+                  <h1 className="text-2xl font-bold tracking-tight">MigrateGWS</h1>
                   <p className="text-blue-100/80">Secure Google Workspace Migration</p>
                 </div>
               </div>
@@ -151,7 +151,7 @@ export default function LoginPage() {
                 <Database className="h-6 w-6 text-blue-600" />
               </div>
               <div className="text-center">
-                <h1 className="text-xl font-bold text-gray-900">GWS Migration Platform</h1>
+                <h1 className="text-xl font-bold text-gray-900">MigrateGWS</h1>
                 <p className="text-gray-600 text-sm">Secure Google Workspace Migration</p>
               </div>
             </div>
@@ -312,7 +312,7 @@ export default function LoginPage() {
             </div>
 
             <div className="mt-8 text-center text-sm text-gray-500">
-              <p>© 2025 GWS Migration Platform. All rights reserved.</p>
+              <p>© 2025 MigrateGWS. All rights reserved.</p>
               <div className="mt-2 space-x-4">
                 <Link href="/privacy" className="hover:text-gray-700">Privacy Policy</Link>
                 <Link href="/terms" className="hover:text-gray-700">Terms of Service</Link>

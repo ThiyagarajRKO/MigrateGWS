@@ -1,4 +1,4 @@
-// Utility functions for the GWS Migration Platform
+// Utility functions for MigrateGWS
 
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';

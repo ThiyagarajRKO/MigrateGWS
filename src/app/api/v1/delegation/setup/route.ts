@@ -1,16 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
+import * as fs from 'fs'
+import * as path from 'path'
 
-// Mock service account generation - in production, this would integrate with Google Cloud APIs
+// Load the actual service account from the JSON file
+const loadServiceAccount = () => {
+  try {
+    const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
+    const serviceAccountData = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+    return serviceAccountData
+  } catch (error) {
+    console.error('Failed to load service account:', error)
+    // Fallback to mock data if file is not found
+    return {
+      client_id: '114333598950671892438',
+      client_email: 'gws-permission@gws-migration-463208.iam.gserviceaccount.com',
+      project_id: 'gws-migration-463208',
+      type: 'service_account'
+    }
+  }
+}
+
+// Generate service account configuration for domain-wide delegation
 const generateServiceAccount = (domain: string) => {
-  // This would typically create a real service account via Google Cloud APIs
-  const projectId = 'gws-migration-' + domain.replace(/\./g, '-')
-  const serviceAccountName = 'gws-migration-service'
-  const clientId = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+  const serviceAccount = loadServiceAccount()
   
   return {
-    clientId: clientId,
-    email: `${serviceAccountName}@${projectId}.iam.gserviceaccount.com`,
-    projectId: projectId,
+    clientId: serviceAccount.client_id,
+    email: serviceAccount.client_email,
+    projectId: serviceAccount.project_id,
     domain: domain
   }
 }
@@ -31,13 +48,74 @@ const REQUIRED_SCOPES = [
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail } = body
+    const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
 
+    // Handle Single Super Admin scenario
+    if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {
+      if (!adminEmail) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'adminEmail is required for single super admin scenario' 
+          },
+          { status: 400 }
+        )
+      }
+
+      const domain = adminEmail.split('@')[1]
+      if (!domain) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Invalid email address provided' 
+          },
+          { status: 400 }
+        )
+      }
+
+      const serviceAccount = generateServiceAccount(domain)
+
+      // Prepare response for single domain scenario
+      const response = {
+        success: true,
+        migrationScenario: 'single-super-admin',
+        domain: {
+          clientId: serviceAccount.clientId,
+          email: serviceAccount.email,
+          projectId: serviceAccount.projectId,
+          domain: domain,
+          adminEmail: adminEmail
+        },
+        scopes: REQUIRED_SCOPES,
+        setupInstructions: {
+          domain: {
+            title: `Domain Setup (${domain})`,
+            clientId: serviceAccount.clientId,
+            scopes: REQUIRED_SCOPES,
+            adminConsoleUrl: 'https://admin.google.com/ac/owl/domainwidedelegation',
+            domain: domain,
+            adminEmail: adminEmail,
+            steps: [
+              '1. Open the Google Admin Console for your domain',
+              '2. Navigate to Security → API Controls → Domain-wide Delegation',
+              '3. Click "Add new" to add a new client',
+              '4. Paste the Client ID provided above',
+              '5. Paste the OAuth scopes provided above',
+              '6. Click "Authorize" to complete the setup'
+            ]
+          }
+        }
+      }
+
+      return NextResponse.json(response)
+    }
+
+    // Handle Cross-Tenant scenario (existing logic)
     if (!sourceAdminEmail || !destAdminEmail) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Both sourceAdminEmail and destAdminEmail are required' 
+          error: 'Both sourceAdminEmail and destAdminEmail are required for cross-tenant migration' 
         },
         { status: 400 }
       )
@@ -61,9 +139,10 @@ export async function POST(request: NextRequest) {
     const sourceServiceAccount = generateServiceAccount(sourceDomain)
     const destServiceAccount = generateServiceAccount(destDomain)
 
-    // Prepare response
+    // Prepare response for cross-tenant scenario
     const response = {
       success: true,
+      migrationScenario: 'cross-tenant',
       source: {
         clientId: sourceServiceAccount.clientId,
         email: sourceServiceAccount.email,
@@ -137,9 +216,26 @@ export async function GET() {
       setup: 'POST /api/v1/delegation/setup',
       verify: 'POST /api/v1/delegation/verify'
     },
-    requiredFields: {
-      setup: ['sourceAdminEmail', 'destAdminEmail'],
-      verify: ['sourceAdminEmail', 'destAdminEmail', 'sourceEmail', 'destEmail']
+    migrationScenarios: {
+      'single-super-admin': {
+        description: 'Single domain with super admin access',
+        requiredFields: ['adminEmail'],
+        optionalFields: ['migrationScenario'],
+        example: {
+          adminEmail: 'superadmin@company.com',
+          migrationScenario: 'single-super-admin'
+        }
+      },
+      'cross-tenant': {
+        description: 'Cross-tenant migration between two different domains',
+        requiredFields: ['sourceAdminEmail', 'destAdminEmail'],
+        optionalFields: ['migrationScenario'],
+        example: {
+          sourceAdminEmail: 'admin@source.com',
+          destAdminEmail: 'admin@destination.com',
+          migrationScenario: 'cross-tenant'
+        }
+      }
     }
   })
 }

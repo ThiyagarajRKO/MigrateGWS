@@ -12,7 +12,16 @@ export interface MigrationStep {
   status: 'pending' | 'in-progress' | 'completed' | 'failed';
   progress: number; // 0-100
   estimatedDuration: string;
+  actualDuration?: string;
   error?: string;
+}
+
+export interface MigrationError {
+  id: string;
+  step: string;
+  message: string;
+  timestamp: string;
+  resolved: boolean;
 }
 
 export interface MigrationStatus {
@@ -23,7 +32,7 @@ export interface MigrationStatus {
   startTime: string;
   estimatedCompletion: string;
   overallProgress: number;
-  errors: string[];
+  errors: MigrationError[];
 }
 
 export interface DomainMapping {
@@ -273,6 +282,8 @@ export interface DomainMappingOption {
   icon: string;
   complexity: 'Low' | 'Medium' | 'High' | 'Very High';
   supportedScenarios: MigrationScenario[];
+  requiresConflictHandling?: boolean;
+  example?: string;
 }
 
 export interface DomainMappingConfig {
@@ -338,7 +349,8 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Migrate from one source domain to one target domain with direct user mapping',
     icon: 'ArrowRight',
     complexity: 'Low',
-    supportedScenarios: ['single-super-admin']
+    supportedScenarios: ['single-super-admin'],
+    example: 'oldcompany.com → newcompany.com'
   },
   {
     type: 'one-to-many',
@@ -346,7 +358,9 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Migrate from one source domain to multiple target domains with distributed user mapping',
     icon: 'GitBranch',
     complexity: 'Medium',
-    supportedScenarios: ['single-super-admin']
+    supportedScenarios: ['single-super-admin'],
+    requiresConflictHandling: true,
+    example: 'company.com → dept1.com, dept2.com'
   },
   {
     type: 'many-to-one',
@@ -354,7 +368,9 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Consolidate multiple source domains into one target domain with merged user mapping',
     icon: 'GitMerge',
     complexity: 'Medium',
-    supportedScenarios: ['single-super-admin']
+    supportedScenarios: ['single-super-admin'],
+    requiresConflictHandling: true,
+    example: 'old1.com, old2.com → newcompany.com'
   },
   {
     type: 'cross-tenant-single',
@@ -362,7 +378,8 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Migrate between different Google Workspace tenants with single domain mapping',
     icon: 'Building',
     complexity: 'High',
-    supportedScenarios: ['cross-tenant']
+    supportedScenarios: ['cross-tenant'],
+    example: 'source-tenant.com → target-tenant.com'
   },
   {
     type: 'cross-tenant-multi-target',
@@ -370,7 +387,9 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Migrate from one source tenant domain to multiple target tenant domains',
     icon: 'Network',
     complexity: 'Very High',
-    supportedScenarios: ['cross-tenant']
+    supportedScenarios: ['cross-tenant'],
+    requiresConflictHandling: true,
+    example: 'source.com → target1.com, target2.com'
   },
   {
     type: 'cross-tenant-multi-source',
@@ -378,7 +397,9 @@ export const DOMAIN_MAPPING_OPTIONS: DomainMappingOption[] = [
     description: 'Consolidate multiple source tenant domains into one target tenant domain',
     icon: 'Combine',
     complexity: 'Very High',
-    supportedScenarios: ['cross-tenant']
+    supportedScenarios: ['cross-tenant'],
+    requiresConflictHandling: true,
+    example: 'source1.com, source2.com → target.com'
   }
 ];
 

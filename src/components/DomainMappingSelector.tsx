@@ -10,7 +10,8 @@ import {
   Building,
   GitBranch,
   Network,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { 
   DomainMappingType, 
@@ -22,10 +23,13 @@ import {
   TargetDomainConfig,
   getAvailableTargetDomains,
   getAvailableSourceDomains,
-  validateNoDomainConflicts
+  validateNoDomainConflicts,
+  isMultiTargetMapping,
+  isMultiSourceMapping
 } from '@/types/migration-scenarios';
-import { useDomains } from '@/hooks/useGoogleWorkspaceDomains';
+import { useFastDomainLoader } from '@/hooks/useFastDomainLoader';
 import { MultiTargetDomainSelector } from './MultiTargetDomainSelector';
+import { DomainLoadingStats } from './DomainLoadingStats';
 
 interface DomainMappingSelectorProps {
   selectedScenario: MigrationScenario;
@@ -38,7 +42,16 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   selectedMapping, 
   onMappingSelect 
 }: DomainMappingSelectorProps) {
-  const { domains, loading: domainsLoading, error: domainsError } = useDomains();
+  const { domains, loading: domainsLoading, error: domainsError, loadDomains: refetchDomains, metrics } = useFastDomainLoader({
+    timeout: 15000,
+    maxRetries: 2,
+    enableMetrics: true,
+  });
+
+  // Auto-load domains on mount
+  useEffect(() => {
+    refetchDomains();
+  }, [refetchDomains]);
   
   const [selectedType, setSelectedType] = useState<DomainMappingType | null>(
     selectedMapping?.type || null
@@ -49,12 +62,21 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   const [targetDomain, setTargetDomain] = useState(
     selectedMapping?.targetDomain || ''
   );
-  const [targetDomains, setTargetDomains] = useState<string[]>(
-    selectedMapping?.targetDomains || (selectedMapping?.type === 'one-to-many' ? ['', ''] : [''])
-  );
-  const [multiTargetConfig, setMultiTargetConfig] = useState<TargetDomainConfig[]>(
-    selectedMapping?.multiTargetConfig || []
-  );
+  const [targetDomains, setTargetDomains] = useState<string[]>(() => {
+    if (selectedMapping?.targetDomains && selectedMapping.targetDomains.length > 0) {
+      return selectedMapping.targetDomains;
+    }
+    if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+      return selectedMapping.multiTargetConfig.map(config => config.domain);
+    }
+    return selectedMapping?.type === 'one-to-many' ? ['', ''] : [''];
+  });
+  const [multiTargetConfig, setMultiTargetConfig] = useState<TargetDomainConfig[]>(() => {
+    if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+      return selectedMapping.multiTargetConfig;
+    }
+    return [];
+  });
   const [preserveAlias, setPreserveAlias] = useState(
     selectedMapping?.preserveSourceAsAlias || false
   );
@@ -68,7 +90,16 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       setSelectedType(selectedMapping.type);
       setSourceDomains(selectedMapping.sourceDomains);
       setTargetDomain(selectedMapping.targetDomain || '');
-      setTargetDomains(selectedMapping.targetDomains || (selectedMapping.type === 'one-to-many' ? ['', ''] : ['']));
+      
+      // Handle target domains array properly
+      if (selectedMapping.targetDomains && selectedMapping.targetDomains.length > 0) {
+        setTargetDomains(selectedMapping.targetDomains);
+      } else if (selectedMapping.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+        setTargetDomains(selectedMapping.multiTargetConfig.map(config => config.domain));
+      } else {
+        setTargetDomains(selectedMapping.type === 'one-to-many' ? ['', ''] : ['']);
+      }
+      
       setMultiTargetConfig(selectedMapping.multiTargetConfig || []);
       setPreserveAlias(selectedMapping.preserveSourceAsAlias || false);
       setConflictResolution(selectedMapping.conflictResolution || 'prefix');
@@ -82,7 +113,9 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       case 'one-to-one': return Users;
       case 'one-to-many': return Building;
       case 'many-to-one': return GitBranch;
-      case 'subdomain': return Network;
+      case 'cross-tenant-single': return Network;
+      case 'cross-tenant-multi-target': return Network;
+      case 'cross-tenant-multi-source': return Network;
       default: return Users;
     }
   };
@@ -100,14 +133,14 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     setSelectedType(option.type);
     
     // Reset domains based on type
-    if (option.type === 'many-to-one') {
-      setSourceDomains(['', '']); // Start with 2 domains for many-to-one
+    if (isMultiSourceMapping(option.type)) {
+      setSourceDomains(['', '']); // Start with 2 domains for multi-source mappings
     } else {
       setSourceDomains(['']); // Single domain for other types
     }
     
-    if (option.type === 'one-to-many') {
-      setTargetDomains(['', '']); // Start with 2 target domains for one-to-many
+    if (isMultiTargetMapping(option.type)) {
+      setTargetDomains(['', '']); // Start with 2 target domains for multi-target mappings
       setMultiTargetConfig([]); // Reset advanced config
     } else {
       setTargetDomains(['']); // Single target for other types
@@ -180,6 +213,12 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   const canConfirm = () => {
     if (!selectedType || sourceDomains.some(d => !d.trim())) return false;
     
+    // Multi-source validation: require more than 1 source domain
+    if (isMultiSourceMapping(selectedType)) {
+      const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+      if (validSourceDomains.length < 2) return false;
+    }
+    
     // Check for domain conflicts (source domains cannot be target domains)
     const allTargetDomains = selectedType === 'one-to-many' 
       ? (multiTargetConfig.length > 0 
@@ -190,12 +229,15 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     const { isValid } = validateNoDomainConflicts(sourceDomains, allTargetDomains);
     if (!isValid) return false;
     
-    if (selectedType === 'one-to-many') {
+    // Multi-target validation
+    if (isMultiTargetMapping(selectedType)) {
       // Check if using advanced multi-target config or simple target domains
       if (multiTargetConfig.length > 0) {
-        return multiTargetConfig.every(config => config.domain.trim() !== '');
+        const validTargetConfigs = multiTargetConfig.filter(config => config.domain.trim() !== '');
+        return validTargetConfigs.length >= 2 && multiTargetConfig.every(config => config.domain.trim() !== '');
       } else {
-        return targetDomains.some(d => d.trim());
+        const validTargetDomains = targetDomains.filter(d => d.trim() !== '');
+        return validTargetDomains.length >= 2;
       }
     } else {
       return targetDomain.trim() !== '';
@@ -309,24 +351,41 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
             </label>
             
             {domainsLoading && (
-              <div className="flex items-center space-x-2 text-gray-500 mb-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Loading domains...</span>
+              <div className="flex items-center justify-between space-x-2 text-gray-500 mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center space-x-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Loading domains...</span>
+                </div>
+                {/* <DomainLoadingStats metrics={metrics || { startTime: Date.now(), duration: 0, cacheHit: false, errors: [] }} /> */}
+                <div className="text-xs text-gray-500">
+                  {metrics ? `Loaded in ${metrics.totalTime}ms${metrics.cacheHit ? ' (cached)' : ''}` : 'Loading...'}
+                </div>
               </div>
             )}
             
             {domainsError && (
-              <div className="flex items-center space-x-2 text-red-600 mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <AlertTriangle className="h-4 w-4" />
-                <div className="text-sm">
-                  <p className="font-medium">Unable to load domains</p>
-                  <p>{domainsError}</p>
-                  {domainsError.includes('Not authenticated') && (
-                    <p className="mt-1 text-xs">
-                      Please ensure you're logged in with a Google Workspace super admin account that has domain management permissions.
-                    </p>
-                  )}
+              <div className="flex items-center justify-between space-x-2 text-red-600 mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-medium">Unable to load domains</p>
+                    <p>{domainsError}</p>
+                    {domainsError.includes('Not authenticated') && (
+                      <p className="mt-1 text-xs">
+                        Please ensure you're logged in with a Google Workspace super admin account that has domain management permissions.
+                      </p>
+                    )}
+                  </div>
                 </div>
+                <button
+                  onClick={() => refetchDomains()}
+                  disabled={domainsLoading}
+                  className="flex items-center space-x-1 px-3 py-1 text-sm bg-red-100 hover:bg-red-200 rounded-md transition-colors disabled:opacity-50"
+                  title="Retry loading domains"
+                >
+                  <RefreshCw className={`h-3 w-3 ${domainsLoading ? 'animate-spin' : ''}`} />
+                  <span>Retry</span>
+                </button>
               </div>
             )}
             
@@ -366,13 +425,33 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
               </div>
             ))}
             
-            {selectedType === 'many-to-one' && (
+            {isMultiSourceMapping(selectedType) && (
               <button
                 onClick={addSourceDomain}
                 className="text-blue-600 hover:text-blue-800 text-sm font-medium"
               >
                 + Add another source domain
               </button>
+            )}
+            
+            {/* Multi-source validation message */}
+            {isMultiSourceMapping(selectedType) && (
+              <div className="mt-2">
+                {(() => {
+                  const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+                  if (validSourceDomains.length < 2) {
+                    return (
+                      <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                        <Info className="h-4 w-4" />
+                        <p className="text-sm">
+                          This migration type requires at least 2 source domains. Please add more domains.
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
             )}
           </div>
 
@@ -444,7 +523,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                   loading={domainsLoading}
                   error={domainsError}
                   className="border-0 shadow-none"
-                  minTargets={1}
+                  minTargets={isMultiTargetMapping(selectedType) ? 2 : 1}
                   maxTargets={5}
                   excludedSourceDomains={sourceDomains}
                 />
@@ -500,6 +579,26 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                   >
                     + Add another target domain
                   </button>
+                  
+                  {/* Multi-target validation message */}
+                  {isMultiTargetMapping(selectedType) && (
+                    <div className="mt-2">
+                      {(() => {
+                        const validTargetDomains = targetDomains.filter(d => d.trim() !== '');
+                        if (validTargetDomains.length < 2) {
+                          return (
+                            <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                              <Info className="h-4 w-4" />
+                              <p className="text-sm">
+                                This migration type requires at least 2 target domains. Please add more domains.
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  )}
                   
                   <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="text-sm text-blue-800">

@@ -16,7 +16,8 @@ import {
   Plus,
   LogOut,
   User,
-  Shield
+  Shield,
+  Settings
 } from 'lucide-react';
 
 interface MigrationStats {
@@ -38,9 +39,13 @@ interface RecentMigration {
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
-  const { data: domainsData, getDomains } = useGetDomains();
+  const { data: domainsData, getDomains, loading: domainsLoading } = useGetDomains();
   const { data: usersData, getUsers } = useGetUsers();
   const { data: validationData, validateAccess } = useValidateAccess();
+  
+  const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
+  const [connectingGWS, setConnectingGWS] = useState(false);
+  const [connectionError, setConnectionError] = useState<{ message: string; details?: string } | null>(null);
   
   const [stats] = useState<MigrationStats>({
     total: 24,
@@ -79,14 +84,35 @@ export default function Dashboard() {
     }
   ]);
 
-  // Load Google Workspace data
-  useEffect(() => {
+  // Manual Google Workspace connection
+  const connectGoogleWorkspace = async () => {
     if (user?.provider === 'google') {
-      validateAccess();
-      getDomains();
-      getUsers();
+      setConnectingGWS(true);
+      setConnectionError(null);
+      try {
+        const validationResult = await validateAccess();
+        if (validationResult?.valid) {
+          setGoogleWorkspaceConnected(true);
+          // Load domains first as they're needed for most operations and cache them
+          await getDomains();
+          await getUsers();
+        } else {
+          setConnectionError({
+            message: validationResult?.error || 'Failed to validate Google Workspace access',
+            details: validationResult?.details
+          });
+        }
+      } catch (error) {
+        console.error('Failed to connect to Google Workspace:', error);
+        setConnectionError({
+          message: 'Connection failed',
+          details: 'Please check your internet connection and try again'
+        });
+      } finally {
+        setConnectingGWS(false);
+      }
     }
-  }, [user, validateAccess, getDomains, getUsers]);
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -124,13 +150,14 @@ export default function Dashboard() {
               <div className="flex items-center">
                 <Database className="h-8 w-8 text-blue-600 mr-3" />
                 <Link href="/">
-                  <h1 className="text-3xl font-clash text-display text-gray-900">GWS Migration Platform</h1>
+                  <h1 className="text-3xl font-clash text-display text-gray-900">MigrateGWS</h1>
                 </Link>
               </div>
               <div className="flex items-center space-x-4">
                 <nav className="flex space-x-8">
                   <Link href="/dashboard" className="text-blue-600 font-clash text-heading text-base">Dashboard</Link>
                   <Link href="/migrations" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Migrations</Link>
+                  <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">User Mapping</Link>
                   <Link href="/setup" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Setup</Link>
                   <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-clash text-subheading text-base transition-colors">Settings</Link>
                 </nav>
@@ -175,7 +202,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-4xl font-clash text-display text-gray-900 mb-2">Dashboard</h1>
               <p className="text-lg font-clash text-subheading text-gray-600">Monitor your Google Workspace migrations</p>
-              {user?.provider === 'google' && validationData?.valid && (
+              {user?.provider === 'google' && googleWorkspaceConnected && validationData?.valid && (
                 <p className="text-green-600 text-sm mt-2 flex items-center font-clash">
                   <CheckCircle className="h-4 w-4 mr-1" />
                   Google Workspace API access verified
@@ -243,46 +270,189 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Google Workspace Info */}
+          {/* Quick Actions */}
+          <div className="bg-white rounded-lg shadow mb-8">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Quick Actions</h3>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Link 
+                  href="/migrations/new"
+                  className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                    <Plus className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">New Migration</h4>
+                    <p className="text-xs text-gray-500">Start a new migration project</p>
+                  </div>
+                </Link>
+                
+                <Link 
+                  href="/user-mapping"
+                  className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="p-2 bg-green-100 rounded-lg mr-3">
+                    <Users className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">User Mapping</h4>
+                    <p className="text-xs text-gray-500">Configure user mappings</p>
+                  </div>
+                </Link>
+                
+                <Link 
+                  href="/migrations"
+                  className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="p-2 bg-purple-100 rounded-lg mr-3">
+                    <BarChart3 className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">View All Migrations</h4>
+                    <p className="text-xs text-gray-500">Monitor migration progress</p>
+                  </div>
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Google Workspace Connection */}
           {user?.provider === 'google' && (
             <div className="space-y-6 mb-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {!googleWorkspaceConnected ? (
                 <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Google Workspace Domains</h3>
-                  {domainsData?.domains ? (
-                    <div className="space-y-2">
-                      {domainsData.domains.map((domain: any, index: number) => (
-                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <span className="font-medium">{domain.domainName}</span>
-                          <div className="flex items-center space-x-2">
-                            {domain.isPrimary && (
-                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Primary</span>
+                  <div className="text-center">
+                    <Shield className="h-12 w-12 text-blue-600 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Connect Google Workspace</h3>
+                    <p className="text-gray-600 mb-4">
+                      Connect to your Google Workspace to view domain and user information
+                    </p>
+                    
+                    {connectionError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-start">
+                          <AlertTriangle className="h-5 w-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" />
+                          <div className="text-left">
+                            <h4 className="text-sm font-medium text-red-800">{connectionError.message}</h4>
+                            {connectionError.details && (
+                              <p className="text-sm text-red-600 mt-1">{connectionError.details}</p>
                             )}
-                            {domain.verified && (
-                              <CheckCircle className="h-4 w-4 text-green-600" />
-                            )}
+                            <div className="mt-2 text-xs text-red-600">
+                              <p>Common solutions:</p>
+                              <ul className="list-disc list-inside mt-1 space-y-1">
+                                <li>Ensure you're signed in with a Super Admin account</li>
+                                <li>Enable Google Workspace Admin SDK API in Google Cloud Console</li>
+                                <li>Check that your domain has Google Workspace (not personal Gmail)</li>
+                              </ul>
+                              <div className="mt-3 p-2 bg-red-100 rounded border">
+                                <p className="font-medium">Quick Fix:</p>
+                                <p>1. Go to <a href="https://console.cloud.google.com/apis/library/admin.googleapis.com" target="_blank" rel="noopener noreferrer" className="text-red-700 underline">Google Cloud Console</a></p>
+                                <p>2. Click "Enable" for Admin SDK API</p>
+                                <p>3. Return here and try connecting again</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500">Loading domain information...</p>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">User Count</h3>
-                  {usersData?.count !== undefined ? (
-                    <div className="flex items-center">
-                      <Users className="h-8 w-8 text-blue-600 mr-3" />
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{usersData.count}</p>
-                        <p className="text-sm text-gray-500">Google Workspace users</p>
                       </div>
+                    )}
+                    
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <button
+                        onClick={connectGoogleWorkspace}
+                        disabled={connectingGWS}
+                        className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      >
+                        {connectingGWS ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="h-4 w-4 mr-2" />
+                            Connect Google Workspace
+                          </>
+                        )}
+                      </button>
+                      
+                      {connectionError && (
+                        <Link 
+                          href="/setup"
+                          className="bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 flex items-center justify-center transition-colors"
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          Setup Guide
+                        </Link>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-gray-500">Loading user information...</p>
-                  )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Google Workspace Domains</h3>
+                    {domainsLoading && !domainsData ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <span className="ml-3 text-gray-600">Loading domains...</span>
+                      </div>
+                    ) : domainsData?.domains ? (
+                      <div className="space-y-2">
+                        {domainsData.domains.map((domain: any, index: number) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <span className="font-medium">{domain.domainName}</span>
+                            <div className="flex items-center space-x-2">
+                              {domain.isPrimary && (
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Primary</span>
+                              )}
+                              {domain.verified && (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <p className="text-gray-500">
+                          {domainsLoading ? 'Loading domain information...' : 'No domains found or not connected to Google Workspace'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">User Count</h3>
+                    {usersData?.count !== undefined ? (
+                      <div className="flex items-center">
+                        <Users className="h-8 w-8 text-blue-600 mr-3" />
+                        <div>
+                          <p className="text-2xl font-bold text-gray-900">{usersData.count}</p>
+                          <p className="text-sm text-gray-500">Google Workspace users</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500">Loading user information...</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick Actions for non-Google users */}
+          {user?.provider !== 'google' && (
+            <div className="bg-blue-50 rounded-lg p-6 mb-8">
+              <div className="flex items-center">
+                <Shield className="h-6 w-6 text-blue-600 mr-3" />
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Google Workspace Required</h3>
+                  <p className="text-gray-600">
+                    To use migration features, please sign in with a Google Workspace account that has admin privileges.
+                  </p>
                 </div>
               </div>
             </div>

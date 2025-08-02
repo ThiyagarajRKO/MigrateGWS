@@ -1,4 +1,4 @@
-// TypeScript type definitions for the GWS Migration Platform
+// TypeScript type definitions for MigrateGWS
 
 export interface User {
   id: string;
@@ -10,6 +10,22 @@ export interface User {
   role: UserRole;
   permissions: string[];
   lastLogin?: string;
+}
+
+export interface GWSUser {
+  id: string
+  primaryEmail: string
+  name: {
+    givenName: string
+    familyName: string
+    fullName: string
+  }
+  isAdmin: boolean
+  isDelegatedAdmin: boolean
+  lastLoginTime?: string
+  creationTime: string
+  suspended: boolean
+  orgUnitPath: string
 }
 
 export interface AuthUser {

@@ -25,13 +25,20 @@ export function useGoogleWorkspaceAPI<T = any>(): UseGoogleWorkspaceAPIResult<T>
     setError(null)
 
     try {
+      // Add timeout to prevent long waits (increased for slow connections)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(`/api/google-workspace${endpoint}`, {
         headers: {
           'Content-Type': 'application/json',
           ...options.headers,
         },
+        signal: controller.signal,
         ...options,
       })
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -42,8 +49,13 @@ export function useGoogleWorkspaceAPI<T = any>(): UseGoogleWorkspaceAPIResult<T>
       setData(result)
       return result
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
-      setError(errorMessage)
+      if (err instanceof Error && err.name === 'AbortError') {
+        const errorMessage = 'Request timed out. Please check your Google Workspace configuration.'
+        setError(errorMessage)
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
+        setError(errorMessage)
+      }
       return null
     } finally {
       setLoading(false)

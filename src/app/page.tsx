@@ -35,6 +35,9 @@ export default function Home() {
                 <Link href="/migrations" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
                   Migrations
                 </Link>
+                <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
+                  User Mapping
+                </Link>
                 <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200 hover:scale-105 transform">
                   Settings
                 </Link>

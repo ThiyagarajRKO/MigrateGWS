@@ -62,20 +62,134 @@ export async function GET(request: NextRequest) {
 
     switch (action) {
       case 'users':
-        const users = await gwsService.getUsers(domain || undefined, 50)
-        return NextResponse.json({ users, count: users.length })
+        try {
+          const users = await gwsService.getUsers(domain || undefined, 50)
+          return NextResponse.json({ users, count: users.length })
+        } catch (error: any) {
+          console.error('Error fetching users:', error)
+          
+          // Check for domain-wide delegation issues
+          if (error.message?.includes('Domain-wide delegation error') || 
+              error.message?.includes('unauthorized_client') ||
+              error.message?.includes('invalid_grant') ||
+              error.code === 401 || error.code === 400) {
+            return NextResponse.json({
+              error: 'Domain-wide delegation not configured',
+              message: `Unable to access users from ${domain || 'the domain'}. This usually means:`,
+              details: [
+                `The service account is not configured for domain-wide delegation in ${domain || 'the target domain'}`,
+                `The admin email ${adminEmail || 'provided'} does not have sufficient permissions for ${domain || 'the domain'}`,
+                'Domain-wide delegation needs to be set up in the Google Admin Console'
+              ],
+              actionRequired: 'Please ensure domain-wide delegation is properly configured for cross-domain access',
+              domain: domain,
+              adminEmail: adminEmail
+            }, { status: 401 })
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to fetch users',
+            message: error.message || 'Unknown error occurred',
+            domain: domain,
+            adminEmail: adminEmail
+          }, { status: 500 })
+        }
+
+      case 'all-users':
+        try {
+          const includeSuspended = searchParams.get('includeSuspended') === 'true'
+          const includeArchived = searchParams.get('includeArchived') === 'true'
+          const orgUnitPath = searchParams.get('orgUnitPath')
+          
+          const allUsers = await gwsService.getAllUsers(domain || undefined, {
+            includeSuspended,
+            includeArchived,
+            orgUnitPath: orgUnitPath || undefined
+          })
+          
+          return NextResponse.json({ 
+            users: allUsers, 
+            count: allUsers.length,
+            metadata: {
+              domain: domain,
+              includeSuspended,
+              includeArchived,
+              orgUnitPath,
+              timestamp: new Date().toISOString()
+            }
+          })
+        } catch (error: any) {
+          console.error('Error fetching all users:', error)
+          
+          // Check for domain-wide delegation issues
+          if (error.message?.includes('Domain-wide delegation error') || 
+              error.message?.includes('unauthorized_client') ||
+              error.message?.includes('invalid_grant') ||
+              error.code === 401 || error.code === 400) {
+            return NextResponse.json({
+              error: 'Domain-wide delegation not configured',
+              message: `Unable to access all users from ${domain || 'the domain'}. This usually means:`,
+              details: [
+                `The service account is not configured for domain-wide delegation in ${domain || 'the target domain'}`,
+                `The admin email ${adminEmail || 'provided'} does not have sufficient permissions for ${domain || 'the domain'}`,
+                'Domain-wide delegation needs to be set up in the Google Admin Console'
+              ],
+              actionRequired: 'Please ensure domain-wide delegation is properly configured for cross-domain access',
+              domain: domain,
+              adminEmail: adminEmail
+            }, { status: 401 })
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to fetch all users',
+            message: error.message || 'Unknown error occurred',
+            domain: domain,
+            adminEmail: adminEmail
+          }, { status: 500 })
+        }
 
       case 'domains':
-        const domains = await gwsService.getDomains()
-        return NextResponse.json({ domains })
+        try {
+          // Add timeout for domain fetching to prevent hanging requests
+          const domainsPromise = gwsService.getDomains();
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Domain fetch timeout')), 12000); // 12 second timeout
+          });
+          
+          const domains = await Promise.race([domainsPromise, timeoutPromise]);
+          
+          return NextResponse.json({ domains }, {
+            headers: {
+              'Cache-Control': 'private, max-age=120, s-maxage=120', // Reduced cache time for faster updates
+              'X-Cache-Status': 'DYNAMIC'
+            }
+          });
+        } catch (error: any) {
+          console.error('Error fetching domains:', error);
+          
+          // Return a more helpful error response
+          if (error.message === 'Domain fetch timeout') {
+            return NextResponse.json({
+              error: 'Domain loading timed out',
+              message: 'The request to fetch domains took too long. This may indicate connectivity issues or authentication problems.',
+              suggestion: 'Please check your Google Workspace connection and try again.'
+            }, { status: 408 }); // Request Timeout
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to fetch domains',
+            message: error.message || 'Unknown error occurred',
+            suggestion: 'Please ensure you have proper Google Workspace access and try again.'
+          }, { status: 500 });
+        }
 
       case 'organization':
         const orgInfo = await gwsService.getOrganizationInfo()
         return NextResponse.json(orgInfo)
 
       case 'validate':
-        const isValid = await gwsService.validateAccess()
-        return NextResponse.json({ valid: isValid })
+        const validationResult = await gwsService.validateAccess()
+        return NextResponse.json(validationResult)
 
       case 'gmail':
         const userId = searchParams.get('userId') || 'me'

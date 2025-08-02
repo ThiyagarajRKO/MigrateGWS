@@ -139,12 +139,13 @@ export default function MigrationsPage() {
             <div className="flex items-center">
               <Database className="h-8 w-8 text-blue-600 mr-3" />
               <Link href="/">
-                <h1 className="text-2xl font-bold text-gray-900">GWS Migration Platform</h1>
+                <h1 className="text-2xl font-bold text-gray-900">MigrateGWS</h1>
               </Link>
             </div>
             <nav className="flex space-x-8">
               <Link href="/dashboard" className="text-gray-600 hover:text-blue-600">Dashboard</Link>
               <Link href="/migrations" className="text-blue-600 font-semibold">Migrations</Link>
+              <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600">User Mapping</Link>
               <Link href="/settings" className="text-gray-600 hover:text-blue-600">Settings</Link>
             </nav>
           </div>
@@ -158,13 +159,22 @@ export default function MigrationsPage() {
             <h1 className="text-3xl font-bold text-gray-900">Migrations</h1>
             <p className="text-gray-600 mt-1">Manage your Google Workspace migrations</p>
           </div>
-          <Link 
-            href="/migrations/new"
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold flex items-center"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            New Migration
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link 
+              href="/user-mapping"
+              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold flex items-center"
+            >
+              <Users className="h-5 w-5 mr-2" />
+              User Mapping
+            </Link>
+            <Link 
+              href="/migrations/new"
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold flex items-center"
+            >
+              <Plus className="h-5 w-5 mr-2" />
+              New Migration
+            </Link>
+          </div>
         </div>
 
         {/* Filters and Search */}
