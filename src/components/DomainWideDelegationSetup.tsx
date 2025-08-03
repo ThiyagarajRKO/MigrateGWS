@@ -1929,7 +1929,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       Navigate to{' '}
                       {delegationSetupData.setupInstructions?.domain?.adminConsoleUrl ? (
                         <a 
-                          href={delegationSetupData.setupInstructions.domain.adminConsoleUrl} 
+                          href={delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || '#'} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 underline font-semibold"
@@ -1952,7 +1952,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-semibold text-blue-800">🔗 Direct Link:</span>
                           <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions!.domain!.adminConsoleUrl, 'admin-url')}
+                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || '', 'admin-url')}
                             className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors"
                           >
                             {copiedItem === 'admin-url' ? (
@@ -1968,7 +1968,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           </button>
                         </div>
                         <code className="text-xs font-mono text-blue-800 break-all block mt-1">
-                          {delegationSetupData.setupInstructions.domain.adminConsoleUrl}
+                          {delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || ''}
                         </code>
                       </div>
                     )}
@@ -2006,7 +2006,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-bold text-gray-800">📋 Client ID:</span>
                         <button
-                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions!.domain!.clientId, 'step4-client-id')}
+                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'step4-client-id')}
                           className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-semibold"
                         >
                           {copiedItem === 'step4-client-id' ? (
@@ -2022,7 +2022,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         </button>
                       </div>
                       <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-2 rounded">
-                        {delegationSetupData.setupInstructions!.domain!.clientId}
+                        {delegationSetupData.setupInstructions?.domain?.clientId || 'Client ID not available'}
                       </code>
                     </div>
                   </div>
@@ -2140,7 +2140,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-bold text-gray-800">📋 Client ID Reference</span>
                         <button
-                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions!.domain!.clientId, 'ref-client-id')}
+                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'ref-client-id')}
                           className="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
                         >
                           {copiedItem === 'ref-client-id' ? (
@@ -2157,7 +2157,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         </button>
                       </div>
                       <code className="text-xs font-mono text-gray-700 break-all block bg-gray-50 p-2 rounded">
-                        {delegationSetupData.setupInstructions.domain.clientId}
+                        {delegationSetupData.setupInstructions?.domain?.clientId || 'Client ID not available'}
                       </code>
                     </div>
                   
@@ -2224,14 +2224,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-semibold text-gray-800">Client ID</span>
                           <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions!.source!.clientId, 'source-client-id')}
+                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.source?.clientId || '', 'source-client-id')}
                             className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                           >
                             {copiedItem === 'source-client-id' ? 'Copied!' : 'Copy'}
                           </button>
                         </div>
                         <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.setupInstructions.source.clientId}
+                          {delegationSetupData.setupInstructions?.source?.clientId || 'Client ID not available'}
                         </code>
                       </div>
                       
@@ -2307,14 +2307,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-semibold text-gray-800">Client ID</span>
                           <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions!.destination!.clientId, 'dest-client-id')}
+                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.clientId || '', 'dest-client-id')}
                             className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                           >
                             {copiedItem === 'dest-client-id' ? 'Copied!' : 'Copy'}
                           </button>
                         </div>
                         <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.setupInstructions.destination.clientId}
+                          {delegationSetupData.setupInstructions?.destination?.clientId || 'Client ID not available'}
                         </code>
                       </div>
                       
