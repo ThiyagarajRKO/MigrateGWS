@@ -67,9 +67,6 @@ const UserManagementWorkflow = lazy(() =>
 const MigrationProgress = lazy(() => 
   import('@/components/MigrationProgress').then(module => ({ default: module.default }))
 );
-const CrossTenantAuthStatus = lazy(() => 
-  import('@/components/CrossTenantAuthStatus').then(module => ({ default: module.default }))
-);
 
 // Optimized loading component with skeleton
 const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
@@ -108,8 +105,8 @@ const SERVICE_ICONS = {
 const STEP_CONFIG = {
   scenario: { 
     icon: Users, 
-    title: 'Choose Migration Type', 
-    description: 'Select your migration scenario' 
+    title: 'Migration Strategy', 
+    description: 'Choose migration scenario and user mapping strategy' 
   },
   'auth-and-domains': { 
     icon: Shield, 
@@ -511,7 +508,12 @@ export default function NewMigration() {
   const handleNext = () => {
     switch (currentStep) {
       case 'scenario':
-        setCurrentStep('auth-and-domains');
+        // Skip user-mapping if already configured in scenario step
+        if (userMappingConfig) {
+          setCurrentStep('auth-and-domains');
+        } else {
+          setCurrentStep('user-mapping');
+        }
         break;
       case 'auth-and-domains':
         setCurrentStep('user-mapping');
@@ -905,7 +907,16 @@ export default function NewMigration() {
               <ComponentLoader>
                 <ScenarioSelector 
                   selectedScenario={selectedScenario} 
-                  onScenarioSelect={handleScenarioSelect} 
+                  onScenarioSelect={handleScenarioSelect}
+                  selectedUserMapping={userMappingConfig?.relationship}
+                  onUserMappingSelect={(mapping) => {
+                    setUserMappingConfig({
+                      relationship: mapping,
+                      strategy: 'automatic',
+                      conflictResolution: 'rename',
+                      preserveUsernames: true
+                    });
+                  }}
                 />
               </ComponentLoader>
             </div>
@@ -937,16 +948,6 @@ export default function NewMigration() {
                 onConfigurationComplete={handleDomainConfiguration}
               />
             </ComponentLoader>
-            
-            {/* Show cross-tenant auth status if applicable */}
-            {selectedScenario === 'cross-tenant' && (
-              <ComponentLoader>
-                <CrossTenantAuthStatus 
-                  scenario={selectedScenario}
-                  className="mt-6"
-                />
-              </ComponentLoader>
-            )}
           </div>
         );
 
@@ -2041,7 +2042,7 @@ export default function NewMigration() {
   const canProceed = () => {
     switch (currentStep) {
       case 'scenario':
-        return selectedScenario !== null;
+        return selectedScenario !== null && userMappingConfig !== null;
       case 'auth-and-domains':
         return isOAuthCompleteForDomainDiscovery() && domainMapping !== null;
       case 'delegation':
@@ -2109,7 +2110,7 @@ export default function NewMigration() {
   const getNextButtonText = () => {
     switch (currentStep) {
       case 'scenario':
-        return 'Authenticate & Configure Domains';
+        return userMappingConfig ? 'Authenticate & Configure Domains' : 'Choose Migration Strategy';
       case 'auth-and-domains':
         return 'Choose User Mapping';
       case 'user-mapping':

@@ -607,11 +607,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
   // Domain mapping context helpers
   const getDomainMappingContext = useMemo(() => {
-    if (!domainMapping) return null
+    if (!domainMapping || !domainMapping.type) return null
 
     const isMultiTarget = domainMapping.type === 'one-to-many' || domainMapping.type === 'cross-tenant-multi-target'
     const isMultiSource = domainMapping.type === 'many-to-one' || domainMapping.type === 'cross-tenant-multi-source'
-    const isCrossTenant = domainMapping.type.includes('cross-tenant')
+    const isCrossTenant = domainMapping.type?.includes('cross-tenant') || false
     
     // Calculate complexity level within the useMemo
     const getComplexityLevel = () => {
@@ -1578,7 +1578,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <p className="text-base text-gray-700 leading-relaxed font-medium">
                 {getDomainMappingContext ? (
                   <>
-                    Configure domain-wide delegation for your <strong>{getDomainMappingContext.type.replace('-', ' ')}</strong> migration.
+                    Configure domain-wide delegation for your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration.
                     {getDomainMappingContext.isCrossTenant ? 
                       ' Automated setup will generate service accounts and instructions for both domains.' :
                       ' Automated setup will generate service account and instructions for your domain.'
@@ -1640,7 +1640,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <p className="text-base text-gray-700 mb-4 leading-relaxed">
                 {getDomainMappingContext ? (
                   <>
-                    For your <strong>{getDomainMappingContext.type.replace('-', ' ')}</strong> migration scenario:
+                    For your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration scenario:
                     {getDomainMappingContext.isCrossTenant ? (
                       <div className="mt-2">
                         <div className="font-semibold">Cross-Tenant Migration Requirements:</div>
@@ -2493,7 +2493,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <p className="text-blue-700 text-base mt-2 font-medium leading-relaxed">
                   {getDomainMappingContext ? (
                     <>
-                      Your <strong>{getDomainMappingContext.type.replace('-', ' ')}</strong> migration configuration is complete.
+                      Your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration configuration is complete.
                       {getDomainMappingContext.isCrossTenant ? 
                         ' Both source and destination domains should now be configured for secure cross-domain migration.' :
                         ` All ${getDomainCount().source === 1 ? 'domain is' : 'domains are'} now configured for secure migration.`

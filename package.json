@@ -13,6 +13,7 @@
     "analyze:client": "ANALYZE=true npm run build && open .next/analyze/client.html"
   },
   "dependencies": {
+    "@radix-ui/react-tooltip": "^1.2.7",
     "@reduxjs/toolkit": "^2.0.1",
     "@tanstack/react-query": "^5.17.0",
     "@types/jsonwebtoken": "^9.0.10",
