@@ -68,7 +68,7 @@ export const MigrationProgress = memo(function MigrationProgress({ migrationStat
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Migration Progress</h2>
+            <h2 className="text-xl font-semibold text-gray-900">{migrationStatus.name}</h2>
             <p className="text-gray-600">
               {migrationStatus.scenarioType === 'single-super-admin' 
                 ? 'Single Super Admin Migration' 

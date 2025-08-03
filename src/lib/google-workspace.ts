@@ -143,15 +143,18 @@ export class GoogleWorkspaceService {
     }
   }
 
-  // Admin Directory API - Users
+  // Admin Directory API - Users with optimized performance
   async getUsers(domain?: string, maxResults: number = 100): Promise<GWSUser[]> {
     try {
       const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
       
+      // Optimize API call with specific fields to reduce response size
       const response = await admin.users.list({
         domain,
-        maxResults,
+        maxResults: Math.min(maxResults, 200), // Cap at 200 for performance
         orderBy: 'email',
+        fields: 'users(id,primaryEmail,name(givenName,familyName,fullName),isAdmin,isDelegatedAdmin,lastLoginTime,creationTime,suspended,orgUnitPath),nextPageToken',
+        projection: 'basic' // Use basic projection for faster response
       })
 
       return response.data.users?.map(user => ({

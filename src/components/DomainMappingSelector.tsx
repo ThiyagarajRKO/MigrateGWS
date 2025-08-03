@@ -35,12 +35,14 @@ interface DomainMappingSelectorProps {
   selectedScenario: MigrationScenario;
   selectedMapping: DomainMappingConfig | null;
   onMappingSelect: (mapping: DomainMappingConfig) => void;
+  discoveredDomains?: string[];
 }
 
 export const DomainMappingSelector = memo(function DomainMappingSelector({ 
   selectedScenario, 
   selectedMapping, 
-  onMappingSelect 
+  onMappingSelect,
+  discoveredDomains = []
 }: DomainMappingSelectorProps) {
   const { domains, loading: domainsLoading, error: domainsError, loadDomains: refetchDomains, metrics } = useFastDomainLoader({
     timeout: 15000,

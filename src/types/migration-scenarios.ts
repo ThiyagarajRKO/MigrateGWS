@@ -14,6 +14,7 @@ export interface MigrationStep {
   estimatedDuration: string;
   actualDuration?: string;
   error?: string;
+  features?: string[];
 }
 
 export interface MigrationError {
@@ -26,6 +27,7 @@ export interface MigrationError {
 
 export interface MigrationStatus {
   id: string;
+  name: string;
   scenarioType: MigrationScenario;
   status: 'running' | 'completed' | 'failed' | 'paused';
   currentStep: string;
@@ -96,34 +98,44 @@ export type MigrationScenarioConfig =
 // Scenario 1: Single Super Admin Migration Steps
 export const SINGLE_SUPER_ADMIN_STEPS: MigrationStep[] = [
   {
-    id: 'user-discovery',
-    title: '👥 User Discovery',
-    description: 'List all users in source domain',
-    automationApproach: 'Use Admin SDK to enumerate users',
-    apisUsed: ['AdminSDK > Users.list()'],
+    id: 'auth-and-domains',
+    title: '� Authenticate & Configure Domains',
+    description: 'Authenticate with Google Workspace and configure domain mappings',
+    automationApproach: 'OAuth 2.0 authentication with automatic domain discovery and mapping configuration',
+    apisUsed: ['Google OAuth 2.0', 'AdminSDK > Domains.list()', 'Custom domain mapping logic'],
     status: 'pending',
     progress: 0,
-    estimatedDuration: '1-3 minutes'
+    estimatedDuration: '3-7 minutes'
   },
   {
-    id: 'domain-mapping',
-    title: '🗺️ Domain Mapping',
-    description: 'Map source users to target domain users',
-    automationApproach: 'Create mapping based on email patterns and business rules',
-    apisUsed: ['Custom logic'],
+    id: 'user-discovery',
+    title: '� User Discovery',
+    description: 'Discover and analyze users in source domains',
+    automationApproach: 'Use Admin SDK to enumerate all users and their properties',
+    apisUsed: ['AdminSDK > Users.list()', 'AdminSDK > Users.get()'],
     status: 'pending',
     progress: 0,
-    estimatedDuration: '5-10 minutes'
+    estimatedDuration: '2-5 minutes'
   },
   {
     id: 'target-user-creation',
     title: '👤 Target User Creation',
-    description: 'Create users in target domain',
-    automationApproach: 'Bulk create users with proper attributes',
-    apisUsed: ['AdminSDK > Users.insert()'],
+    description: 'Create users in target domain with validation and progress tracking',
+    automationApproach: 'Intelligent bulk user creation with existence checking, retry logic, and comprehensive error handling',
+    apisUsed: ['AdminSDK > Users.insert()', 'AdminSDK > Users.get()', 'Batch processing with rate limiting'],
     status: 'pending',
     progress: 0,
-    estimatedDuration: '5-15 minutes'
+    estimatedDuration: '5-15 minutes',
+    features: [
+      'Batch user creation with configurable batch sizes',
+      'Real-time progress tracking and ETA calculation', 
+      'Automatic existence checking to prevent duplicates',
+      'Exponential backoff retry mechanism for failed creations',
+      'Comprehensive error handling and rollback capabilities',
+      'Secure temporary password generation',
+      'Organizational unit preservation',
+      'Domain-specific admin email routing'
+    ]
   },
   {
     id: 'email-migration',
@@ -160,14 +172,24 @@ export const SINGLE_SUPER_ADMIN_STEPS: MigrationStep[] = [
 // Scenario 2: Cross-Tenant Steps
 export const CROSS_TENANT_STEPS: MigrationStep[] = [
   {
-    id: 'source-user-discovery',
-    title: '📋 Source User Discovery',
-    description: 'List all users in source workspace',
-    automationApproach: 'Extract user directory from source tenant',
-    apisUsed: ['AdminSDK > Users.list()'],
+    id: 'auth-and-domains',
+    title: '🔐 Authenticate & Configure Domains',
+    description: 'Authenticate with both source and target domains and configure domain mappings',
+    automationApproach: 'Secure OAuth 2.0 flow for cross-tenant access with automatic domain discovery and mapping',
+    apisUsed: ['Google OAuth 2.0', 'Google Identity API', 'AdminSDK > Domains.list()'],
     status: 'pending',
     progress: 0,
-    estimatedDuration: '2-5 minutes'
+    estimatedDuration: '5-10 minutes'
+  },
+  {
+    id: 'source-user-discovery',
+    title: '🔍 Source User Discovery',
+    description: 'Discover users in source workspace before cross-tenant migration',
+    automationApproach: 'Enumerate source tenant users with appropriate service account',
+    apisUsed: ['AdminSDK > Users.list()', 'AdminSDK > Users.get()'],
+    status: 'pending',
+    progress: 0,
+    estimatedDuration: '3-5 minutes'
   },
   {
     id: 'target-user-creation',

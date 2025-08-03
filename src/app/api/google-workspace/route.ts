@@ -6,10 +6,13 @@ import { ExtendedSession } from '@/lib/auth-options'
 // Import the authOptions from NextAuth
 import { authOptions } from '@/lib/auth-options'
 
-// Enhanced in-memory cache for domains to improve performance
+// Enhanced in-memory cache for domains and users to improve performance
 const domainsCache = new Map<string, { data: any, timestamp: number }>()
+const usersCache = new Map<string, { data: any, timestamp: number }>()
+const pendingRequests = new Map<string, Promise<any>>() // Deduplication cache
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes for fresh cache
 const STALE_CACHE_DURATION = 2 * 60 * 60 * 1000 // 2 hours for stale cache (longer for better UX)
+const USERS_CACHE_DURATION = 2 * 60 * 1000 // 2 minutes for users cache (shorter since user data changes more frequently)
 
 function getCachedDomains(cacheKey: string) {
   const cached = domainsCache.get(cacheKey)
@@ -25,6 +28,24 @@ function getCachedDomains(cacheKey: string) {
 
 function setCachedDomains(cacheKey: string, data: any) {
   domainsCache.set(cacheKey, { data, timestamp: Date.now() })
+}
+
+function getCachedUsers(cacheKey: string) {
+  const cached = usersCache.get(cacheKey)
+  if (cached && Date.now() - cached.timestamp < USERS_CACHE_DURATION) {
+    return { data: cached.data, fresh: true }
+  }
+  return null
+}
+
+function setCachedUsers(cacheKey: string, data: any) {
+  usersCache.set(cacheKey, { data, timestamp: Date.now() })
+  
+  // Clean up old cache entries to prevent memory leaks
+  if (usersCache.size > 50) {
+    const oldestKey = Array.from(usersCache.keys())[0]
+    usersCache.delete(oldestKey)
+  }
 }
 
 // Background refresh function
@@ -99,8 +120,77 @@ export async function GET(request: NextRequest) {
     switch (action) {
       case 'users':
         try {
-          const users = await gwsService.getUsers(domain || undefined, 50)
-          return NextResponse.json({ users, count: users.length })
+          // Create cache key based on domain and admin email
+          const usersCacheKey = `users:${domain || 'default'}:${adminEmail || 'default'}`
+          
+          // Check cache first
+          const cachedUsers = getCachedUsers(usersCacheKey)
+          if (cachedUsers?.data) {
+            console.log('Returning cached users for domain:', domain)
+            return NextResponse.json({ 
+              ...cachedUsers.data,
+              cached: true,
+              timestamp: new Date().toISOString()
+            }, {
+              headers: {
+                'Cache-Control': 'public, max-age=120, s-maxage=120',
+                'X-Cache-Status': 'HIT'
+              }
+            })
+          }
+
+          // Check for pending request to avoid duplicate API calls
+          if (pendingRequests.has(usersCacheKey)) {
+            console.log('Waiting for pending request for domain:', domain)
+            const result = await pendingRequests.get(usersCacheKey)
+            return NextResponse.json({ 
+              ...result,
+              cached: false,
+              deduped: true,
+              timestamp: new Date().toISOString()
+            }, {
+              headers: {
+                'Cache-Control': 'public, max-age=120, s-maxage=120',
+                'X-Cache-Status': 'DEDUP'
+              }
+            })
+          }
+
+          // Create pending request promise
+          const requestPromise = (async () => {
+            try {
+              // Fetch from Google API with optimized parameters
+              const maxResults = searchParams.get('maxResults') ? parseInt(searchParams.get('maxResults')!) : 100
+              const users = await gwsService.getUsers(domain || undefined, Math.min(maxResults, 200)) // Cap at 200 for performance
+              
+              const responseData = { 
+                users, 
+                count: users.length,
+                domain: domain,
+                timestamp: new Date().toISOString(),
+                cached: false
+              }
+              
+              // Cache the response
+              setCachedUsers(usersCacheKey, responseData)
+              return responseData
+            } finally {
+              // Clean up pending request
+              pendingRequests.delete(usersCacheKey)
+            }
+          })()
+
+          // Store pending request
+          pendingRequests.set(usersCacheKey, requestPromise)
+          
+          const responseData = await requestPromise
+          
+          return NextResponse.json(responseData, {
+            headers: {
+              'Cache-Control': 'public, max-age=120, s-maxage=120',
+              'X-Cache-Status': 'MISS'
+            }
+          })
         } catch (error: any) {
           console.error('Error fetching users:', error)
           

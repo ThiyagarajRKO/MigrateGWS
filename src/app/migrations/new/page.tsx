@@ -12,6 +12,7 @@ import {
   CROSS_TENANT_STEPS,
   DomainMappingConfig
 } from '@/types/migration-scenarios';
+import { UserMappingConfig } from '@/types';
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -38,27 +39,36 @@ import {
   X,
   Loader2,
   Presentation,
-  ClipboardList
+  ClipboardList,
+  UserPlus,
+  AlertTriangle,
+  GitBranch
 } from 'lucide-react';
 
 // Dynamic imports for heavy components with better loading strategies
 const ScenarioSelector = lazy(() => 
   import('@/components/ScenarioSelector').then(module => ({ default: module.default }))
 );
+const AuthenticateAndConfigureDomains = lazy(() => 
+  import('@/components/AuthenticateAndConfigureDomains').then(module => ({ default: module.AuthenticateAndConfigureDomains }))
+);
 const DomainMappingSelector = lazy(() => 
   import('@/components/DomainMappingSelector').then(module => ({ default: module.default }))
+);
+const UserMappingRelationshipSelector = lazy(() => 
+  import('@/components/UserMappingRelationshipSelector').then(module => ({ default: module.UserMappingRelationshipSelector }))
 );
 const DomainWideDelegationSetup = lazy(() => 
   import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }))
 );
-const UserDiscovery = lazy(() => 
-  import('@/components/UserDiscovery').then(module => ({ default: module.default }))
-);
-const UserMapping = lazy(() => 
-  import('@/components/UserMapping').then(module => ({ default: module.UserMapping }))
+const UserManagementWorkflow = lazy(() => 
+  import('@/components/UserManagementWorkflow').then(module => ({ default: module.default }))
 );
 const MigrationProgress = lazy(() => 
   import('@/components/MigrationProgress').then(module => ({ default: module.default }))
+);
+const CrossTenantAuthStatus = lazy(() => 
+  import('@/components/CrossTenantAuthStatus').then(module => ({ default: module.default }))
 );
 
 // Optimized loading component with skeleton
@@ -81,7 +91,7 @@ const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-type WizardStep = 'scenario' | 'domain-mapping' | 'delegation' | 'user-discovery' | 'user-mapping' | 'configuration' | 'review' | 'migration';
+type WizardStep = 'scenario' | 'auth-and-domains' | 'user-mapping' | 'delegation' | 'user-management' | 'configuration' | 'review' | 'migration';
 
 const SERVICE_ICONS = {
   'Gmail': Mail,
@@ -101,25 +111,25 @@ const STEP_CONFIG = {
     title: 'Choose Migration Type', 
     description: 'Select your migration scenario' 
   },
-  'domain-mapping': { 
-    icon: Database, 
-    title: 'Configure Domains', 
-    description: 'Set up source and target domain relationships' 
+  'auth-and-domains': { 
+    icon: Shield, 
+    title: 'Authenticate & Configure Domains', 
+    description: 'Connect to Google Workspace and configure domain mappings' 
+  },
+  'user-mapping': { 
+    icon: GitBranch, 
+    title: 'User Mapping Relationship', 
+    description: 'Choose how source users map to target users' 
   },
   delegation: { 
     icon: Shield, 
     title: 'Setup Delegation', 
     description: 'Configure domain-wide delegation and permissions' 
   },
-  'user-discovery': { 
+  'user-management': { 
     icon: Users, 
-    title: 'Discover Users', 
-    description: 'Find and list all users from source domains' 
-  },
-  'user-mapping': { 
-    icon: ArrowRight, 
-    title: 'Map Users', 
-    description: 'Configure how users will be mapped to target domains' 
+    title: 'Manage Users', 
+    description: 'Discover, map, and create users in target domains' 
   },
   configuration: { 
     icon: Cog, 
@@ -144,6 +154,7 @@ export default function NewMigration() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('scenario');
   const [selectedScenario, setSelectedScenario] = useState<MigrationScenario | null>(null);
   const [domainMapping, setDomainMapping] = useState<DomainMappingConfig | null>(null);
+  const [userMappingConfig, setUserMappingConfig] = useState<UserMappingConfig | null>(null);
 
   // Helper functions for domain handling
   const getTargetDomainsFromMapping = (mapping: DomainMappingConfig) => {
@@ -165,10 +176,11 @@ export default function NewMigration() {
     return targets.filter(Boolean).join(', ');
   };
   const [migrationConfig, setMigrationConfig] = useState({
+    migrationName: '',
     sourceDomain: '',
     targetDomain: '',
     targetDomains: [] as string[], // Add support for multiple target domains
-    services: [] as string[],
+    services: ['Gmail', 'Drive'] as string[], // Add default services for testing
     userMappings: [] as Array<{ sourceEmail: string; targetEmail: string }>,
     migrationOptions: {
       preserveLabels: true,
@@ -188,12 +200,95 @@ export default function NewMigration() {
   const [targetAdminEmails, setTargetAdminEmails] = useState<{[domain: string]: string}>({});
   const [showDwdSetup, setShowDwdSetup] = useState(false);
 
+  // OAuth Authentication state for domain discovery
+  const [authenticatedDomains, setAuthenticatedDomains] = useState<string[]>([]);
+  const [availableSourceDomains, setAvailableSourceDomains] = useState<string[]>([]);
+  const [availableTargetDomains, setAvailableTargetDomains] = useState<string[]>([]);
+  const [oauthTokens, setOauthTokens] = useState<{[domain: string]: {
+    authenticated: boolean;
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    error?: string;
+  }}>({});
+  const [oauthInProgress, setOauthInProgress] = useState<string | null>(null);
+
+  // Component lifecycle tracking
+  useEffect(() => {
+    console.log('[Migration Wizard] Component mounted at:', new Date().toISOString());
+    return () => {
+      console.log('[Migration Wizard] Component unmounting at:', new Date().toISOString());
+    };
+  }, []);
+
+  // OAuth Domain Discovery state
+  const [oauthSessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [oauthDiscoveryStatus, setOauthDiscoveryStatus] = useState({
+    authenticated: false,
+    discoveredDomains: [] as string[],
+    loading: false,
+    error: null as string | null
+  });
+
+  // Cross-tenant OAuth state
+  const [sourceAuthStatus, setSourceAuthStatus] = useState({
+    authenticated: false,
+    domains: [] as string[],
+    error: undefined as string | undefined
+  });
+  const [targetAuthStatus, setTargetAuthStatus] = useState({
+    authenticated: false,
+    domains: [] as string[],
+    error: undefined as string | undefined
+  });
+
   // User Discovery state
-  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([
+    // Add test users for development
+    { id: '1', email: 'user1@test.com', name: 'Test User 1', isAdmin: false },
+    { id: '2', email: 'admin@test.com', name: 'Admin User', isAdmin: true }
+  ]);
   const [discoveredUsers, setDiscoveredUsers] = useState<any[]>([]);
   const [userMappings, setUserMappings] = useState<any[]>([]);
+  const [createdUsers, setCreatedUsers] = useState<any[]>([]);
 
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
+
+  // Handle OAuth callback success - DISABLED for cross-tenant auth
+  // Cross-tenant auth is handled by AuthenticateAndConfigureDomains component via postMessage
+  useEffect(() => {
+    const handleOAuthCallback = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const oauthSuccess = urlParams.get('oauth_success');
+      const domainsDiscovered = urlParams.get('domains_discovered');
+      const sessionId = urlParams.get('session_id');
+      const authType = urlParams.get('auth_type');
+
+      // Only handle single super admin OAuth (no authType parameter)
+      // Cross-tenant OAuth is handled by AuthenticateAndConfigureDomains component
+      if (oauthSuccess === 'true' && domainsDiscovered && !authType && sessionId === oauthSessionId) {
+        const domains = domainsDiscovered.split(',').filter(Boolean);
+        
+        // Single super admin authentication
+        setOauthDiscoveryStatus({
+          authenticated: true,
+          discoveredDomains: domains,
+          loading: false,
+          error: null
+        });
+
+        // Clean up URL parameters
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      } else if (authType) {
+        // Clean up URL parameters - these should be handled by the component via postMessage
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    };
+
+    handleOAuthCallback();
+  }, [oauthSessionId]);
 
   // Preload next components based on current step
   useEffect(() => {
@@ -208,14 +303,10 @@ export default function NewMigration() {
           import('@/components/DomainWideDelegationSetup');
           break;
         case 'delegation':
-          // Preload user discovery
-          import('@/components/UserDiscovery');
+          // Preload user management workflow
+          import('@/components/UserManagementWorkflow');
           break;
-        case 'user-discovery':
-          // Preload user mapping
-          import('@/components/UserMapping');
-          break;
-        case 'user-mapping':
+        case 'user-management':
           // Preload configuration components
           import('@/components/MigrationProgress');
           break;
@@ -241,19 +332,134 @@ export default function NewMigration() {
   }, [dwdVerificationStatus, dwdSetupComplete, currentStep])
 
   // Debug useEffect to track admin email changes
+  // Monitor admin email state for debugging
   useEffect(() => {
+    const stack = new Error().stack;
     console.log('[Migration Wizard] Admin emails changed:', {
       sourceAdminEmail,
       targetAdminEmail,
       sourceAdminEmails,
       targetAdminEmails,
-      areAllAdminEmailsProvided: areAllAdminEmailsProvided()
+      areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
+      timestamp: new Date().toISOString(),
+      currentStep,
+      selectedScenario,
+      stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
     });
   }, [sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
 
+  // OAuth Domain Discovery handlers
+  const handleDomainsDiscovered = (domains: string[]) => {
+    setOauthDiscoveryStatus(prev => ({
+      ...prev,
+      discoveredDomains: domains,
+      authenticated: true,
+      loading: false
+    }));
+  };
+
+  const handleOAuthStart = () => {
+    setOauthDiscoveryStatus(prev => ({
+      ...prev,
+      loading: true,
+      error: null
+    }));
+  };
+
+  const checkOAuthStatusAndDiscoverDomains = async () => {
+    try {
+      const response = await fetch(`/api/auth/oauth/discover-domains?sessionId=${oauthSessionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setOauthDiscoveryStatus({
+          authenticated: data.authenticated,
+          discoveredDomains: data.discoveredDomains || [],
+          loading: false,
+          error: null
+        });
+      }
+    } catch (error) {
+      console.error('Error checking OAuth status:', error);
+      setOauthDiscoveryStatus(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Failed to check authentication status'
+      }));
+    }
+  };
+
+  const isOAuthCompleteForDomainDiscovery = () => {
+    if (selectedScenario === 'cross-tenant') {
+      return sourceAuthStatus.authenticated && targetAuthStatus.authenticated;
+    }
+    return oauthDiscoveryStatus.authenticated && oauthDiscoveryStatus.discoveredDomains.length > 0;
+  };
+
+  // Cross-tenant OAuth handlers
+  const handleSourceAuthComplete = (domains: string[]) => {
+    setSourceAuthStatus({
+      authenticated: true,
+      domains,
+      error: undefined
+    });
+  };
+
+  const handleTargetAuthComplete = (domains: string[]) => {
+    setTargetAuthStatus({
+      authenticated: true,
+      domains,
+      error: undefined
+    });
+  };
+
   const handleScenarioSelect = (scenario: MigrationScenario) => {
     setSelectedScenario(scenario);
-    setCurrentStep('domain-mapping');
+    setCurrentStep('auth-and-domains');
+  };
+
+  const handleDomainConfiguration = (config: any) => {
+    // Update authentication status
+    if (selectedScenario === 'cross-tenant') {
+      setSourceAuthStatus({
+        authenticated: config.sourceAuthenticated,
+        domains: config.sourceDomains,
+        error: undefined
+      });
+      setTargetAuthStatus({
+        authenticated: config.targetAuthenticated,
+        domains: config.targetDomains,
+        error: undefined
+      });
+    } else {
+      setOauthDiscoveryStatus({
+        authenticated: config.sourceAuthenticated,
+        discoveredDomains: config.sourceDomains,
+        loading: false,
+        error: null
+      });
+    }
+
+    // Set up domain mapping from the configuration
+    if (config.domainMappings && config.domainMappings.length > 0) {
+      const mapping = {
+        sourceDomains: config.sourceDomains,
+        targetDomains: config.targetDomains,
+        mappingType: 'one-to-one' as const,
+        mappings: config.domainMappings
+      };
+      setDomainMapping(mapping);
+      
+      // Auto-populate migration config
+      setMigrationConfig(prev => ({
+        ...prev,
+        sourceDomain: config.sourceDomains[0] || '',
+        targetDomain: config.targetDomains[0] || '',
+        targetDomains: config.targetDomains
+      }));
+    }
+
+    // Move to next step
+    setCurrentStep('delegation');
   };
 
   const handleDomainMappingSelect = (mapping: DomainMappingConfig) => {
@@ -289,6 +495,7 @@ export default function NewMigration() {
       setTargetAdminEmails(newTargetAdminEmails);
     }
     
+    // For both scenarios, go directly to delegation since OAuth is already completed
     setCurrentStep('delegation');
   };
 
@@ -304,18 +511,18 @@ export default function NewMigration() {
   const handleNext = () => {
     switch (currentStep) {
       case 'scenario':
-        setCurrentStep('domain-mapping');
+        setCurrentStep('auth-and-domains');
         break;
-      case 'domain-mapping':
-        setCurrentStep('delegation');
-        break;
-      case 'delegation':
-        setCurrentStep('user-discovery');
-        break;
-      case 'user-discovery':
+      case 'auth-and-domains':
         setCurrentStep('user-mapping');
         break;
       case 'user-mapping':
+        setCurrentStep('delegation');
+        break;
+      case 'delegation':
+        setCurrentStep('user-management');
+        break;
+      case 'user-management':
         setCurrentStep('configuration');
         break;
       case 'configuration':
@@ -329,26 +536,23 @@ export default function NewMigration() {
 
   const handleBack = () => {
     switch (currentStep) {
-      case 'domain-mapping':
+      case 'auth-and-domains':
         setCurrentStep('scenario');
         break;
-      case 'delegation':
-        setCurrentStep('domain-mapping');
+      case 'user-mapping':
+        setCurrentStep('auth-and-domains');
         break;
-      case 'user-discovery':
+      case 'delegation':
+        setCurrentStep('user-mapping');
+        break;
+      case 'user-management':
         setCurrentStep('delegation');
         break;
-      case 'user-mapping':
-        setCurrentStep('user-discovery');
-        break;
       case 'configuration':
-        setCurrentStep('user-mapping');
+        setCurrentStep('user-management');
         break;
       case 'review':
         setCurrentStep('configuration');
-        break;
-      case 'migration':
-        setCurrentStep('review');
         break;
     }
   };
@@ -365,6 +569,7 @@ export default function NewMigration() {
 
     const status: MigrationStatus = {
       id: `migration-${Date.now()}`,
+      name: migrationConfig.migrationName || `${selectedScenario} Migration - ${new Date().toLocaleDateString()}`,
       scenarioType: selectedScenario,
       status: 'running',
       currentStep: scenario.steps[0].id,
@@ -409,28 +614,53 @@ export default function NewMigration() {
 
   // Handle admin email changes from DomainWideDelegationSetup component
   const handleAdminEmailChange = (email: string) => {
-    console.log('[Migration Wizard] Admin email changed:', email);
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] Admin email changed:', {
+      email,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 3).join('\n')
+    });
     // For single super admin, this serves as the source admin email
     setSourceAdminEmail(email);
   };
 
   const handleSourceEmailChange = (email: string) => {
-    console.log('[Migration Wizard] Source email changed:', email);
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] Source email changed:', {
+      email,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 3).join('\n')
+    });
     setSourceAdminEmail(email);
   };
 
   const handleDestEmailChange = (email: string) => {
-    console.log('[Migration Wizard] Dest email changed:', email);
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] Dest email changed:', {
+      email,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 3).join('\n')
+    });
     setTargetAdminEmail(email);
   };
 
   const handleSourceEmailsChange = (emails: {[domain: string]: string}) => {
-    console.log('[Migration Wizard] Source emails changed:', emails);
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] Source emails changed:', {
+      emails,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 3).join('\n')
+    });
     setSourceAdminEmails(emails);
   };
 
   const handleDestEmailsChange = (emails: {[domain: string]: string}) => {
-    console.log('[Migration Wizard] Dest emails changed:', emails);
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] Dest emails changed:', {
+      emails,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 3).join('\n')
+    });
     setTargetAdminEmails(emails);
   };
 
@@ -461,6 +691,164 @@ export default function NewMigration() {
     if (!domainMapping) return [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
     
     return domainMapping.sourceDomains.filter((domain): domain is string => Boolean(domain));
+  };
+
+  // OAuth Authentication Functions for Domain Discovery
+  const initiateOAuthForDomainDiscovery = async () => {
+    try {
+      setOauthInProgress('discovery');
+      
+      // Build OAuth URL with proper scopes for domain discovery
+      const scopes = [
+        'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+        'https://www.googleapis.com/auth/admin.directory.user.readonly',
+        'https://www.googleapis.com/auth/admin.directory.group.readonly',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/contacts.readonly'
+      ].join(' ');
+
+      const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      const redirectUri = `${window.location.origin}/api/auth/oauth/callback/google`;
+      
+      const params = new URLSearchParams({
+        client_id: clientId || '',
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scopes,
+        access_type: 'offline',
+        prompt: 'consent',
+        state: JSON.stringify({ 
+          type: 'domain_discovery', 
+          scenario: selectedScenario,
+          migrationId: Date.now() 
+        })
+      });
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+      
+      // Open OAuth in popup window
+      const popup = window.open(authUrl, 'oauth_discovery', 'width=600,height=600,scrollbars=yes,resizable=yes');
+      
+      // Listen for OAuth completion
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          setOauthInProgress(null);
+          // Check if authentication was successful and discover domains
+          checkOAuthStatusAndDiscoverDomains();
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('OAuth initiation error:', error);
+      setOauthInProgress(null);
+    }
+  };
+
+  const initiateAdditionalOAuth = async (domainHint?: string) => {
+    try {
+      setOauthInProgress('additional');
+      
+      const scopes = [
+        'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+        'https://www.googleapis.com/auth/admin.directory.user.readonly',
+        'https://www.googleapis.com/auth/admin.directory.group.readonly'
+      ].join(' ');
+
+      const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      const redirectUri = `${window.location.origin}/api/auth/oauth/callback/google`;
+      
+      const params = new URLSearchParams({
+        client_id: clientId || '',
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scopes,
+        access_type: 'offline',
+        prompt: 'consent',
+        state: JSON.stringify({ 
+          type: 'additional_domain_discovery', 
+          scenario: selectedScenario,
+          migrationId: Date.now() 
+        })
+      });
+
+      if (domainHint) {
+        params.set('hd', domainHint);
+      }
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+      
+      const popup = window.open(authUrl, 'oauth_additional', 'width=600,height=600,scrollbars=yes,resizable=yes');
+      
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          setOauthInProgress(null);
+          checkAdditionalOAuthStatus();
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('Additional OAuth error:', error);
+      setOauthInProgress(null);
+    }
+  };
+
+  const checkAdditionalOAuthStatus = async () => {
+    try {
+      const response = await fetch('/api/auth/oauth/discover-domains?type=additional');
+      const data = await response.json();
+      
+      if (data.authenticated && data.domains) {
+        // Add newly discovered domains to target domains for cross-tenant
+        setAvailableTargetDomains(prev => {
+          const combined = [...prev, ...data.domains];
+          return Array.from(new Set(combined)); // Remove duplicates
+        });
+        
+        setOauthTokens(prev => ({
+          ...prev,
+          'additional': {
+            authenticated: true,
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresAt: data.expiresAt
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Additional domain discovery error:', error);
+    }
+  };
+
+  const revokeOAuthToken = async (tokenKey: string) => {
+    try {
+      await fetch('/api/auth/oauth/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenKey })
+      });
+      
+      // Clear local status
+      setOauthTokens(prev => {
+        const newTokens = { ...prev };
+        delete newTokens[tokenKey];
+        return newTokens;
+      });
+      
+      // Reset discovered domains if revoking primary token
+      if (tokenKey === 'primary') {
+        setAuthenticatedDomains([]);
+        setAvailableSourceDomains([]);
+        if (selectedScenario === 'single-super-admin') {
+          setAvailableTargetDomains([]);
+        }
+      }
+    } catch (error) {
+      console.error('OAuth revocation error:', error);
+    }
   };
 
   // Check if all required admin emails are provided
@@ -538,47 +926,116 @@ export default function NewMigration() {
           </div>
         );
 
-      case 'domain-mapping':
+      case 'auth-and-domains':
         if (!selectedScenario) return null;
+        return (
+          <div className="space-y-8">
+            <ComponentLoader>
+              <AuthenticateAndConfigureDomains
+                selectedScenario={selectedScenario}
+                sessionId={oauthSessionId}
+                onConfigurationComplete={handleDomainConfiguration}
+              />
+            </ComponentLoader>
+            
+            {/* Show cross-tenant auth status if applicable */}
+            {selectedScenario === 'cross-tenant' && (
+              <ComponentLoader>
+                <CrossTenantAuthStatus 
+                  scenario={selectedScenario}
+                  className="mt-6"
+                />
+              </ComponentLoader>
+            )}
+          </div>
+        );
+
+      case 'user-mapping':
+        if (!selectedScenario) return null;
+        return (
+          <div className="space-y-8">
+            <ComponentLoader>
+              <UserMappingRelationshipSelector
+                selectedScenario={selectedScenario}
+                onSelectionComplete={(config) => {
+                  setUserMappingConfig(config);
+                  handleNext();
+                }}
+              />
+            </ComponentLoader>
+          </div>
+        );
+
+      case 'delegation':
         return (
           <div className="space-y-8">
             {/* Header */}
             <div className="text-center">
               <div className="flex justify-center mb-4">
-                <div className="p-3 bg-gradient-to-br from-emerald-100 to-green-100 rounded-xl">
-                  <Database className="h-8 w-8 text-emerald-600" />
+                <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
+                  <Shield className="h-8 w-8 text-green-600" />
                 </div>
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Configure Domain Mapping
+                Domain-wide Delegation Setup
               </h2>
               <p className="text-gray-600 max-w-2xl mx-auto">
-                Define how your source domains will be mapped to target domains.
+                Configure domain-wide delegation to allow the migration tool to access Google Workspace APIs on behalf of users.
               </p>
             </div>
 
-            {/* Selected Scenario Badge */}
-            <div className="flex justify-center">
-              <div className="inline-flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
+            {/* Configuration Summary */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+              <div className="flex items-start space-x-3">
+                <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium text-blue-900 mb-2">Configuration Summary</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-blue-900">Migration Type:</span>
+                      <span className="text-blue-800 ml-2">{selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-blue-900">Domains:</span>
+                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} → {domainMapping?.targetDomain}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Domain Mapping Component */}
+            {/* Domain-wide Delegation Setup */}
             <div className="max-w-4xl mx-auto">
               <ComponentLoader>
-                <DomainMappingSelector
-                  selectedScenario={selectedScenario}
-                  selectedMapping={domainMapping}
-                  onMappingSelect={handleDomainMappingSelect}
+                <DomainWideDelegationSetup
+                  migrationScenario={selectedScenario || undefined}
+                  domainMapping={domainMapping || undefined}
+                  onComplete={() => setDwdSetupComplete(true)}
+                  onVerificationStatusChange={setDwdVerificationStatus}
+                  adminEmail={sourceAdminEmail}
+                  onAdminEmailChange={handleAdminEmailChange}
+                  onSourceEmailChange={handleSourceEmailChange}
+                  onDestEmailChange={handleDestEmailChange}
+                  onSourceEmailsChange={handleSourceEmailsChange}
+                  onDestEmailsChange={handleDestEmailsChange}
                 />
               </ComponentLoader>
             </div>
-          </div>
-        );
 
-      case 'delegation':
+            {/* Status Indicator */}
+            {dwdSetupComplete && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-6">
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-6 w-6 text-green-600" />
+                  <div>
+                    <h3 className="font-medium text-green-900">Domain-wide Delegation Configured</h3>
+                    <p className="text-green-700 text-sm">The service account has been properly configured for domain-wide delegation.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );      case 'delegation':
         return (
           <div className="space-y-8">
             {/* Header */}
@@ -622,6 +1079,37 @@ export default function NewMigration() {
 
             {/* Domain-wide Delegation Setup */}
             <div className="max-w-4xl mx-auto">
+              {/* Authentication Prerequisite Warning */}
+              {!isOAuthCompleteForDomainDiscovery() && (
+                <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-400 rounded-lg">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="h-5 w-5 text-red-400" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-red-800">
+                        Authentication Required
+                      </h3>
+                      <div className="mt-2 text-sm text-red-700">
+                        <p>
+                          Domain-wide delegation setup requires authentication to be completed first. 
+                          Please complete the "Authenticate & Configure Domains" step before proceeding.
+                        </p>
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setCurrentStep('auth-and-domains')}
+                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-800 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                          >
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Go to Authentication Step
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <ComponentLoader>
                 <DomainWideDelegationSetup
                   sourceAccount={sourceAdminEmail}
@@ -637,6 +1125,8 @@ export default function NewMigration() {
                   onSourceEmailsChange={handleSourceEmailsChange}
                   onDestEmailsChange={handleDestEmailsChange}
                   className="bg-white"
+                  // Disable the component if authentication is not complete
+                  style={!isOAuthCompleteForDomainDiscovery() ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
                 />
               </ComponentLoader>
             </div>
@@ -671,171 +1161,32 @@ export default function NewMigration() {
           </div>
         );
 
-      case 'user-discovery':
+      case 'user-management':
         return (
           <div className="space-y-8">
-            {/* Header */}
-            <div className="text-center">
-              <div className="flex justify-center mb-4">
-                <div className="p-3 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl">
-                  <Users className="h-8 w-8 text-blue-600" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Discover Users
-              </h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
-                Find and list all users from your source domains for migration.
-              </p>
-            </div>
-
-            {/* Configuration Summary */}
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
-                    <Database className="h-5 w-5 mr-2" />
-                    Source Domain
-                  </h3>
-                  <p className="text-green-800 text-sm">
-                    {domainMapping?.sourceDomains?.[0] || 'Not configured'}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
-                    <Shield className="h-5 w-5 mr-2" />
-                    Delegation Status
-                  </h3>
-                  <p className="text-green-800 text-sm">
-                    {dwdSetupComplete && dwdVerificationStatus ? 'Verified' : dwdSetupComplete ? 'Setup Complete' : 'Pending'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* User Discovery Component */}
-            <div className="max-w-4xl mx-auto">
-              <ComponentLoader>
-                <UserDiscovery
-                  sourceDomains={getSourceDomains()}
-                  sourceAdminEmails={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
-                  sourceAdminEmail={selectedScenario === 'single-super-admin' || getSourceDomains().length <= 1 ? sourceAdminEmail : undefined}
-                  onUsersSelected={(users: any[]) => {
-                    setDiscoveredUsers(users);
-                    setSelectedUsers(users); // Initially select all users
-                  }}
-                />
-              </ComponentLoader>
-            </div>
-
-            {/* Status Indicator */}
-            <div className="flex justify-center">
-              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                discoveredUsers.length > 0
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-yellow-100 text-yellow-800'
-              }`}>
-                {discoveredUsers.length > 0 ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {discoveredUsers.length} users discovered
-                  </>
-                ) : (
-                  <>
-                    <Clock className="h-4 w-4 mr-2" />
-                    Discovering users...
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'user-mapping':
-        return (
-          <div className="space-y-8">
-            {/* Header */}
-            <div className="text-center">
-              <div className="flex justify-center mb-4">
-                <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl">
-                  <ArrowRight className="h-8 w-8 text-indigo-600" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Map Users
-              </h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
-                Configure how users from source domains will be mapped to target domains.
-              </p>
-            </div>
-
-            {/* Discovery Summary */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
-              <div className="grid md:grid-cols-3 gap-6">
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <Users className="h-5 w-5 mr-2" />
-                    Discovered Users
-                  </h3>
-                  <p className="text-blue-800 text-sm">
-                    {discoveredUsers.length} users found
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <Database className="h-5 w-5 mr-2" />
-                    Source Domain
-                  </h3>
-                  <p className="text-blue-800 text-sm">
-                    {domainMapping?.sourceDomains?.[0] || 'Not configured'}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <ArrowRight className="h-5 w-5 mr-2" />
-                    Target Domains
-                  </h3>
-                  <p className="text-blue-800 text-sm">
-                    {domainMapping ? formatTargetDomains(domainMapping) : 'Not configured'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* User Mapping Component */}
+            {/* UserManagementWorkflow Component */}
             <div className="max-w-6xl mx-auto">
               <ComponentLoader>
-                <UserMapping
-                  sourceDomain={getSourceDomains()[0] || ''}
+                <UserManagementWorkflow
+                  sourceDomains={getSourceDomains()}
                   targetDomains={getTargetDomains()}
-                  sourceAdminEmail={sourceAdminEmail}
+                  sourceAdminEmails={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
+                  sourceAdminEmail={selectedScenario === 'single-super-admin' || getSourceDomains().length <= 1 ? sourceAdminEmail : undefined}
                   targetAdminEmails={targetAdminEmails}
-                  onMappingComplete={(mappings) => {
-                    setUserMappings(mappings);
+                  migrationScenario={selectedScenario || undefined}
+                  mappingType={
+                    domainMapping?.type === 'one-to-many' ? 'one-to-many' :
+                    domainMapping?.type === 'many-to-one' ? 'many-to-one' :
+                    domainMapping?.type === 'cross-tenant-single' ? 'one-to-one' :
+                    'one-to-one'
+                  }
+                  onComplete={(results) => {
+                    setDiscoveredUsers(results.discoveredUsers);
+                    setCreatedUsers(results.createdUsers);
+                    setUserMappings(results.mappings);
                   }}
                 />
               </ComponentLoader>
-            </div>
-
-            {/* Status Indicator */}
-            <div className="flex justify-center">
-              <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                userMappings.length > 0
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-yellow-100 text-yellow-800'
-              }`}>
-                {userMappings.length > 0 ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {userMappings.length} users mapped
-                  </>
-                ) : (
-                  <>
-                    <Clock className="h-4 w-4 mr-2" />
-                    Configure user mappings
-                  </>
-                )}
-              </div>
             </div>
           </div>
         );
@@ -879,6 +1230,30 @@ export default function NewMigration() {
                     <p className="text-blue-800">{domainMapping.description}</p>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Migration Name */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <FileText className="h-5 w-5 mr-2 text-blue-600" />
+                Migration Name
+              </h3>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Give your migration a descriptive name
+                </label>
+                <input
+                  type="text"
+                  value={migrationConfig.migrationName}
+                  onChange={(e) => setMigrationConfig(prev => ({ ...prev, migrationName: e.target.value }))}
+                  placeholder="e.g., Acme Corp Acquisition Migration, Q4 2024 Domain Consolidation"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Choose a name that helps you identify this migration later. This will appear in your dashboard and migration history.
+                </p>
               </div>
             </div>
 
@@ -1288,13 +1663,19 @@ export default function NewMigration() {
                 </h3>
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
+                    <div className="text-sm text-gray-600 mb-1">Migration Name</div>
+                    <div className="font-medium text-gray-900">
+                      {migrationConfig.migrationName || 'Untitled Migration'}
+                    </div>
+                  </div>
+                  <div>
                     <div className="text-sm text-gray-600 mb-1">Migration Type</div>
                     <div className="font-medium text-gray-900">
                       {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
                     </div>
                   </div>
                   {domainMapping && (
-                    <div>
+                    <div className="md:col-span-2">
                       <div className="text-sm text-gray-600 mb-1">Domain Strategy</div>
                       <div className="font-medium text-gray-900">{domainMapping.description}</div>
                     </div>
@@ -1639,13 +2020,17 @@ export default function NewMigration() {
     return descriptions[key] || 'Advanced migration option';
   };
 
+  const getTotalSteps = () => {
+    return 8; // Updated to include user-mapping step
+  };
+
   const getStepNumber = () => {
     switch (currentStep) {
       case 'scenario': return 1;
-      case 'domain-mapping': return 2;
-      case 'delegation': return 3;
-      case 'user-discovery': return 4;
-      case 'user-mapping': return 5;
+      case 'auth-and-domains': return 2;
+      case 'user-mapping': return 3;
+      case 'delegation': return 4;
+      case 'user-management': return 5;
       case 'configuration': return 6;
       case 'review': return 7;
       case 'migration': return 8;
@@ -1657,16 +2042,27 @@ export default function NewMigration() {
     switch (currentStep) {
       case 'scenario':
         return selectedScenario !== null;
-      case 'domain-mapping':
-        return domainMapping !== null;
+      case 'auth-and-domains':
+        return isOAuthCompleteForDomainDiscovery() && domainMapping !== null;
       case 'delegation':
+        // CRITICAL: Authentication must be completed before delegation verification
+        const isAuthCompleted = isOAuthCompleteForDomainDiscovery() && domainMapping !== null;
         const adminEmailsProvided = areAllAdminEmailsProvided();
-        const canProceedDelegation = dwdSetupComplete && adminEmailsProvided && dwdVerificationStatus;
+        const canProceedDelegation = isAuthCompleted && dwdSetupComplete && adminEmailsProvided && dwdVerificationStatus;
         console.log('[Migration Wizard] canProceed delegation:', {
+          // Authentication prerequisite checks
+          isAuthCompleted,
+          isOAuthCompleteForDomainDiscovery: isOAuthCompleteForDomainDiscovery(),
+          domainMapping: !!domainMapping,
+          
+          // Delegation specific checks
           dwdSetupComplete,
           areAllAdminEmailsProvided: adminEmailsProvided,
           dwdVerificationStatus,
+          
+          // Final result
           canProceed: canProceedDelegation,
+          
           // Additional debug info
           selectedScenario,
           sourceAdminEmail,
@@ -1677,15 +2073,32 @@ export default function NewMigration() {
           targetDomains: getTargetDomains()
         });
         return canProceedDelegation;
-      case 'user-discovery':
-        return discoveredUsers.length > 0;
       case 'user-mapping':
-        return userMappings.length > 0;
+        return userMappingConfig !== null;
+      case 'user-management':
+        return discoveredUsers.length > 0;
       case 'configuration':
-        return migrationConfig.sourceDomain && 
+        const configValid = migrationConfig.migrationName.trim() !== '' &&
+               migrationConfig.sourceDomain && 
                migrationConfig.targetDomain && 
                migrationConfig.services.length > 0 &&
                selectedUsers.length > 0; // Require users to be selected
+        
+        console.log('[Migration Wizard] Configuration validation:', {
+          migrationName: migrationConfig.migrationName,
+          migrationNameValid: migrationConfig.migrationName.trim() !== '',
+          sourceDomain: migrationConfig.sourceDomain,
+          sourceDomainValid: !!migrationConfig.sourceDomain,
+          targetDomain: migrationConfig.targetDomain,
+          targetDomainValid: !!migrationConfig.targetDomain,
+          services: migrationConfig.services,
+          servicesValid: migrationConfig.services.length > 0,
+          selectedUsers: selectedUsers.length,
+          selectedUsersValid: selectedUsers.length > 0,
+          overallValid: configValid
+        });
+        
+        return configValid;
       case 'review':
         return true;
       default:
@@ -1696,14 +2109,14 @@ export default function NewMigration() {
   const getNextButtonText = () => {
     switch (currentStep) {
       case 'scenario':
-        return 'Configure Domains';
-      case 'domain-mapping':
+        return 'Authenticate & Configure Domains';
+      case 'auth-and-domains':
+        return 'Choose User Mapping';
+      case 'user-mapping':
         return 'Setup Delegation';
       case 'delegation':
-        return 'Discover Users';
-      case 'user-discovery':
-        return 'Map Users';
-      case 'user-mapping':
+        return 'Manage Users';
+      case 'user-management':
         return 'Configure Settings';
       case 'configuration':
         return 'Review & Confirm';
@@ -1724,7 +2137,7 @@ export default function NewMigration() {
                 <div className="absolute top-6 left-16 right-16 h-0.5 bg-gray-200">
                   <div 
                     className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-500"
-                    style={{ width: `${((getStepNumber() - 1) / 6) * 100}%` }}
+                    style={{ width: `${((getStepNumber() - 1) / (getTotalSteps() - 1)) * 100}%` }}
                   />
                 </div>
                 
@@ -1784,14 +2197,14 @@ export default function NewMigration() {
                     </h1>
                     {currentStep !== 'scenario' && (
                       <p className="text-blue-100 mt-1">
-                        Step {getStepNumber()} of 7: {STEP_CONFIG[currentStep].title}
+                        Step {getStepNumber()} of {getTotalSteps()}: {STEP_CONFIG[currentStep].title}
                       </p>
                     )}
                   </div>
                   {currentStep !== 'scenario' && currentStep !== 'migration' && (
                     <div className="flex items-center space-x-2 text-blue-100">
                       <Clock className="h-4 w-4" />
-                      <span className="text-sm">Est. {7 - getStepNumber()} steps remaining</span>
+                      <span className="text-sm">Est. {getTotalSteps() - getStepNumber()} steps remaining</span>
                     </div>
                   )}
                 </div>
@@ -1823,7 +2236,25 @@ export default function NewMigration() {
                       {!canProceed() && currentStep !== 'scenario' && (
                         <div className="flex items-center text-orange-600 text-sm">
                           <AlertCircle className="h-4 w-4 mr-2" />
-                          Complete all required fields to continue
+                          {currentStep === 'delegation' ? (
+                            <div>
+                              {!isOAuthCompleteForDomainDiscovery() && 'Authentication must be completed first. '}
+                              {!domainMapping && 'Domain configuration required. '}
+                              {!dwdSetupComplete && 'Domain-wide delegation setup required. '}
+                              {!areAllAdminEmailsProvided() && 'Admin emails required. '}
+                              {!dwdVerificationStatus && 'Delegation verification required. '}
+                            </div>
+                          ) : currentStep === 'configuration' ? (
+                            <div>
+                              {!migrationConfig.migrationName.trim() && 'Migration name required. '}
+                              {!migrationConfig.sourceDomain && 'Source domain required. '}
+                              {!migrationConfig.targetDomain && 'Target domain required. '}
+                              {migrationConfig.services.length === 0 && 'Select at least one service. '}
+                              {selectedUsers.length === 0 && 'Select users to migrate. '}
+                            </div>
+                          ) : (
+                            'Complete all required fields to continue'
+                          )}
                         </div>
                       )}
                       <button

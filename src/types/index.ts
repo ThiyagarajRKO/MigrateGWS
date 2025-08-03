@@ -1,5 +1,31 @@
 // TypeScript type definitions for MigrateGWS
 
+// User Mapping Relationship Types
+export type UserMappingRelationship = 
+  | 'one-to-one'
+  | 'one-to-many' 
+  | 'many-to-one';
+
+export interface UserMappingOption {
+  type: UserMappingRelationship;
+  title: string;
+  description: string;
+  icon: string;
+  complexity: 'Low' | 'Medium' | 'High';
+  example: string;
+  useCases: string[];
+}
+
+export interface UserMappingConfig {
+  relationship: UserMappingRelationship;
+  strategy: 'automatic' | 'manual' | 'hybrid';
+  conflictResolution: 'skip' | 'rename' | 'overwrite' | 'manual';
+  preserveUsernames?: boolean;
+  usernameSuffix?: string;
+  usernamePrefix?: string;
+  description?: string;
+}
+
 export interface User {
   id: string;
   email: string;

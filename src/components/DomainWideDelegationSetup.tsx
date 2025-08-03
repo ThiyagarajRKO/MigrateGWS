@@ -39,6 +39,7 @@ interface DomainWideDelegationSetupProps {
   onSourceEmailsChange?: (emails: {[domain: string]: string}) => void // For multiple source domains
   onDestEmailsChange?: (emails: {[domain: string]: string}) => void // For multiple dest domains
   className?: string
+  style?: React.CSSProperties // Add style prop support
 }
 
 interface DelegationSetupData {
@@ -201,12 +202,31 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   onDestEmailChange,
   onSourceEmailsChange,
   onDestEmailsChange,
-  className = '' 
+  className = '',
+  style
 }: DomainWideDelegationSetupProps) {
   const router = useRouter()
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
   const [showOverviewTooltip, setShowOverviewTooltip] = useState(false)
   
+  // Track initial props state to determine if we should show input section
+  const [shouldShowInputSection] = useState(() => {
+    // Only show input section if no meaningful admin emails were provided as props
+    // Check for both undefined and empty string values
+    const hasSourceAccount = sourceAccount && sourceAccount.trim() !== '';
+    const hasDestAccount = destAccount && destAccount.trim() !== '';
+    const hasAdminEmail = adminEmail && adminEmail.trim() !== '';
+    const hasSourceAccounts = Object.keys(sourceAccounts || {}).length > 0 && 
+                              Object.values(sourceAccounts || {}).some(email => email && email.trim() !== '');
+    const hasDestAccounts = Object.keys(destAccounts || {}).length > 0 && 
+                            Object.values(destAccounts || {}).some(email => email && email.trim() !== '');
+    
+    const shouldShow = !hasSourceAccount && !hasDestAccount && !hasAdminEmail && 
+                       !hasSourceAccounts && !hasDestAccounts;
+    
+    return shouldShow;
+  });
+
   // API integration state
   const [delegationSetupLoading, setDelegationSetupLoading] = useState(false)
   const [delegationVerifyLoading, setDelegationVerifyLoading] = useState(false)
@@ -258,6 +278,50 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       console.error('[DomainWideDelegationSetup] Error loading persisted verifications:', error)
     }
   }, [])
+
+  // Load cached admin emails into input state when no props are provided
+  useEffect(() => {
+    // Only populate input state if no props are provided and inputs are empty
+    if (!adminEmail && !sourceAccount && !destAccount && 
+        Object.keys(sourceAccounts || {}).length === 0 && 
+        Object.keys(destAccounts || {}).length === 0 &&
+        !inputAdminEmail && !inputSourceEmail && !inputDestEmail) {
+      
+      // Extract admin emails from persistent verification cache
+      const verificationKeys = Object.keys(persistedVerifications);
+      if (verificationKeys.length > 0) {
+        console.log('[DomainWideDelegationSetup] Loading cached admin emails into input state from keys:', verificationKeys);
+
+        // Get the most recent verification
+        const mostRecentKey = verificationKeys.reduce((latest, current) => {
+          const latestTimestamp = persistedVerifications[latest]?.timestamp || 0;
+          const currentTimestamp = persistedVerifications[current]?.timestamp || 0;
+          return currentTimestamp > latestTimestamp ? current : latest;
+        });
+
+        const verification = persistedVerifications[mostRecentKey];
+        if (verification) {
+          console.log('[DomainWideDelegationSetup] Loading from most recent verification key:', mostRecentKey, 'data:', verification);
+
+          // Parse the verification key to extract email information
+          const [scenario, ...emailParts] = mostRecentKey.split('-');
+          
+          if (scenario === 'single-super-admin' && emailParts.length > 0) {
+            const adminEmailFromCache = emailParts[0];
+            console.log('[DomainWideDelegationSetup] Setting input admin email from cache:', adminEmailFromCache);
+            setInputAdminEmail(adminEmailFromCache);
+          } else if (scenario === 'cross-tenant' && emailParts.length >= 2) {
+            // For cross-tenant, we have source and dest emails (sorted)
+            const sourceEmailFromCache = emailParts[0];
+            const destEmailFromCache = emailParts[1];
+            console.log('[DomainWideDelegationSetup] Setting input emails from cache - source:', sourceEmailFromCache, 'dest:', destEmailFromCache);
+            setInputSourceEmail(sourceEmailFromCache);
+            setInputDestEmail(destEmailFromCache);
+          }
+        }
+      }
+    }
+  }, [persistedVerifications, adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, inputAdminEmail, inputSourceEmail, inputDestEmail])
 
   // Generate verification key for persistence
   const getVerificationKey = useCallback((adminEmail: string, sourceEmail?: string, destEmail?: string, scenario?: string) => {
@@ -399,11 +463,6 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
   // Get cached admin email information for display
   const getCachedAdminInfo = useCallback(() => {
-    // If we already have admin emails from props, use those
-    if (adminEmail || sourceAccount || destAccount || Object.keys(sourceAccounts || {}).length > 0 || Object.keys(destAccounts || {}).length > 0) {
-      return null; // Let the existing logic handle this
-    }
-
     // Extract admin emails from persistent verification cache
     const verificationKeys = Object.keys(persistedVerifications);
     if (verificationKeys.length === 0) return null;
@@ -450,9 +509,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
     console.log('[DomainWideDelegationSetup] Could not parse verification key:', mostRecentKey);
     return null;
-  }, [persistedVerifications, adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts])
+  }, [persistedVerifications])
 
-  // Get effective admin info for display (either from props or cache)
+  // Get effective admin info for display (either from props, input state, or cache)
   const getEffectiveAdminInfo = useCallback(() => {
     // First check if we have admin emails from props
     if (adminEmail || sourceAccount || destAccount || Object.keys(sourceAccounts || {}).length > 0 || Object.keys(destAccounts || {}).length > 0) {
@@ -466,11 +525,25 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       };
     }
 
+    // Check if we have admin emails from input state
+    if (inputAdminEmail || inputSourceEmail || inputDestEmail) {
+      return {
+        hasPropsData: false,
+        hasInputData: true,
+        adminEmail: inputAdminEmail,
+        sourceAccount: inputSourceEmail,
+        destAccount: inputDestEmail,
+        sourceAccounts: {},
+        destAccounts: {}
+      };
+    }
+
     // Check if we have cached admin info
     const cachedInfo = getCachedAdminInfo();
     if (cachedInfo) {
       return {
         hasPropsData: false,
+        hasInputData: false,
         cachedInfo,
         adminEmail: cachedInfo.type === 'single-super-admin' ? cachedInfo.adminEmail : undefined,
         sourceAccount: cachedInfo.type === 'cross-tenant' ? cachedInfo.sourceEmail : undefined,
@@ -482,6 +555,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
     return {
       hasPropsData: false,
+      hasInputData: false,
       cachedInfo: null,
       adminEmail: undefined,
       sourceAccount: undefined,
@@ -489,7 +563,47 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       sourceAccounts: {},
       destAccounts: {}
     };
-  }, [adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, getCachedAdminInfo])
+  }, [adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, inputAdminEmail, inputSourceEmail, inputDestEmail, getCachedAdminInfo])
+
+  // Helper function to check if admin emails are loaded from cache (not from input)
+  const isAdminEmailFromCache = useCallback(() => {
+    // Only check if we have cached info, regardless of input state
+    const cachedInfo = getCachedAdminInfo();
+    const hasCache = cachedInfo !== null && cachedInfo !== undefined;
+    
+    // Also check if the current input values match the cached values
+    // This ensures we only show "from cache" when the values actually came from cache
+    let inputMatchesCache = false;
+    if (hasCache && cachedInfo) {
+      if (cachedInfo.type === 'single-super-admin') {
+        inputMatchesCache = inputAdminEmail === cachedInfo.adminEmail;
+      } else if (cachedInfo.type === 'cross-tenant') {
+        inputMatchesCache = inputSourceEmail === cachedInfo.sourceEmail && inputDestEmail === cachedInfo.destEmail;
+      }
+    }
+    
+    const fromCache = hasCache && inputMatchesCache;
+    console.log('[DomainWideDelegationSetup] isAdminEmailFromCache:', fromCache, {
+      hasCache,
+      inputMatchesCache,
+      cachedInfo: cachedInfo ? {
+        type: cachedInfo.type,
+        timestamp: cachedInfo.timestamp
+      } : null,
+      currentInputs: {
+        admin: inputAdminEmail,
+        source: inputSourceEmail,
+        dest: inputDestEmail
+      }
+    });
+    return fromCache;
+  }, [getCachedAdminInfo, inputAdminEmail, inputSourceEmail, inputDestEmail])
+
+  // Helper function to check if we have ANY cached verification data (for showing banner)
+  const hasCachedVerification = useCallback(() => {
+    const cachedInfo = getCachedAdminInfo();
+    return cachedInfo !== null && cachedInfo !== undefined;
+  }, [getCachedAdminInfo])
 
   // Domain mapping context helpers
   const getDomainMappingContext = useMemo(() => {
@@ -584,91 +698,132 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     }
   }, [isVerificationSuccessful, onComplete])
 
-  // Notify parent component when admin emails change
+  // Notify parent component when admin emails change (including empty values)
   useEffect(() => {
-    if (onAdminEmailChange && inputAdminEmail) {
-      onAdminEmailChange(inputAdminEmail)
+    if (onAdminEmailChange) {
+      onAdminEmailChange(inputAdminEmail || '')
     }
   }, [inputAdminEmail, onAdminEmailChange])
 
   useEffect(() => {
-    if (onSourceEmailChange && inputSourceEmail) {
-      onSourceEmailChange(inputSourceEmail)
+    if (onSourceEmailChange) {
+      onSourceEmailChange(inputSourceEmail || '')
     }
   }, [inputSourceEmail, onSourceEmailChange])
 
   useEffect(() => {
-    if (onDestEmailChange && inputDestEmail) {
-      onDestEmailChange(inputDestEmail)
+    if (onDestEmailChange) {
+      onDestEmailChange(inputDestEmail || '')
     }
   }, [inputDestEmail, onDestEmailChange])
 
-  // Initial sync of admin emails when component mounts or props change
+  // Initial sync of admin emails when component mounts or props change (including empty values)
   useEffect(() => {
-    if (onAdminEmailChange && adminEmail) {
-      onAdminEmailChange(adminEmail)
+    if (onAdminEmailChange) {
+      onAdminEmailChange(adminEmail || '')
     }
   }, [adminEmail, onAdminEmailChange])
 
   useEffect(() => {
-    if (onSourceEmailChange && sourceAccount) {
-      onSourceEmailChange(sourceAccount)
+    if (onSourceEmailChange) {
+      onSourceEmailChange(sourceAccount || '')
     }
   }, [sourceAccount, onSourceEmailChange])
 
   useEffect(() => {
-    if (onDestEmailChange && destAccount) {
-      onDestEmailChange(destAccount)
+    if (onDestEmailChange) {
+      onDestEmailChange(destAccount || '')
     }
   }, [destAccount, onDestEmailChange])
 
   useEffect(() => {
-    if (onSourceEmailsChange && Object.keys(sourceAccounts).length > 0) {
-      onSourceEmailsChange(sourceAccounts)
+    if (onSourceEmailsChange) {
+      onSourceEmailsChange(sourceAccounts || {})
     }
   }, [sourceAccounts, onSourceEmailsChange])
 
   useEffect(() => {
-    if (onDestEmailsChange && Object.keys(destAccounts).length > 0) {
-      onDestEmailsChange(destAccounts)
+    if (onDestEmailsChange) {
+      onDestEmailsChange(destAccounts || {})
     }
   }, [destAccounts, onDestEmailsChange])
 
   // Initial sync of persistent verification status with parent component
   useEffect(() => {
-    if (onVerificationStatusChange) {
-      const isCurrentlyVerified = isCurrentConfigurationVerified()
-      if (isCurrentlyVerified) {
-        console.log('[DomainWideDelegationSetup] Syncing persistent verification status with parent on mount')
-        onVerificationStatusChange(true)
+    // Small delay to ensure persistedVerifications state has been loaded
+    const timeoutId = setTimeout(() => {
+      if (onVerificationStatusChange) {
+        const isCurrentlyVerified = isCurrentConfigurationVerified()
+        console.log('[DomainWideDelegationSetup] Initial sync - checking verification status:', isCurrentlyVerified)
         
-        // Also sync cached admin emails to parent if we have them
-        const cachedInfo = getCachedAdminInfo()
-        if (cachedInfo) {
-          console.log('[DomainWideDelegationSetup] Syncing cached admin emails to parent:', cachedInfo)
+        if (isCurrentlyVerified) {
+          console.log('[DomainWideDelegationSetup] Syncing persistent verification status with parent on mount')
+          onVerificationStatusChange(true)
           
-          if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
-            if (onAdminEmailChange) {
-              onAdminEmailChange(cachedInfo.adminEmail)
+          // Also sync cached admin emails to parent if we have them
+          const cachedInfo = getCachedAdminInfo()
+          if (cachedInfo) {
+            console.log('[DomainWideDelegationSetup] Syncing cached admin emails to parent:', cachedInfo)
+            
+            if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+              if (onAdminEmailChange) {
+                onAdminEmailChange(cachedInfo.adminEmail)
+              }
+            } else if (cachedInfo.type === 'cross-tenant') {
+              if (cachedInfo.sourceEmail && onSourceEmailChange) {
+                onSourceEmailChange(cachedInfo.sourceEmail)
+              }
+              if (cachedInfo.destEmail && onDestEmailChange) {
+                onDestEmailChange(cachedInfo.destEmail)
+              }
             }
-          } else if (cachedInfo.type === 'cross-tenant') {
-            if (cachedInfo.sourceEmail && onSourceEmailChange) {
-              onSourceEmailChange(cachedInfo.sourceEmail)
-            }
-            if (cachedInfo.destEmail && onDestEmailChange) {
-              onDestEmailChange(cachedInfo.destEmail)
+          }
+        } else {
+          // Even if not verified from cache, sync any cached admin emails for display
+          const cachedInfo = getCachedAdminInfo()
+          if (cachedInfo) {
+            console.log('[DomainWideDelegationSetup] No cached verification, but syncing cached admin emails for display:', cachedInfo)
+            
+            if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+              if (onAdminEmailChange) {
+                onAdminEmailChange(cachedInfo.adminEmail)
+              }
+            } else if (cachedInfo.type === 'cross-tenant') {
+              if (cachedInfo.sourceEmail && onSourceEmailChange) {
+                onSourceEmailChange(cachedInfo.sourceEmail)
+              }
+              if (cachedInfo.destEmail && onDestEmailChange) {
+                onDestEmailChange(cachedInfo.destEmail)
+              }
             }
           }
         }
       }
-    }
-  }, [onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onSourceEmailChange, onDestEmailChange])
+    }, 100) // Small delay to ensure state has been initialized
 
-  // Sync cached admin emails whenever persistedVerifications changes
+    return () => clearTimeout(timeoutId)
+  }, []) // Empty dependency array to run only on mount
+
+  // Sync verification status and admin emails when persistedVerifications changes
   useEffect(() => {
+    // Skip if this is the initial empty state
+    if (Object.keys(persistedVerifications).length === 0) return;
+    
+    console.log('[DomainWideDelegationSetup] persistedVerifications changed, syncing status and emails')
+    
+    // Check and sync verification status
+    if (onVerificationStatusChange) {
+      const isCurrentlyVerified = isCurrentConfigurationVerified()
+      if (isCurrentlyVerified) {
+        console.log('[DomainWideDelegationSetup] Syncing verification status: verified')
+        onVerificationStatusChange(true)
+      }
+    }
+    
+    // Sync cached admin emails
     const cachedInfo = getCachedAdminInfo()
     if (cachedInfo) {
-      console.log('[DomainWideDelegationSetup] Persistent verifications changed, syncing cached admin emails:', cachedInfo)
+      console.log('[DomainWideDelegationSetup] Syncing cached admin emails after verification change:', cachedInfo)
       
       if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
         console.log('[DomainWideDelegationSetup] Calling onAdminEmailChange with cached admin email:', cachedInfo.adminEmail)
@@ -688,7 +843,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     } else {
       console.log('[DomainWideDelegationSetup] No cached admin info found when persistent verifications changed')
     }
-  }, [persistedVerifications, getCachedAdminInfo, onAdminEmailChange, onSourceEmailChange, onDestEmailChange])
+  }, [persistedVerifications, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onSourceEmailChange, onDestEmailChange])
 
   const copyToClipboard = (text: string, itemId: string) => {
     navigator.clipboard.writeText(text)
@@ -1161,7 +1316,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   }
 
   return (
-    <div className={`bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-blue-200/60 shadow-lg shadow-blue-200/50 ${className}`}>
+    <div className={`bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-blue-200/60 shadow-lg shadow-blue-200/50 ${className}`} style={style}>
       {/* Header */}
       <div className="p-6 border-b border-blue-200/60 bg-gradient-to-r from-blue-50 to-indigo-50">
         <div className="flex items-center gap-3">
@@ -1445,9 +1600,42 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             </div>
           </div>
           
-          {/* Admin Email Input Section - Show when no emails are provided */}
-          {!sourceAccount && !destAccount && !adminEmail && (
+          {/* Admin Email Input Section - Show based on initial props state */}
+          {shouldShowInputSection && (
             <div className="mb-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200/60 rounded-lg shadow-sm">
+              {/* Cache Status Banner */}
+              {hasCachedVerification() && (
+                <div className="mb-4 p-3 bg-gradient-to-r from-green-100 to-emerald-100 border border-green-300/60 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <h5 className="font-bold text-green-800">Using Cached Configuration</h5>
+                  </div>
+                  <p className="text-sm text-green-700 font-medium">
+                    Previously verified admin emails have been loaded. You can review and modify them below if needed.
+                  </p>
+                  <button
+                    onClick={() => {
+                      console.log('[DomainWideDelegationSetup] Clear Cache button clicked - resetting admin emails to empty');
+                      
+                      // Clear cached admin emails
+                      setInputAdminEmail('')
+                      setInputSourceEmail('')
+                      setInputDestEmail('')
+                      
+                      // Clear the persistent verification cache
+                      setPersistedVerifications({})
+                      localStorage.removeItem('gws-verification-status')
+                      
+                      console.log('[DomainWideDelegationSetup] Cleared cached admin emails and verification status')
+                    }}
+                    className="mt-2 flex items-center gap-1 px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors duration-200 font-medium"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear Cache & Start Fresh
+                  </button>
+                </div>
+              )}
+              
               <h4 className="font-bold text-gray-800 mb-4 text-lg">Domain Administrator Configuration</h4>
               <p className="text-base text-gray-700 mb-4 leading-relaxed">
                 {getDomainMappingContext ? (
@@ -1509,18 +1697,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 {/* Single Domain Option */}
                 {(!getDomainMappingContext || !getDomainMappingContext.isCrossTenant) && (
                   <div>
-                    <label className="block text-base font-bold text-gray-800 mb-2">
+                    <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
                       {getDomainMappingContext?.isMultiTarget || getDomainMappingContext?.isMultiSource ? 
                         'Super Admin Email (access to all domains) *' : 
                         'Single Domain Admin Email *'
                       }
+                      {inputAdminEmail && isAdminEmailFromCache() && (
+                        <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
+                          From Cache
+                        </span>
+                      )}
                     </label>
                     <input
                       type="email"
                       value={inputAdminEmail}
                       onChange={(e) => setInputAdminEmail(e.target.value)}
                       placeholder="admin@yourdomain.com"
-                      className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                        inputAdminEmail && isAdminEmailFromCache() 
+                          ? 'border-green-300 bg-green-50' 
+                          : 'border-blue-200'
+                      }`}
                       required
                     />
                     <p className="text-sm text-gray-700 mt-2 font-medium leading-relaxed">
@@ -1541,8 +1738,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     {/* Cross-Tenant Options */}
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
-                        <label className="block text-base font-bold text-gray-800 mb-2">
+                        <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
                           Source Domain Admin Email *
+                          {inputSourceEmail && isAdminEmailFromCache() && (
+                            <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
+                              From Cache
+                            </span>
+                          )}
                         </label>
                         <input
                           type="email"
@@ -1552,13 +1754,22 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             `admin@${getDomainMappingContext.sourceDomains[0]}` : 
                             'admin@source-domain.com'
                           }
-                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            inputSourceEmail && isAdminEmailFromCache() 
+                              ? 'border-green-300 bg-green-50' 
+                              : 'border-blue-200'
+                          }`}
                           required
                         />
                       </div>
                       <div>
-                        <label className="block text-base font-bold text-gray-800 mb-2">
+                        <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
                           Destination Domain Admin Email *
+                          {inputDestEmail && isAdminEmailFromCache() && (
+                            <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
+                              From Cache
+                            </span>
+                          )}
                         </label>
                         <input
                           type="email"
@@ -1568,7 +1779,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             `admin@${getDomainMappingContext.targetDomains[0]}` : 
                             'admin@dest-domain.com'
                           }
-                          className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            inputDestEmail && isAdminEmailFromCache() 
+                              ? 'border-green-300 bg-green-50' 
+                              : 'border-blue-200'
+                          }`}
                           required
                         />
                       </div>

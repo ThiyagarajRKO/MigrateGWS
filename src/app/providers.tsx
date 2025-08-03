@@ -2,6 +2,7 @@
 
 import { SessionProvider } from 'next-auth/react'
 import { AuthProvider } from '@/lib/auth-context'
+import { CrossTenantAuthProvider } from '@/lib/cross-tenant-auth-context'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import ClientOnly from '@/components/ClientOnly'
 
@@ -17,7 +18,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           refetchOnWindowFocus={true}
         >
           <AuthProvider>
-            {children}
+            <CrossTenantAuthProvider>
+              {children}
+            </CrossTenantAuthProvider>
           </AuthProvider>
         </SessionProvider>
       </ClientOnly>
