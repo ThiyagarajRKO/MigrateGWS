@@ -1,7 +1,7 @@
 import { UserMapping } from '@/components/UserMappingVisualizer'
 
 export interface CSVUserMapping {
-  sourceEmails: string // comma-separated
+  sourceAdminEmails: string // comma-separated
   targetEmails: string // comma-separated
   mappingType: string
   scenario: string
@@ -14,7 +14,7 @@ export function parseMappingsFromCSV(csvText: string): UserMapping[] {
   const headers = lines[0].split(',').map(h => h.trim())
   
   if (headers.length < 4) {
-    throw new Error('CSV must have at least: sourceEmails,targetEmails,mappingType,scenario')
+    throw new Error('CSV must have at least: sourceAdminEmails,targetEmails,mappingType,scenario')
   }
 
   const mappings: UserMapping[] = []
@@ -49,18 +49,18 @@ export function parseMappingsFromCSV(csvText: string): UserMapping[] {
 }
 
 export function generateCSVFromMappings(mappings: UserMapping[]): string {
-  const headers = ['sourceEmails', 'targetEmails', 'mappingType', 'scenario', 'notes', 'targetExists']
+  const headers = ['sourceAdminEmails', 'targetEmails', 'mappingType', 'scenario', 'notes', 'targetExists']
   
   const csvLines = [
     headers.join(','),
     ...mappings.map(mapping => {
-      const sourceEmails = mapping.sourceUsers.join(';')
+      const sourceAdminEmails = mapping.sourceUsers.join(';')
       const targetEmails = Array.isArray(mapping.targetUser) 
         ? mapping.targetUser.join(';')
         : mapping.targetUser
       
       return [
-        sourceEmails,
+        sourceAdminEmails,
         targetEmails,
         mapping.mappingType,
         mapping.scenario,

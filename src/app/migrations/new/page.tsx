@@ -3,6 +3,7 @@
 import { useState, lazy, Suspense, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { useCrossTenantTokens } from '@/lib/cross-tenant-auth-context';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { 
   MigrationScenario, 
@@ -116,7 +117,8 @@ const STEP_CONFIG = {
   'user-mapping': { 
     icon: GitBranch, 
     title: 'User Mapping Relationship', 
-    description: 'Choose how source users map to target users' 
+    description: 'Choose how source users map to target users',
+    hidden: true // Skip this step in normal flow
   },
   delegation: { 
     icon: Shield, 
@@ -178,7 +180,7 @@ export default function NewMigration() {
     targetDomain: '',
     targetDomains: [] as string[], // Add support for multiple target domains
     services: ['Gmail', 'Drive'] as string[], // Add default services for testing
-    userMappings: [] as Array<{ sourceEmail: string; targetEmail: string }>,
+    userMappings: [] as Array<{ sourceAdminEmail: string; targetEmail: string }>,
     migrationOptions: {
       preserveLabels: true,
       migrateFolderStructure: true,
@@ -195,6 +197,10 @@ export default function NewMigration() {
   const [sourceAdminEmails, setSourceAdminEmails] = useState<{[domain: string]: string}>({});
   const [targetAdminEmail, setTargetAdminEmail] = useState('');
   const [targetAdminEmails, setTargetAdminEmails] = useState<{[domain: string]: string}>({});
+  
+  // Single Super Admin uses adminEmail instead of sourceAdminEmail for clarity
+  const [adminEmail, setAdminEmail] = useState('');
+  
   const [showDwdSetup, setShowDwdSetup] = useState(false);
 
   // OAuth Authentication state for domain discovery
@@ -217,6 +223,32 @@ export default function NewMigration() {
       console.log('[Migration Wizard] Component unmounting at:', new Date().toISOString());
     };
   }, []);
+
+  // Cross-tenant authentication for auto-populating admin emails
+  const { sourceAdminEmail: authSourceAdminEmail, targetAdminEmail: authTargetAdminEmail } = useCrossTenantTokens();
+
+  // Auto-populate source admin email from cross-tenant auth
+  useEffect(() => {
+    if (authSourceAdminEmail && !sourceAdminEmail) {
+      console.log('[Migration Wizard] Auto-populating source admin email:', authSourceAdminEmail);
+      setSourceAdminEmail(authSourceAdminEmail);
+    }
+  }, [authSourceAdminEmail, sourceAdminEmail]);
+
+  useEffect(() => {
+    if (authTargetAdminEmail && !targetAdminEmail) {
+      console.log('[Migration Wizard] Auto-populating target admin email:', authTargetAdminEmail);
+      setTargetAdminEmail(authTargetAdminEmail);
+    }
+  }, [authTargetAdminEmail, targetAdminEmail]);
+
+  // Auto-populate admin email from regular auth context for Single Super Admin scenarios
+  useEffect(() => {
+    if (selectedScenario === 'single-super-admin' && user?.email && !adminEmail && !authSourceAdminEmail) {
+      console.log('[Migration Wizard] Auto-populating admin email for Single Super Admin:', user.email);
+      setAdminEmail(user.email);
+    }
+  }, [selectedScenario, user?.email, adminEmail, authSourceAdminEmail]);
 
   // OAuth Domain Discovery state
   const [oauthSessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
@@ -333,6 +365,7 @@ export default function NewMigration() {
   useEffect(() => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] Admin emails changed:', {
+      adminEmail,
       sourceAdminEmail,
       targetAdminEmail,
       sourceAdminEmails,
@@ -343,7 +376,24 @@ export default function NewMigration() {
       selectedScenario,
       stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
     });
-  }, [sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
+  }, [adminEmail, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
+
+  // Debug useEffect to track user mapping configuration changes
+  useEffect(() => {
+    console.log('[Migration Wizard] User mapping configuration changed:', {
+      userMappingConfig,
+      domainMapping: {
+        type: domainMapping?.type,
+        description: domainMapping?.description,
+        sourceDomains: domainMapping?.sourceDomains,
+        targetDomain: domainMapping?.targetDomain,
+        targetDomains: domainMapping?.targetDomains
+      },
+      selectedScenario,
+      currentStep,
+      timestamp: new Date().toISOString()
+    });
+  }, [userMappingConfig, domainMapping, selectedScenario, currentStep])
 
   // OAuth Domain Discovery handlers
   const handleDomainsDiscovered = (domains: string[]) => {
@@ -438,22 +488,34 @@ export default function NewMigration() {
 
     // Set up domain mapping from the configuration
     if (config.domainMappings && config.domainMappings.length > 0) {
-      const mapping = {
+      const mapping: DomainMappingConfig = {
+        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
         sourceDomains: config.sourceDomains,
+        targetDomain: config.targetDomains[0],
         targetDomains: config.targetDomains,
-        mappingType: 'one-to-one' as const,
-        mappings: config.domainMappings
+        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${config.sourceDomains.join(', ')} -> ${config.targetDomains.join(', ')}`
       };
       setDomainMapping(mapping);
-      
-      // Auto-populate migration config
-      setMigrationConfig(prev => ({
-        ...prev,
-        sourceDomain: config.sourceDomains[0] || '',
-        targetDomain: config.targetDomains[0] || '',
-        targetDomains: config.targetDomains
-      }));
+    } else {
+      // Fallback: create a default domain mapping even if domainMappings is empty
+      console.log('[Migration Wizard] No domain mappings provided, creating default mapping');
+      const mapping: DomainMappingConfig = {
+        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
+        sourceDomains: config.sourceDomains,
+        targetDomain: config.targetDomains[0],
+        targetDomains: config.targetDomains,
+        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${config.sourceDomains.join(', ')} -> ${config.targetDomains.join(', ')}`
+      };
+      setDomainMapping(mapping);
     }
+    
+    // Auto-populate migration config
+    setMigrationConfig(prev => ({
+      ...prev,
+      sourceDomain: config.sourceDomains[0] || '',
+      targetDomain: config.targetDomains[0] || '',
+      targetDomains: config.targetDomains
+    }));
 
     // Move to next step
     setCurrentStep('delegation');
@@ -508,15 +570,12 @@ export default function NewMigration() {
   const handleNext = () => {
     switch (currentStep) {
       case 'scenario':
-        // Skip user-mapping if already configured in scenario step
-        if (userMappingConfig) {
-          setCurrentStep('auth-and-domains');
-        } else {
-          setCurrentStep('user-mapping');
-        }
+        // Skip user-mapping step and go directly to auth-and-domains
+        setCurrentStep('auth-and-domains');
         break;
       case 'auth-and-domains':
-        setCurrentStep('user-mapping');
+        // Skip user-mapping and go directly to delegation
+        setCurrentStep('delegation');
         break;
       case 'user-mapping':
         setCurrentStep('delegation');
@@ -545,7 +604,8 @@ export default function NewMigration() {
         setCurrentStep('auth-and-domains');
         break;
       case 'delegation':
-        setCurrentStep('user-mapping');
+        // Skip user-mapping and go back to auth-and-domains
+        setCurrentStep('auth-and-domains');
         break;
       case 'user-management':
         setCurrentStep('delegation');
@@ -598,6 +658,7 @@ export default function NewMigration() {
       dwdSetupComplete,
       previousVerificationStatus: dwdVerificationStatus,
       adminEmailsProvided: areAllAdminEmailsProvided(),
+      adminEmail,
       sourceAdminEmail,
       targetAdminEmail
     })
@@ -622,11 +683,11 @@ export default function NewMigration() {
       timestamp: new Date().toISOString(),
       stackTrace: stack?.split('\n').slice(1, 3).join('\n')
     });
-    // For single super admin, this serves as the source admin email
-    setSourceAdminEmail(email);
+    // For single super admin, set the admin email
+    setAdminEmail(email);
   };
 
-  const handleSourceEmailChange = (email: string) => {
+  const handlesourceAdminEmailChange = (email: string) => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] Source email changed:', {
       email,
@@ -636,7 +697,7 @@ export default function NewMigration() {
     setSourceAdminEmail(email);
   };
 
-  const handleDestEmailChange = (email: string) => {
+  const handledestAdminEmailChange = (email: string) => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] Dest email changed:', {
       email,
@@ -646,7 +707,7 @@ export default function NewMigration() {
     setTargetAdminEmail(email);
   };
 
-  const handleSourceEmailsChange = (emails: {[domain: string]: string}) => {
+  const handlesourceAdminEmailsChange = (emails: {[domain: string]: string}) => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] Source emails changed:', {
       emails,
@@ -656,7 +717,7 @@ export default function NewMigration() {
     setSourceAdminEmails(emails);
   };
 
-  const handleDestEmailsChange = (emails: {[domain: string]: string}) => {
+  const handledestAdminEmailsChange = (emails: {[domain: string]: string}) => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] Dest emails changed:', {
       emails,
@@ -856,9 +917,8 @@ export default function NewMigration() {
   // Check if all required admin emails are provided
   const areAllAdminEmailsProvided = (): boolean => {
     if (selectedScenario === 'single-super-admin') {
-      // For single super admin, only source admin email is required
-      // Target domain admin emails are not needed as the same admin manages both
-      return !!sourceAdminEmail;
+      // For single super admin, check admin email OR authenticated user email
+      return !!(adminEmail || user?.email);
     }
     
     // Cross-tenant scenario
@@ -945,6 +1005,7 @@ export default function NewMigration() {
               <AuthenticateAndConfigureDomains
                 selectedScenario={selectedScenario}
                 sessionId={oauthSessionId}
+                userMappingStrategy={userMappingConfig?.relationship}
                 onConfigurationComplete={handleDomainConfiguration}
               />
             </ComponentLoader>
@@ -998,7 +1059,7 @@ export default function NewMigration() {
                     </div>
                     <div>
                       <span className="font-medium text-blue-900">Domains:</span>
-                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} → {domainMapping?.targetDomain}</span>
+                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} -> {domainMapping?.targetDomain}</span>
                     </div>
                   </div>
                 </div>
@@ -1013,12 +1074,18 @@ export default function NewMigration() {
                   domainMapping={domainMapping || undefined}
                   onComplete={() => setDwdSetupComplete(true)}
                   onVerificationStatusChange={setDwdVerificationStatus}
-                  adminEmail={sourceAdminEmail}
+                  // For single super admin scenario
+                  adminEmail={selectedScenario === 'single-super-admin' ? adminEmail : undefined}
+                  // For cross-tenant scenario
+                  sourceAccount={selectedScenario === 'cross-tenant' ? sourceAdminEmail : undefined}
+                  destAccount={selectedScenario === 'cross-tenant' ? targetAdminEmail : undefined}
+                  sourceAccounts={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
+                  destAccounts={selectedScenario === 'cross-tenant' && getTargetDomains().length > 1 ? targetAdminEmails : undefined}
                   onAdminEmailChange={handleAdminEmailChange}
-                  onSourceEmailChange={handleSourceEmailChange}
-                  onDestEmailChange={handleDestEmailChange}
-                  onSourceEmailsChange={handleSourceEmailsChange}
-                  onDestEmailsChange={handleDestEmailsChange}
+                  onsourceAdminEmailChange={handlesourceAdminEmailChange}
+                  ondestAdminEmailChange={handledestAdminEmailChange}
+                  onsourceAdminEmailsChange={handlesourceAdminEmailsChange}
+                  ondestAdminEmailsChange={handledestAdminEmailsChange}
                 />
               </ComponentLoader>
             </div>
@@ -1113,18 +1180,22 @@ export default function NewMigration() {
               
               <ComponentLoader>
                 <DomainWideDelegationSetup
-                  sourceAccount={sourceAdminEmail}
-                  destAccount={getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
-                  destAccounts={getTargetDomains().length > 1 ? targetAdminEmails : undefined}
+                  // For single super admin scenario
+                  adminEmail={selectedScenario === 'single-super-admin' ? adminEmail : undefined}
+                  // For cross-tenant scenario
+                  sourceAccount={selectedScenario === 'cross-tenant' ? sourceAdminEmail : undefined}
+                  destAccount={selectedScenario === 'cross-tenant' && getTargetDomains().length <= 1 ? targetAdminEmail : undefined}
+                  sourceAccounts={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
+                  destAccounts={selectedScenario === 'cross-tenant' && getTargetDomains().length > 1 ? targetAdminEmails : undefined}
                   migrationScenario={selectedScenario || undefined}
                   domainMapping={domainMapping || undefined}
                   onComplete={handleDwdSetupComplete}
                   onVerificationStatusChange={handleVerificationStatusChange}
                   onAdminEmailChange={handleAdminEmailChange}
-                  onSourceEmailChange={handleSourceEmailChange}
-                  onDestEmailChange={handleDestEmailChange}
-                  onSourceEmailsChange={handleSourceEmailsChange}
-                  onDestEmailsChange={handleDestEmailsChange}
+                  onsourceAdminEmailChange={handlesourceAdminEmailChange}
+                  ondestAdminEmailChange={handledestAdminEmailChange}
+                  onsourceAdminEmailsChange={handlesourceAdminEmailsChange}
+                  ondestAdminEmailsChange={handledestAdminEmailsChange}
                   className="bg-white"
                   // Disable the component if authentication is not complete
                   style={!isOAuthCompleteForDomainDiscovery() ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
@@ -1163,6 +1234,23 @@ export default function NewMigration() {
         );
 
       case 'user-management':
+        // Debug log the props being passed to UserManagementWorkflow
+        console.log('[Migration Wizard] Rendering UserManagementWorkflow with props:', {
+          sourceDomains: getSourceDomains(),
+          targetDomains: getTargetDomains(),
+          migrationScenario: selectedScenario,
+          domainMapping: domainMapping,
+          userMappingStrategy: userMappingConfig?.relationship,
+          userMappingConfig: userMappingConfig,
+          mappingType: (
+            domainMapping?.type === 'one-to-many' ? 'one-to-many' :
+            domainMapping?.type === 'many-to-one' ? 'many-to-one' :
+            domainMapping?.type === 'cross-tenant-single' ? 'one-to-one' :
+            'one-to-one'
+          ),
+          timestamp: new Date().toISOString()
+        });
+        
         return (
           <div className="space-y-8">
             {/* UserManagementWorkflow Component */}
@@ -1172,9 +1260,12 @@ export default function NewMigration() {
                   sourceDomains={getSourceDomains()}
                   targetDomains={getTargetDomains()}
                   sourceAdminEmails={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
-                  sourceAdminEmail={selectedScenario === 'single-super-admin' || getSourceDomains().length <= 1 ? sourceAdminEmail : undefined}
+                  sourceAdminEmail={selectedScenario === 'single-super-admin' ? adminEmail : (getSourceDomains().length <= 1 ? sourceAdminEmail : undefined)}
                   targetAdminEmails={targetAdminEmails}
                   migrationScenario={selectedScenario || undefined}
+                  domainMapping={domainMapping || undefined}
+                  userMappingStrategy={userMappingConfig?.relationship}
+                  userMappingConfig={userMappingConfig || undefined}
                   mappingType={
                     domainMapping?.type === 'one-to-many' ? 'one-to-many' :
                     domainMapping?.type === 'many-to-one' ? 'many-to-one' :
@@ -1705,7 +1796,7 @@ export default function NewMigration() {
                             <div className="text-gray-700 mt-3 mb-2">Target Domains:</div>
                             <div className="ml-4 space-y-1">
                               {getTargetDomainsFromMapping(domainMapping).map((target, idx) => (
-                                <div key={idx} className="text-green-600">→ {target}</div>
+                                <div key={idx} className="text-green-600">-&gt; {target}</div>
                               ))}
                             </div>
                           </div>
@@ -2022,21 +2113,13 @@ export default function NewMigration() {
   };
 
   const getTotalSteps = () => {
-    return 8; // Updated to include user-mapping step
+    return Object.values(STEP_CONFIG as any).filter((config: any) => !config.hidden).length;
   };
 
   const getStepNumber = () => {
-    switch (currentStep) {
-      case 'scenario': return 1;
-      case 'auth-and-domains': return 2;
-      case 'user-mapping': return 3;
-      case 'delegation': return 4;
-      case 'user-management': return 5;
-      case 'configuration': return 6;
-      case 'review': return 7;
-      case 'migration': return 8;
-      default: return 1;
-    }
+    const visibleSteps = Object.keys(STEP_CONFIG).filter(stepKey => !(STEP_CONFIG as any)[stepKey].hidden);
+    const currentIndex = visibleSteps.indexOf(currentStep);
+    return currentIndex >= 0 ? currentIndex + 1 : 1;
   };
 
   const canProceed = () => {
@@ -2061,11 +2144,16 @@ export default function NewMigration() {
           areAllAdminEmailsProvided: adminEmailsProvided,
           dwdVerificationStatus,
           
+          // User mapping configuration
+          userMappingConfig,
+          userMappingStrategy: userMappingConfig?.relationship,
+          
           // Final result
           canProceed: canProceedDelegation,
           
           // Additional debug info
           selectedScenario,
+          adminEmail,
           sourceAdminEmail,
           targetAdminEmail,
           sourceAdminEmails,
@@ -2110,9 +2198,9 @@ export default function NewMigration() {
   const getNextButtonText = () => {
     switch (currentStep) {
       case 'scenario':
-        return userMappingConfig ? 'Authenticate & Configure Domains' : 'Choose Migration Strategy';
+        return userMappingConfig ? 'Authenticate & Configure Domains' : 'Configure Domain';
       case 'auth-and-domains':
-        return 'Choose User Mapping';
+        return 'Setup Delegation';
       case 'user-mapping':
         return 'Setup Delegation';
       case 'delegation':
@@ -2143,7 +2231,9 @@ export default function NewMigration() {
                 </div>
                 
                 {/* Steps */}
-                {Object.entries(STEP_CONFIG).map(([stepKey, config], index) => {
+                {Object.entries(STEP_CONFIG)
+                  .filter(([stepKey, config]) => !(config as any).hidden) // Filter out hidden steps
+                  .map(([stepKey, config], index) => {
                   const stepNumber = index + 1;
                   const isActive = stepNumber === getStepNumber();
                   const isCompleted = stepNumber < getStepNumber();

@@ -50,7 +50,7 @@ const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail, sourceEmail, destEmail, adminEmail, migrationScenario } = body
+    const { sourceAdminEmail, destAdminEmail, sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
 
     // Handle Single Super Admin scenario
     if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {
@@ -247,7 +247,7 @@ export async function GET() {
     message: 'Domain-wide Delegation Verification API',
     description: 'Verifies that domain-wide delegation is properly configured for both source and destination domains',
     requiredFields: ['sourceAdminEmail', 'destAdminEmail'],
-    optionalFields: ['sourceEmail', 'destEmail'],
+    optionalFields: ['sourceAdminEmail', 'destAdminEmail'],
     responseFormat: {
       success: 'boolean',
       verification: {

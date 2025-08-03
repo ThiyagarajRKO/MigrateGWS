@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, memo, useCallback } from 'react';
+import { UserMappingRelationship, UserMappingConfig } from '@/types';
+import { DomainMappingConfig } from '@/types/migration-scenarios';
 import { 
   Users, 
   UserPlus, 
@@ -74,6 +76,9 @@ interface UserManagementWorkflowProps {
   targetAdminEmails: {[domain: string]: string};
   mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many';
   migrationScenario?: 'single-super-admin' | 'cross-tenant';
+  domainMapping?: DomainMappingConfig;
+  userMappingStrategy?: UserMappingRelationship;
+  userMappingConfig?: UserMappingConfig;
   onComplete?: (results: {
     discoveredUsers: User[];
     createdUsers: CreationResult[];
@@ -91,6 +96,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   targetAdminEmails,
   mappingType = 'one-to-one',
   migrationScenario,
+  domainMapping,
+  userMappingStrategy,
+  userMappingConfig,
   onComplete
 }: UserManagementWorkflowProps) {
   // Core state
@@ -98,6 +106,17 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [discoveredUsers, setDiscoveredUsers] = useState<User[]>([]);
   const [userMappings, setUserMappings] = useState<UserMapping[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  
+  // Debug useEffect to track domain mapping changes
+  useEffect(() => {
+    console.log('[UserManagementWorkflow] Domain mapping received:', {
+      domainMapping,
+      migrationScenario,
+      userMappingStrategy,
+      userMappingConfig,
+      timestamp: new Date().toISOString()
+    });
+  }, [domainMapping, migrationScenario, userMappingStrategy, userMappingConfig]);
   
   // Discovery state
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -290,9 +309,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                              )[0];
           
           // Collect all source emails and domains
-          const sourceEmails = usersWithSameName.map(u => u.primaryEmail);
+          const sourceAdminEmails = usersWithSameName.map(u => u.primaryEmail);
           const sourceDomains = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
-          const allEmails = sourceEmails.join(', ');
+          const allEmails = sourceAdminEmails.join(', ');
           
           // Merge user properties
           const mergedUser: User = {

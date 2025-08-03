@@ -179,13 +179,33 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   };
 
   const handleConfirm = () => {
+    if (!selectedType) return;
+    
+    const validSourceDomains = sourceDomains.filter(d => d.trim());
+    if (validSourceDomains.length === 0) return;
+    
+    // For single super admin, don't validate target domains
+    if (selectedScenario === 'single-super-admin') {
+      const selectedOption = DOMAIN_MAPPING_OPTIONS.find(opt => opt.type === selectedType);
+      if (!selectedOption) return;
+
+      const config: DomainMappingConfig = {
+        type: selectedType,
+        sourceDomains: validSourceDomains,
+        targetDomain: '', // Not used in single super admin
+        targetDomains: validSourceDomains, // Use same domains as both source and target
+        preserveSourceAsAlias: preserveAlias,
+        description: `Single Super Admin Migration: ${validSourceDomains.join(', ')}`
+      };
+
+      onMappingSelect(config);
+      return;
+    }
+    
+    // For cross-tenant scenarios, validate target domains
     const isOneToMany = selectedType === 'one-to-many';
     const effectiveTargetDomains = isOneToMany ? targetDomains.filter(d => d.trim()) : [];
     const effectiveTargetDomain = isOneToMany ? '' : targetDomain.trim();
-    
-    if (!selectedType || sourceDomains.some(d => !d.trim())) {
-      return;
-    }
     
     if (isOneToMany && effectiveTargetDomains.length === 0 && multiTargetConfig.length === 0) {
       return;
@@ -200,7 +220,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
 
     const config: DomainMappingConfig = {
       type: selectedType,
-      sourceDomains: sourceDomains.filter(d => d.trim()),
+      sourceDomains: validSourceDomains,
       targetDomain: effectiveTargetDomain,
       targetDomains: isOneToMany ? effectiveTargetDomains : undefined,
       multiTargetConfig: isOneToMany && multiTargetConfig.length > 0 ? multiTargetConfig : undefined,
@@ -213,7 +233,16 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   };
 
   const canConfirm = () => {
-    if (!selectedType || sourceDomains.some(d => !d.trim())) return false;
+    if (!selectedType) return false;
+    
+    // For single super admin, only need selected domains
+    if (selectedScenario === 'single-super-admin') {
+      const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+      return validSourceDomains.length > 0;
+    }
+    
+    // For cross-tenant, validate source domains
+    if (sourceDomains.some(d => !d.trim())) return false;
     
     // Multi-source validation: require more than 1 source domain
     if (isMultiSourceMapping(selectedType)) {
@@ -221,7 +250,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       if (validSourceDomains.length < 2) return false;
     }
     
-    // Check for domain conflicts (source domains cannot be target domains)
+    // Check for domain conflicts (source domains cannot be target domains) - only for cross-tenant
     const allTargetDomains = selectedType === 'one-to-many' 
       ? (multiTargetConfig.length > 0 
           ? multiTargetConfig.map(config => config.domain) 
@@ -252,11 +281,21 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       ? (multiTargetConfig.length > 0 
           ? multiTargetConfig.map(config => config.domain) 
           : targetDomains)
-      : [targetDomain];
+      : [targetDomain].filter(d => d.trim() !== ''); // Filter out empty target domain
     
     const otherSourceDomains = sourceDomains.filter((_, idx) => idx !== currentIndex);
+    const validTargetDomains = allTargetDomains.filter(d => d.trim() !== '');
+    const availableDomains = getAvailableSourceDomains(domains, validTargetDomains, otherSourceDomains);
     
-    return getAvailableSourceDomains(domains, allTargetDomains, otherSourceDomains);
+    // Debug logging
+    console.log('[DomainMappingSelector] Source domain filtering for index', currentIndex, {
+      allDomains: domains.map(d => d.domainName),
+      validTargetDomains,
+      otherSourceDomains,
+      availableSourceDomains: availableDomains.map(d => d.domainName)
+    });
+    
+    return availableDomains;
   };
 
   // Get available domains for target selection (excluding already selected sources)
@@ -265,8 +304,27 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     return getAvailableTargetDomains(domains, sourceDomains, otherTargetDomains);
   };
 
-  // Check for domain conflicts and show warning
+  // Get available domains for single target selection (excluding all selected sources)
+  const getAvailableTargetDomainsForSingle = () => {
+    const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+    const availableDomains = getAvailableTargetDomains(domains, validSourceDomains, []);
+    
+    // Debug logging
+    console.log('[DomainMappingSelector] Target domain filtering:', {
+      allDomains: domains.map(d => d.domainName),
+      validSourceDomains,
+      availableTargetDomains: availableDomains.map(d => d.domainName)
+    });
+    
+    return availableDomains;
+  };
+
+  // Check for domain conflicts and show warning (not applicable for single super admin)
   const getDomainConflicts = () => {
+    if (selectedScenario === 'single-super-admin') {
+      return { isValid: true, conflicts: [] };
+    }
+    
     const allTargetDomains = selectedType === 'one-to-many' 
       ? (multiTargetConfig.length > 0 
           ? multiTargetConfig.map(config => config.domain) 
@@ -346,236 +404,346 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
             </div>
           )}
           
-          {/* Source Domains */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Source Domain{sourceDomains.length > 1 ? 's' : ''}
-            </label>
-            
-            {domainsLoading && (
-              <div className="flex items-center justify-between space-x-2 text-gray-500 mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
-                <div className="flex items-center space-x-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Loading domains...</span>
-                </div>
-                {/* <DomainLoadingStats metrics={metrics || { startTime: Date.now(), duration: 0, cacheHit: false, errors: [] }} /> */}
-                <div className="text-xs text-gray-500">
-                  {metrics ? `Loaded in ${metrics.totalTime}ms${metrics.cacheHit ? ' (cached)' : ''}` : 'Loading...'}
-                </div>
-              </div>
-            )}
-            
-            {domainsError && (
-              <div className="flex items-center justify-between space-x-2 text-red-600 mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <div className="flex items-center space-x-2">
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  <div className="text-sm">
-                    <p className="font-medium">Unable to load domains</p>
-                    <p>{domainsError}</p>
-                    {domainsError.includes('Not authenticated') && (
-                      <p className="mt-1 text-xs">
-                        Please ensure you're logged in with a Google Workspace super admin account that has domain management permissions.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => refetchDomains()}
-                  disabled={domainsLoading}
-                  className="flex items-center space-x-1 px-3 py-1 text-sm bg-red-100 hover:bg-red-200 rounded-md transition-colors disabled:opacity-50"
-                  title="Retry loading domains"
-                >
-                  <RefreshCw className={`h-3 w-3 ${domainsLoading ? 'animate-spin' : ''}`} />
-                  <span>Retry</span>
-                </button>
-              </div>
-            )}
-            
-            {sourceDomains.map((domain, index) => (
-              <div key={index} className="flex items-center space-x-2 mb-2">
-                <div className="flex-1">
-                  <select
-                    value={domain}
-                    onChange={(e) => updateSourceDomain(index, e.target.value)}
-                    disabled={domainsLoading || !!domainsError}
-                    required
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
-                      domain === '' 
-                        ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
-                        : 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                    }`}
-                  >
-                    <option value="">Select a domain...</option>
-                    {getAvailableSourceDomainsForIndex(index).map((d) => (
-                      <option key={d.domainName} value={d.domainName}>
-                        {d.domainName} {d.isPrimary ? '(Primary)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {domain === '' && (
-                    <p className="text-xs text-red-600 mt-1">Please select a source domain</p>
-                  )}
-                </div>
-                {sourceDomains.length > 1 && (
-                  <button
-                    onClick={() => removeSourceDomain(index)}
-                    className="text-red-600 hover:text-red-800 text-sm"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))}
-            
-            {isMultiSourceMapping(selectedType) && (
-              <button
-                onClick={addSourceDomain}
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                + Add another source domain
-              </button>
-            )}
-            
-            {/* Multi-source validation message */}
-            {isMultiSourceMapping(selectedType) && (
-              <div className="mt-2">
-                {(() => {
-                  const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
-                  if (validSourceDomains.length < 2) {
-                    return (
-                      <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
-                        <Info className="h-4 w-4" />
-                        <p className="text-sm">
-                          This migration type requires at least 2 source domains. Please add more domains.
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-            )}
-          </div>
-
-          {/* Target Domain(s) */}
-          {selectedType === 'one-to-many' ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">
-                  Target Domains Configuration
-                </label>
-              </div>
-              
-              {/* Target Domain Selection */}
-              <div>
-                  {domainsLoading && (
-                    <div className="flex items-center space-x-2 text-gray-500 mb-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm">Loading domains...</span>
-                    </div>
-                  )}
-                  
-                  {targetDomains.map((domain, index) => (
-                    <div key={index} className="flex items-center space-x-2 mb-2">
-                      <div className="flex-1">
-                        <select
-                          value={domain}
-                          onChange={(e) => updateTargetDomain(index, e.target.value)}
-                          disabled={domainsLoading || !!domainsError}
-                          required
-                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
-                            domain === '' 
-                              ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
-                              : 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                          }`}
-                        >
-                          <option value="">Select a domain...</option>
-                          {getAvailableTargetDomainsForIndex(index).map((d) => (
-                            <option key={d.domainName} value={d.domainName}>
-                              {d.domainName} {d.isPrimary ? '(Primary)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        {domain === '' && (
-                          <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
-                        )}
-                      </div>
-                      {targetDomains.length > 1 && (
-                        <button
-                          onClick={() => removeTargetDomain(index)}
-                          className="text-red-600 hover:text-red-800 text-sm"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  
-                  <button
-                    onClick={addTargetDomain}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    + Add another target domain
-                  </button>
-                  
-                  {/* Multi-target validation message */}
-                  {isMultiTargetMapping(selectedType) && (
-                    <div className="mt-2">
-                      {(() => {
-                        const validTargetDomains = targetDomains.filter(d => d.trim() !== '');
-                        if (validTargetDomains.length < 2) {
-                          return (
-                            <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
-                              <Info className="h-4 w-4" />
-                              <p className="text-sm">
-                                This migration type requires at least 2 target domains. Please add more domains.
-                              </p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-                </div>
-            </div>
-          ) : (
+          {/* Domain Selection - Different UI for Single Super Admin */}
+          {selectedScenario === 'single-super-admin' ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Target Domain
+                Available Domains
               </label>
+              <p className="text-sm text-gray-600 mb-4">
+                Select the domains you have access to. In Single Super Admin mode, you can migrate users across all accessible domains.
+              </p>
+              
               {domainsLoading && (
-                <div className="flex items-center space-x-2 text-gray-500 mb-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Loading domains...</span>
+                <div className="flex items-center justify-between space-x-2 text-gray-500 mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Loading domains...</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {metrics ? `Loaded in ${metrics.totalTime}ms${metrics.cacheHit ? ' (cached)' : ''}` : 'Loading...'}
+                  </div>
                 </div>
               )}
-              <select
-                value={targetDomain}
-                onChange={(e) => setTargetDomain(e.target.value)}
-                disabled={domainsLoading || !!domainsError}
-                required
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
-                  targetDomain === '' 
-                    ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
-                    : 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                }`}
-              >
-                <option value="">Select a domain...</option>
-                {getAvailableTargetDomains(domains, sourceDomains).map((d) => (
-                  <option key={d.domainName} value={d.domainName}>
-                    {d.domainName} {d.isPrimary ? '(Primary)' : ''}
-                  </option>
+              
+              {domainsError && (
+                <div className="flex items-center justify-between space-x-2 text-red-600 mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium">Unable to load domains</p>
+                      <p>{domainsError}</p>
+                      {domainsError.includes('Not authenticated') && (
+                        <p className="mt-1 text-xs">
+                          Please ensure you're logged in with a Google Workspace super admin account that has domain management permissions.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => refetchDomains()}
+                    disabled={domainsLoading}
+                    className="flex items-center space-x-1 px-3 py-1 text-sm bg-red-100 hover:bg-red-200 rounded-md transition-colors disabled:opacity-50"
+                    title="Retry loading domains"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${domainsLoading ? 'animate-spin' : ''}`} />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                {domains.map((domain, index) => (
+                  <div key={domain.domainName} className="flex items-center p-3 border rounded-lg hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      id={`domain-${index}`}
+                      checked={sourceDomains.includes(domain.domainName)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSourceDomains([...sourceDomains.filter(d => d !== ''), domain.domainName]);
+                        } else {
+                          setSourceDomains(sourceDomains.filter(d => d !== domain.domainName));
+                        }
+                      }}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor={`domain-${index}`} className="ml-3 flex-1 cursor-pointer">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-900 font-medium">{domain.domainName}</span>
+                        <div className="flex items-center space-x-2">
+                          {domain.isPrimary && (
+                            <span className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
+                              Primary
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-500">
+                            {domain.verified ? 'Verified' : 'Unverified'}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
                 ))}
-              </select>
-              {targetDomain === '' && (
-                <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
+                
+                {domains.length === 0 && !domainsLoading && !domainsError && (
+                  <div className="text-center p-6 text-gray-500">
+                    <Building className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                    <p>No domains found</p>
+                    <p className="text-sm">Make sure you have access to Google Workspace domains</p>
+                  </div>
+                )}
+              </div>
+              
+              {sourceDomains.filter(d => d.trim()).length > 0 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center space-x-2 text-green-800">
+                    <CheckCircle className="h-4 w-4" />
+                    <span className="font-medium">Selected Domains:</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {sourceDomains.filter(d => d.trim()).map((domain) => (
+                      <span key={domain} className="px-2 py-1 text-sm bg-green-100 text-green-800 rounded-md">
+                        {domain}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Regular Source Domains for Cross-Tenant */
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Source Domain{sourceDomains.length > 1 ? 's' : ''}
+              </label>
+              
+              {domainsLoading && (
+                <div className="flex items-center justify-between space-x-2 text-gray-500 mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Loading domains...</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {metrics ? `Loaded in ${metrics.totalTime}ms${metrics.cacheHit ? ' (cached)' : ''}` : 'Loading...'}
+                  </div>
+                </div>
+              )}
+              
+              {domainsError && (
+                <div className="flex items-center justify-between space-x-2 text-red-600 mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium">Unable to load domains</p>
+                      <p>{domainsError}</p>
+                      {domainsError.includes('Not authenticated') && (
+                        <p className="mt-1 text-xs">
+                          Please ensure you're logged in with a Google Workspace super admin account that has domain management permissions.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => refetchDomains()}
+                    disabled={domainsLoading}
+                    className="flex items-center space-x-1 px-3 py-1 text-sm bg-red-100 hover:bg-red-200 rounded-md transition-colors disabled:opacity-50"
+                    title="Retry loading domains"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${domainsLoading ? 'animate-spin' : ''}`} />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              )}
+              
+              {sourceDomains.map((domain, index) => (
+                <div key={index} className="flex items-center space-x-2 mb-2">
+                  <div className="flex-1">
+                    <select
+                      value={domain}
+                      onChange={(e) => updateSourceDomain(index, e.target.value)}
+                      disabled={domainsLoading || !!domainsError}
+                      required
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                        domain === '' 
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                          : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                      }`}
+                    >
+                      <option value="">Select a domain...</option>
+                      {getAvailableSourceDomainsForIndex(index).map((d) => (
+                        <option key={d.domainName} value={d.domainName}>
+                          {d.domainName} {d.isPrimary ? '(Primary)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {domain === '' && (
+                      <p className="text-xs text-red-600 mt-1">Please select a source domain</p>
+                    )}
+                  </div>
+                  {sourceDomains.length > 1 && (
+                    <button
+                      onClick={() => removeSourceDomain(index)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              
+              {isMultiSourceMapping(selectedType) && (
+                <button
+                  onClick={addSourceDomain}
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  + Add another source domain
+                </button>
+              )}
+              
+              {/* Multi-source validation message */}
+              {isMultiSourceMapping(selectedType) && (
+                <div className="mt-2">
+                  {(() => {
+                    const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+                    if (validSourceDomains.length < 2) {
+                      return (
+                        <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                          <Info className="h-4 w-4" />
+                          <p className="text-sm">
+                            This migration type requires at least 2 source domains. Please add more domains.
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
               )}
             </div>
           )}
 
-          {/* Alias Option */}
-          {selectedType === 'one-to-one' && (
+          {/* Target Domain(s) - Hidden for Single Super Admin */}
+          {selectedScenario !== 'single-super-admin' && (
+            selectedType === 'one-to-many' ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Target Domains Configuration
+                  </label>
+                </div>
+                
+                {/* Target Domain Selection */}
+                <div>
+                    {domainsLoading && (
+                      <div className="flex items-center space-x-2 text-gray-500 mb-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm">Loading domains...</span>
+                      </div>
+                    )}
+                    
+                    {targetDomains.map((domain, index) => (
+                      <div key={index} className="flex items-center space-x-2 mb-2">
+                        <div className="flex-1">
+                          <select
+                            value={domain}
+                            onChange={(e) => updateTargetDomain(index, e.target.value)}
+                            disabled={domainsLoading || !!domainsError}
+                            required
+                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                              domain === '' 
+                                ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                                : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                            }`}
+                          >
+                            <option value="">Select a domain...</option>
+                            {getAvailableTargetDomainsForIndex(index).map((d) => (
+                              <option key={d.domainName} value={d.domainName}>
+                                {d.domainName} {d.isPrimary ? '(Primary)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {domain === '' && (
+                            <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
+                          )}
+                        </div>
+                        {targetDomains.length > 1 && (
+                          <button
+                            onClick={() => removeTargetDomain(index)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    
+                    <button
+                      onClick={addTargetDomain}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      + Add another target domain
+                    </button>
+                    
+                    {/* Multi-target validation message */}
+                    {isMultiTargetMapping(selectedType) && (
+                      <div className="mt-2">
+                        {(() => {
+                          const validTargetDomains = targetDomains.filter(d => d.trim() !== '');
+                          if (validTargetDomains.length < 2) {
+                            return (
+                              <div className="flex items-center space-x-2 text-amber-600 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                                <Info className="h-4 w-4" />
+                                <p className="text-sm">
+                                  This migration type requires at least 2 target domains. Please add more domains.
+                                </p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Target Domain
+                </label>
+                {domainsLoading && (
+                  <div className="flex items-center space-x-2 text-gray-500 mb-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Loading domains...</span>
+                  </div>
+                )}
+                <select
+                  value={targetDomain}
+                  onChange={(e) => setTargetDomain(e.target.value)}
+                  disabled={domainsLoading || !!domainsError}
+                  required
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 ${
+                    targetDomain === '' 
+                      ? 'border-red-300 focus:border-red-500 focus:ring-red-500' 
+                      : 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                  }`}
+                >
+                  <option value="">Select a domain...</option>
+                  {getAvailableTargetDomainsForSingle().map((d) => (
+                    <option key={d.domainName} value={d.domainName}>
+                      {d.domainName} {d.isPrimary ? '(Primary)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {targetDomain === '' && (
+                  <p className="text-xs text-red-600 mt-1">Please select a target domain</p>
+                )}
+              </div>
+            )
+          )}
+
+          {/* Alias Option - Hidden for Single Super Admin */}
+          {selectedScenario !== 'single-super-admin' && selectedType === 'one-to-one' && (
             <div className="flex items-center">
               <input
                 type="checkbox"
@@ -589,8 +757,8 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
             </div>
           )}
 
-          {/* Conflict Resolution */}
-          {selectedType === 'many-to-one' && (
+          {/* Conflict Resolution - Hidden for Single Super Admin */}
+          {selectedScenario !== 'single-super-admin' && selectedType === 'many-to-one' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Conflict Resolution Strategy
@@ -610,9 +778,29 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
           {/* Preview */}
           {canConfirm() && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h5 className="font-medium text-blue-900 mb-2">Mapping Preview:</h5>
+              <h5 className="font-medium text-blue-900 mb-2">
+                {selectedScenario === 'single-super-admin' ? 'Domain Access Preview:' : 'Mapping Preview:'}
+              </h5>
               <div className="space-y-1 text-sm">
-                {selectedType === 'one-to-many' ? (
+                {selectedScenario === 'single-super-admin' ? (
+                  // Single Super Admin preview - show accessible domains
+                  <div className="space-y-2">
+                    <div className="text-blue-800">
+                      <span className="font-medium">Available Domains for Migration:</span>
+                    </div>
+                    <div className="ml-4 space-y-1">
+                      {sourceDomains.filter(d => d.trim()).map((domain, idx) => (
+                        <div key={idx} className="flex items-center text-blue-700 font-mono">
+                          <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                          <span>{domain}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-blue-600">
+                      Users can be migrated between any of these domains or within the same domain.
+                    </div>
+                  </div>
+                ) : selectedType === 'one-to-many' ? (
                   // One-to-many preview
                   <div className="space-y-2">
                     {sourceDomains.filter(d => d.trim()).map((source, idx) => (
@@ -624,7 +812,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
                         </div>
                         <div className="ml-6 text-xs text-blue-600">
                           {targetDomains.filter(d => d.trim()).map((target, tidx) => (
-                            <div key={tidx}>→ user@{target}</div>
+                            <div key={tidx}>-&gt; user@{target}</div>
                           ))}
                         </div>
                       </div>

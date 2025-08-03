@@ -17,12 +17,14 @@ import {
   Settings
 } from 'lucide-react';
 import { MigrationScenario } from '@/types/migration-scenarios';
+import { UserMappingRelationship } from '@/types';
 import { multiAdminAuthManager, type AuthenticationSession } from '@/lib/multi-admin-auth-manager';
 import { useCrossTenantAuth } from '@/lib/cross-tenant-auth-context';
 
 interface AuthenticateAndConfigureDomainsProps {
   selectedScenario: MigrationScenario;
   sessionId: string;
+  userMappingStrategy?: UserMappingRelationship;
   onConfigurationComplete: (config: DomainConfiguration) => void;
 }
 
@@ -32,8 +34,8 @@ interface DomainConfiguration {
   sourceDomains: string[];
   targetDomains: string[];
   domainMappings: Array<{
-    source: string;
-    target: string;
+    source: string | string[]; // Support multiple sources for many-to-one
+    target: string | string[]; // Support multiple targets for one-to-many
   }>;
 }
 
@@ -46,6 +48,7 @@ interface AuthStatus {
 export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConfigureDomains({
   selectedScenario,
   sessionId,
+  userMappingStrategy,
   onConfigurationComplete
 }: AuthenticateAndConfigureDomainsProps) {
   // Cross-tenant auth context
@@ -72,6 +75,9 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Verification notification state
+  const [showVerificationNotification, setShowVerificationNotification] = useState(false);
+  
   // Authentication states
   const [singleAuthStatus, setSingleAuthStatus] = useState<AuthStatus>({
     authenticated: false,
@@ -88,14 +94,17 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
   
   // Domain mapping state
   const [domainMappings, setDomainMappings] = useState<Array<{
-    source: string;
-    target: string;
+    source: string | string[];
+    target: string | string[];
   }>>([]);
   
   const [showCrossTenantAuth, setShowCrossTenantAuth] = useState(false);
   const [currentAuthType, setCurrentAuthType] = useState<'source' | 'target' | null>(null);
   const [currentPopup, setCurrentPopup] = useState<Window | null>(null);
   const [authSession, setAuthSession] = useState<AuthenticationSession | null>(null);
+  
+  // Single super admin modal state
+  const [showSingleAuthModal, setShowSingleAuthModal] = useState(false);
 
   // Initialize cross-tenant auth session
   useEffect(() => {
@@ -239,6 +248,58 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     return result;
   };
 
+  // Debug function to check authentication status for Single Super Admin
+  const checkSingleSuperAdminAuthStatus = () => {
+    console.log('[Single Super Admin Auth Status]', {
+      authenticated: singleAuthStatus.authenticated,
+      domains: singleAuthStatus.domains,
+      domainCount: singleAuthStatus.domains.length,
+      error: singleAuthStatus.error,
+      selectedScenario,
+      sessionId,
+      isAuthComplete: isAuthenticationComplete()
+    });
+    return {
+      authenticated: singleAuthStatus.authenticated,
+      domains: singleAuthStatus.domains,
+      domainCount: singleAuthStatus.domains.length,
+      hasError: !!singleAuthStatus.error,
+      error: singleAuthStatus.error
+    };
+  };
+
+  // Manual authentication verification function
+  const verifyAuthentication = async () => {
+    if (selectedScenario === 'single-super-admin' && singleAuthStatus.authenticated) {
+      try {
+        // Verify the authentication is still valid by making a test API call
+        const response = await fetch('/api/auth/verify-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            sessionId,
+            scenario: selectedScenario 
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[Auth Verification] Success:', data);
+          return { verified: true, ...data };
+        } else {
+          console.log('[Auth Verification] Failed:', response.status);
+          return { verified: false, error: 'Verification failed' };
+        }
+      } catch (error) {
+        console.error('[Auth Verification] Error:', error);
+        return { verified: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    }
+    return { verified: false, error: 'Not authenticated or wrong scenario' };
+  };
+
   // Get all available domains
   const getAvailableDomains = () => {
     if (selectedScenario === 'cross-tenant') {
@@ -311,7 +372,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         if (selectedScenario === 'cross-tenant') {
           setShowCrossTenantAuth(true);
         }
-      } else if (sessionIdParam === sessionId && !authType) {
+      } else if (sessionIdParam === sessionId && (!authType || authType === 'single' || authType?.trim() === 'single')) {
         // Single super admin authentication
         setSingleAuthStatus({
           authenticated: true,
@@ -375,6 +436,54 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     }
   }, [selectedScenario, authSession, showCrossTenantAuth, isLoading, currentAuthType]);
 
+  // Auto-complete configuration for single super admin scenario
+  useEffect(() => {
+    if (selectedScenario === 'single-super-admin' && 
+        singleAuthStatus.authenticated && 
+        singleAuthStatus.domains.length > 0) {
+      
+      // Auto-create default domain mappings for single super admin if none exist
+      if (domainMappings.length === 0) {
+        if (userMappingStrategy === 'one-to-many') {
+          // For one-to-many, create one mapping with first domain as source and all domains as targets
+          const defaultMappings = [{
+            source: singleAuthStatus.domains[0],
+            target: singleAuthStatus.domains
+          }];
+          setDomainMappings(defaultMappings);
+        } else if (userMappingStrategy === 'many-to-one') {
+          // For many-to-one, create one mapping with all domains as sources and first domain as target
+          const defaultMappings = [{
+            source: singleAuthStatus.domains,
+            target: singleAuthStatus.domains[0]
+          }];
+          setDomainMappings(defaultMappings);
+        } else {
+          // Default one-to-one mapping
+          const defaultMappings = singleAuthStatus.domains.map(domain => ({
+            source: domain,
+            target: domain
+          }));
+          setDomainMappings(defaultMappings);
+        }
+      }
+      
+      // For single super admin, don't auto-complete - let user configure domain mappings
+      // This allows users to set up different mapping strategies (one-to-one, one-to-many, etc.)
+    }
+  }, [selectedScenario, singleAuthStatus.authenticated, singleAuthStatus.domains, domainMappings.length, userMappingStrategy]);
+
+  // Periodic authentication status check for Single Super Admin
+  useEffect(() => {
+    if (selectedScenario === 'single-super-admin' && singleAuthStatus.authenticated) {
+      const statusCheck = setInterval(() => {
+        checkSingleSuperAdminAuthStatus();
+      }, 30000); // Check every 30 seconds
+
+      return () => clearInterval(statusCheck);
+    }
+  }, [selectedScenario, singleAuthStatus.authenticated]);
+
   // Auto-open cross-tenant modal if in cross-tenant mode and source is authenticated but target is not
   useEffect(() => {
     if (selectedScenario === 'cross-tenant' && 
@@ -405,8 +514,15 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     if (selectedScenario === 'cross-tenant') {
       setShowCrossTenantAuth(true);
     } else {
-      await initiateSingleSuperAdminOAuth();
+      // For single super admin, show modal first
+      setShowSingleAuthModal(true);
     }
+  };
+
+  // Handle authentication from single auth modal
+  const handleSingleAuthFromModal = async () => {
+    setShowSingleAuthModal(false); // Close modal immediately
+    await initiateSingleSuperAdminOAuth();
   };
 
   const initiateSingleSuperAdminOAuth = async () => {
@@ -468,10 +584,26 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
   const addDomainMapping = () => {
     const domains = getAvailableDomains();
     if (domains.source.length > 0 && domains.target.length > 0) {
-      setDomainMappings([...domainMappings, {
-        source: domains.source[0],
-        target: domains.target[0]
-      }]);
+      // Create mapping based on user mapping strategy
+      if (userMappingStrategy === 'one-to-many') {
+        // For one-to-many, one source domain maps to multiple target domains
+        setDomainMappings([...domainMappings, {
+          source: domains.source[0],
+          target: domains.target[0] // Start with first target, user can add more
+        }]);
+      } else if (userMappingStrategy === 'many-to-one') {
+        // For many-to-one, multiple source domains map to one target domain
+        setDomainMappings([...domainMappings, {
+          source: domains.source[0], // Start with first source, user can add more
+          target: domains.target[0]
+        }]);
+      } else {
+        // Default one-to-one mapping
+        setDomainMappings([...domainMappings, {
+          source: domains.source[0],
+          target: domains.target[0]
+        }]);
+      }
     }
   };
 
@@ -479,10 +611,247 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     setDomainMappings(domainMappings.filter((_, i) => i !== index));
   };
 
-  const updateDomainMapping = (index: number, field: 'source' | 'target', value: string) => {
+  const updateDomainMapping = (index: number, field: 'source' | 'target', value: string | string[]) => {
     const updated = [...domainMappings];
     updated[index][field] = value;
     setDomainMappings(updated);
+  };
+
+  const addTargetToDomainMapping = (index: number, target: string) => {
+    const updated = [...domainMappings];
+    const currentTargets = Array.isArray(updated[index].target) 
+      ? updated[index].target as string[]
+      : [updated[index].target as string];
+    
+    if (!currentTargets.includes(target)) {
+      updated[index].target = [...currentTargets, target];
+      setDomainMappings(updated);
+    }
+  };
+
+  const removeTargetFromDomainMapping = (index: number, target: string) => {
+    const updated = [...domainMappings];
+    const currentTargets = Array.isArray(updated[index].target) 
+      ? updated[index].target as string[]
+      : [updated[index].target as string];
+    
+    const filteredTargets = currentTargets.filter(t => t !== target);
+    updated[index].target = filteredTargets.length === 1 ? filteredTargets[0] : filteredTargets;
+    setDomainMappings(updated);
+  };
+
+  const addSourceToDomainMapping = (index: number, source: string) => {
+    const updated = [...domainMappings];
+    const currentSources = Array.isArray(updated[index].source) 
+      ? updated[index].source as string[]
+      : [updated[index].source as string];
+    
+    if (!currentSources.includes(source)) {
+      updated[index].source = [...currentSources, source];
+      setDomainMappings(updated);
+    }
+  };
+
+  const removeSourceFromDomainMapping = (index: number, source: string) => {
+    const updated = [...domainMappings];
+    const currentSources = Array.isArray(updated[index].source) 
+      ? updated[index].source as string[]
+      : [updated[index].source as string];
+    
+    const filteredSources = currentSources.filter(s => s !== source);
+    updated[index].source = filteredSources.length === 1 ? filteredSources[0] : filteredSources;
+    setDomainMappings(updated);
+  };
+
+  const renderDomainMapping = (mapping: { source: string | string[]; target: string | string[] }, index: number) => {
+    const sources = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
+    const targets = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
+
+    if (userMappingStrategy === 'one-to-many') {
+      return (
+        <div key={index} className="p-4 bg-gray-50 rounded-lg border">
+          <div className="flex items-start space-x-4">
+            {/* Single Source */}
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Source Domain</label>
+              <select
+                value={sources[0]}
+                onChange={(e) => updateDomainMapping(index, 'source', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {getAvailableDomains().source.map((domain) => (
+                  <option key={domain} value={domain}>{domain}</option>
+                ))}
+              </select>
+            </div>
+            
+            <ArrowRight className="h-5 w-5 text-gray-400 mt-8" />
+            
+            {/* Multiple Targets */}
+            <div className="flex-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Target Domains</label>
+              <div className="space-y-2">
+                {targets.map((target, targetIndex) => (
+                  <div key={targetIndex} className="flex items-center space-x-2">
+                    <select
+                      value={target}
+                      onChange={(e) => {
+                        const newTargets = [...targets];
+                        newTargets[targetIndex] = e.target.value;
+                        updateDomainMapping(index, 'target', newTargets);
+                      }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {getAvailableDomains().target.map((domain) => (
+                        <option key={domain} value={domain}>{domain}</option>
+                      ))}
+                    </select>
+                    {targets.length > 1 && (
+                      <button
+                        onClick={() => removeTargetFromDomainMapping(index, target)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const availableTargets = getAvailableDomains().target.filter(domain => !targets.includes(domain));
+                    if (availableTargets.length > 0) {
+                      addTargetToDomainMapping(index, availableTargets[0]);
+                    }
+                  }}
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                >
+                  + Add Target Domain
+                </button>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => removeDomainMapping(index)}
+              className="text-red-600 hover:text-red-700 mt-8"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      );
+    } else if (userMappingStrategy === 'many-to-one') {
+      return (
+        <div key={index} className="p-4 bg-gray-50 rounded-lg border">
+          <div className="flex items-start space-x-4">
+            {/* Multiple Sources */}
+            <div className="flex-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Source Domains</label>
+              <div className="space-y-2">
+                {sources.map((source, sourceIndex) => (
+                  <div key={sourceIndex} className="flex items-center space-x-2">
+                    <select
+                      value={source}
+                      onChange={(e) => {
+                        const newSources = [...sources];
+                        newSources[sourceIndex] = e.target.value;
+                        updateDomainMapping(index, 'source', newSources);
+                      }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {getAvailableDomains().source.map((domain) => (
+                        <option key={domain} value={domain}>{domain}</option>
+                      ))}
+                    </select>
+                    {sources.length > 1 && (
+                      <button
+                        onClick={() => removeSourceFromDomainMapping(index, source)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const availableSources = getAvailableDomains().source.filter(domain => !sources.includes(domain));
+                    if (availableSources.length > 0) {
+                      addSourceToDomainMapping(index, availableSources[0]);
+                    }
+                  }}
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                >
+                  + Add Source Domain
+                </button>
+              </div>
+            </div>
+            
+            <ArrowRight className="h-5 w-5 text-gray-400 mt-8" />
+            
+            {/* Single Target */}
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Target Domain</label>
+              <select
+                value={targets[0]}
+                onChange={(e) => updateDomainMapping(index, 'target', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {getAvailableDomains().target.map((domain) => (
+                  <option key={domain} value={domain}>{domain}</option>
+                ))}
+              </select>
+            </div>
+            
+            <button
+              onClick={() => removeDomainMapping(index)}
+              className="text-red-600 hover:text-red-700 mt-8"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      // Default one-to-one mapping
+      return (
+        <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+            <select
+              value={sources[0]}
+              onChange={(e) => updateDomainMapping(index, 'source', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {getAvailableDomains().source.map((domain) => (
+                <option key={domain} value={domain}>{domain}</option>
+              ))}
+            </select>
+          </div>
+          
+          <ArrowRight className="h-5 w-5 text-gray-400 mt-6" />
+          
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
+            <select
+              value={targets[0]}
+              onChange={(e) => updateDomainMapping(index, 'target', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {getAvailableDomains().target.map((domain) => (
+                <option key={domain} value={domain}>{domain}</option>
+              ))}
+            </select>
+          </div>
+          
+          <button
+            onClick={() => removeDomainMapping(index)}
+            className="text-red-600 hover:text-red-700 mt-6"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      );
+    }
   };
 
   const handleConfigurationComplete = () => {
@@ -597,7 +966,24 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           {/* Domain Mappings */}
           <div className="bg-white border border-gray-200 rounded-lg p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Domain Mappings</h3>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Domain Mappings</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {selectedScenario === 'single-super-admin' 
+                    ? userMappingStrategy === 'one-to-many'
+                      ? 'Configure how one source domain maps to multiple target domains (one-to-many strategy)'
+                      : userMappingStrategy === 'many-to-one'
+                      ? 'Configure how multiple source domains map to one target domain (many-to-one strategy)'
+                      : 'Configure how your domains should be mapped based on your migration strategy (one-to-one)'
+                    : 'Configure how source domains map to target domains for cross-tenant migration'
+                  }
+                </p>
+                {userMappingStrategy && (
+                  <div className="mt-2 inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">
+                    Strategy: {userMappingStrategy.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={addDomainMapping}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -610,48 +996,16 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
               <div className="text-center py-8">
                 <Globe className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500">No domain mappings configured yet.</p>
-                <p className="text-gray-400 text-sm">Click "Add Mapping" to get started.</p>
+                <p className="text-gray-400 text-sm">
+                  {selectedScenario === 'single-super-admin' 
+                    ? `Click "Add Mapping" to configure your ${userMappingStrategy || 'one-to-one'} domain migration strategy.`
+                    : 'Click "Add Mapping" to get started.'
+                  }
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
-                {domainMappings.map((mapping, index) => (
-                  <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-                      <select
-                        value={mapping.source}
-                        onChange={(e) => updateDomainMapping(index, 'source', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        {getAvailableDomains().source.map((domain) => (
-                          <option key={domain} value={domain}>{domain}</option>
-                        ))}
-                      </select>
-                    </div>
-                    
-                    <ArrowRight className="h-5 w-5 text-gray-400 mt-6" />
-                    
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
-                      <select
-                        value={mapping.target}
-                        onChange={(e) => updateDomainMapping(index, 'target', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        {getAvailableDomains().target.map((domain) => (
-                          <option key={domain} value={domain}>{domain}</option>
-                        ))}
-                      </select>
-                    </div>
-                    
-                    <button
-                      onClick={() => removeDomainMapping(index)}
-                      className="text-red-600 hover:text-red-700 mt-6"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                ))}
+                {domainMappings.map((mapping, index) => renderDomainMapping(mapping, index))}
               </div>
             )}
           </div>
@@ -661,10 +1015,10 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             <button
               onClick={handleConfigurationComplete}
               disabled={domainMappings.length === 0}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium flex items-center space-x-2"
             >
-              Complete Configuration
-              <ArrowRight className="h-4 w-4 ml-2 inline" />
+              <span>Complete Configuration</span>
+              <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -813,6 +1167,82 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single Super Admin Authentication Modal */}
+      {showSingleAuthModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Authenticate Google Workspace
+              </h3>
+              <button
+                onClick={() => setShowSingleAuthModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
+                <Shield className="h-6 w-6 text-blue-600" />
+                <div>
+                  <h4 className="font-medium text-blue-900">Secure Authentication Required</h4>
+                  <p className="text-sm text-blue-700">
+                    Authenticate with your Google Workspace account to discover available domains
+                  </p>
+                </div>
+              </div>
+              
+              <div className="text-sm text-gray-600 space-y-2">
+                <p>This will:</p>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>Open a secure Google authentication window</li>
+                  <li>Discover all available domains in your workspace</li>
+                  <li>Generate verification tokens for migration setup</li>
+                  <li>Redirect you to domain mapping configuration</li>
+                </ul>
+              </div>
+              
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <span className="text-sm text-red-700">{error}</span>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex space-x-3 pt-4">
+                <button
+                  onClick={() => setShowSingleAuthModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSingleAuthFromModal}
+                  disabled={isLoading}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="h-4 w-4" />
+                      <span>Authenticate</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
