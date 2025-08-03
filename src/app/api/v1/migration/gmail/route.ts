@@ -170,9 +170,9 @@ export async function POST(request: NextRequest) {
 }
 
 // Helper function to migrate labels
-async function migrateLabels(sourceService: any, targetService: any, sourceEmail: string, targetEmail: string) {
+async function migrateLabels(sourceService: any, targetService: any, sourceAdminEmail: string, targetEmail: string) {
   try {
-    const labelsResponse = await sourceService.users.labels.list({ userId: sourceEmail })
+    const labelsResponse = await sourceService.users.labels.list({ userId: sourceAdminEmail })
     const sourceLabels = labelsResponse.data.labels || []
 
     // Get existing target labels to avoid duplicates
@@ -200,9 +200,9 @@ async function migrateLabels(sourceService: any, targetService: any, sourceEmail
 }
 
 // Helper function to migrate filters
-async function migrateFilters(sourceService: any, targetService: any, sourceEmail: string, targetEmail: string) {
+async function migrateFilters(sourceService: any, targetService: any, sourceAdminEmail: string, targetEmail: string) {
   try {
-    const filtersResponse = await sourceService.users.settings.filters.list({ userId: sourceEmail })
+    const filtersResponse = await sourceService.users.settings.filters.list({ userId: sourceAdminEmail })
     const sourceFilters = filtersResponse.data.filter || []
 
     for (const filter of sourceFilters) {
@@ -221,9 +221,9 @@ async function migrateFilters(sourceService: any, targetService: any, sourceEmai
 }
 
 // Helper function to migrate signature
-async function migrateSignature(sourceService: any, targetService: any, sourceEmail: string, targetEmail: string) {
+async function migrateSignature(sourceService: any, targetService: any, sourceAdminEmail: string, targetEmail: string) {
   try {
-    const settingsResponse = await sourceService.users.settings.sendAs.list({ userId: sourceEmail })
+    const settingsResponse = await sourceService.users.settings.sendAs.list({ userId: sourceAdminEmail })
     const sendAsSettings = settingsResponse.data.sendAs || []
 
     for (const setting of sendAsSettings) {
@@ -247,7 +247,7 @@ async function migrateSignature(sourceService: any, targetService: any, sourceEm
 async function processMessageMigration(
   sourceService: any,
   targetService: any,
-  sourceEmail: string,
+  sourceAdminEmail: string,
   targetEmail: string,
   options: any,
   progress: GmailMigrationProgress,
@@ -259,7 +259,7 @@ async function processMessageMigration(
 
     do {
       const messagesResponse: any = await sourceService.users.messages.list({
-        userId: sourceEmail,
+        userId: sourceAdminEmail,
         maxResults: batchSize,
         pageToken,
         q: buildSearchQuery(options.dateRange)
@@ -273,7 +273,7 @@ async function processMessageMigration(
         try {
           // Get full message
           const fullMessage = await sourceService.users.messages.get({
-            userId: sourceEmail,
+            userId: sourceAdminEmail,
             id: message.id,
             format: 'raw'
           })

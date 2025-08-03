@@ -56,7 +56,7 @@ for each group:
   create single targetUser with:
     - email: `${firstName}.${lastName}@${primaryTargetDomain}`
     - isAdmin: any source user was admin
-    - sourceEmails: all original email addresses
+    - sourceAdminEmails: all original email addresses
 ```
 
 ### 4. Many-to-Many Mapping (Smart Distribution)

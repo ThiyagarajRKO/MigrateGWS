@@ -154,7 +154,7 @@ async function getFileStatistics(driveService: any, userEmail: string, options: 
 }
 
 // Helper function to migrate shared drives
-async function migrateSharedDrives(sourceService: any, targetService: any, sourceEmail: string, targetEmail: string) {
+async function migrateSharedDrives(sourceService: any, targetService: any, sourceAdminEmail: string, targetEmail: string) {
   try {
     // Get shared drives
     const sharedDrivesResponse = await sourceService.drives.list({
@@ -218,7 +218,7 @@ async function migrateSharedDrivePermissions(sourceService: any, targetService: 
 async function processFileMigration(
   sourceService: any,
   targetService: any,
-  sourceEmail: string,
+  sourceAdminEmail: string,
   targetEmail: string,
   options: any,
   progress: DriveMigrationProgress,
@@ -233,7 +233,7 @@ async function processFileMigration(
 
     do {
       const filesResponse: any = await sourceService.files.list({
-        q: buildFileQuery(sourceEmail, options),
+        q: buildFileQuery(sourceAdminEmail, options),
         fields: 'nextPageToken, files(id, name, mimeType, parents, size, permissions, capabilities)',
         pageSize: batchSize,
         pageToken

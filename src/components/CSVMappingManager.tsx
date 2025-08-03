@@ -119,7 +119,7 @@ export default function CSVMappingManager({
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
         <h4 className="text-sm font-medium text-blue-900 mb-2">CSV Format</h4>
         <div className="text-xs text-blue-800 font-mono">
-          sourceEmails,targetEmails,mappingType,scenario,notes,targetExists
+          sourceAdminEmails,targetEmails,mappingType,scenario,notes,targetExists
         </div>
         <div className="text-xs text-blue-700 mt-1">
           • Use semicolons (;) to separate multiple emails within a field<br />

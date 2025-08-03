@@ -357,20 +357,20 @@ async function migrateGroupMembers(sourceService: any, targetService: any, sourc
 }
 
 // Helper function to map group email to target domain
-function mapGroupEmail(sourceEmail: string, domainMapping?: { [key: string]: string }): string {
-  if (!domainMapping) return sourceEmail
+function mapGroupEmail(sourceAdminEmail: string, domainMapping?: { [key: string]: string }): string {
+  if (!domainMapping) return sourceAdminEmail
 
-  const [localPart, sourceDomain] = sourceEmail.split('@')
+  const [localPart, sourceDomain] = sourceAdminEmail.split('@')
   const targetDomain = domainMapping[sourceDomain] || sourceDomain
   
   return `${localPart}@${targetDomain}`
 }
 
 // Helper function to map member email to target domain
-function mapMemberEmail(sourceEmail: string, domainMapping?: { [key: string]: string }): string {
-  if (!domainMapping) return sourceEmail
+function mapMemberEmail(sourceAdminEmail: string, domainMapping?: { [key: string]: string }): string {
+  if (!domainMapping) return sourceAdminEmail
 
-  const [localPart, sourceDomain] = sourceEmail.split('@')
+  const [localPart, sourceDomain] = sourceAdminEmail.split('@')
   const targetDomain = domainMapping[sourceDomain] || sourceDomain
   
   return `${localPart}@${targetDomain}`
