@@ -50,7 +50,7 @@ const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail, sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
+    const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
 
     // Handle Single Super Admin scenario
     if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {

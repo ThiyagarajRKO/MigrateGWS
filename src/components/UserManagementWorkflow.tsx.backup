@@ -381,34 +381,6 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
           throw new Error(`No admin email configured for domain ${domain}. Please complete the delegation setup first.`);
         }
 
-        // First, verify delegation is properly configured using service account
-        console.log(`Verifying delegation for ${domain} with admin email: ${adminEmail}`);
-        const verificationParams = new URLSearchParams({
-          action: 'test-connection',
-          domain,
-          adminEmail
-        });
-
-        const verificationResponse = await fetch(`/api/google-workspace?${verificationParams}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include'
-        });
-
-        const verificationData = await verificationResponse.json();
-        console.log(`Delegation verification for ${domain}:`, { 
-          status: verificationResponse.status, 
-          data: verificationData 
-        });
-
-        if (!verificationResponse.ok) {
-          throw new Error(`Delegation not verified for ${domain}: ${verificationData.error || verificationData.message || 'Domain-wide delegation not configured'}`); 
-        }
-
-        console.log(`✅ Delegation verified for ${domain}, proceeding with user discovery`);
-
-        // Now proceed with user discovery
-
         const params = new URLSearchParams({
           action: 'all-users',
           domain,
