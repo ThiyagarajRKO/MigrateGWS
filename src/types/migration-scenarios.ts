@@ -291,6 +291,7 @@ export function getComplexityRating(type: MigrationScenario, mappingType?: Domai
 // Domain Mapping Types and Configurations
 export type DomainMappingType = 
   | 'one-to-one'
+  | 'single-super-admin'
   | 'one-to-many' 
   | 'many-to-one'
   | 'cross-tenant-single'

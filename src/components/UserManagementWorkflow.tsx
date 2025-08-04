@@ -114,9 +114,12 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       migrationScenario,
       userMappingStrategy,
       userMappingConfig,
+      mappingType,
+      sourceDomains,
+      targetDomains,
       timestamp: new Date().toISOString()
     });
-  }, [domainMapping, migrationScenario, userMappingStrategy, userMappingConfig]);
+  }, [domainMapping, migrationScenario, userMappingStrategy, userMappingConfig, mappingType, sourceDomains, targetDomains]);
   
   // Discovery state
   const [isDiscovering, setIsDiscovering] = useState(false);

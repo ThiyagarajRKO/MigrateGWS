@@ -14,6 +14,7 @@ import {
   Mail
 } from 'lucide-react';
 import TargetUserCreation from './TargetUserCreation';
+import UserServiceMigrationSelector from './UserServiceMigrationSelector';
 
 interface User {
   id: string;
@@ -46,7 +47,9 @@ interface UserMappingWithCreationProps {
   targetAdminEmails: {[domain: string]: string};
   onMappingComplete?: (mappings: UserDomainMapping[]) => void;
   onCreationComplete?: (results: any[]) => void;
+  onServiceMigrationReady?: (selections: any[]) => void;
   autoStartCreation?: boolean;
+  enableServiceSelection?: boolean;
   mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many';
 }
 
@@ -56,10 +59,12 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
   targetAdminEmails,
   onMappingComplete,
   onCreationComplete,
+  onServiceMigrationReady,
   autoStartCreation = false,
+  enableServiceSelection = false,
   mappingType = 'one-to-one'
 }: UserMappingWithCreationProps) {
-  const [currentStep, setCurrentStep] = useState<'mapping' | 'validation' | 'creation' | 'complete'>('mapping');
+  const [currentStep, setCurrentStep] = useState<'mapping' | 'validation' | 'creation' | 'service-selection' | 'complete'>('mapping');
   const [userMappings, setUserMappings] = useState<UserDomainMapping[]>([]);
   const [validationResults, setValidationResults] = useState<{[email: string]: boolean}>({});
   const [isValidating, setIsValidating] = useState(false);
@@ -272,6 +277,8 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
     if (needsCreation) {
       setCurrentStep('creation');
       setShowCreation(true);
+    } else if (enableServiceSelection) {
+      setCurrentStep('service-selection');
     } else {
       setCurrentStep('complete');
       if (onMappingComplete) {
@@ -282,11 +289,28 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
 
   // Handle creation completion
   const handleCreationComplete = (results: any[]) => {
-    setCurrentStep('complete');
+    if (enableServiceSelection) {
+      setCurrentStep('service-selection');
+    } else {
+      setCurrentStep('complete');
+    }
     setShowCreation(false);
     
     if (onCreationComplete) {
       onCreationComplete(results);
+    }
+    
+    if (!enableServiceSelection && onMappingComplete) {
+      onMappingComplete(userMappings);
+    }
+  };
+
+  // Handle service migration selection
+  const handleServiceMigrationComplete = (selections: any[]) => {
+    setCurrentStep('complete');
+    
+    if (onServiceMigrationReady) {
+      onServiceMigrationReady(selections);
     }
     
     if (onMappingComplete) {
@@ -311,6 +335,9 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
                (Object.keys(validationResults).length > 0 ? 'completed' : 'pending');
       case 'creation':
         return currentStep === 'creation' ? 'current' : 
+               (['service-selection', 'complete'].includes(currentStep) ? 'completed' : 'pending');
+      case 'service-selection':
+        return currentStep === 'service-selection' ? 'current' : 
                (currentStep === 'complete' ? 'completed' : 'pending');
       case 'complete':
         return currentStep === 'complete' ? 'completed' : 'pending';
@@ -319,12 +346,16 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
     }
   };
 
+  const stepsList = enableServiceSelection 
+    ? ['mapping', 'validation', 'creation', 'service-selection', 'complete']
+    : ['mapping', 'validation', 'creation', 'complete'];
+
   return (
     <div className="space-y-6">
       {/* Progress Steps */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between">
-          {['mapping', 'validation', 'creation', 'complete'].map((step, index) => {
+          {stepsList.map((step, index) => {
             const status = getStepStatus(step);
             const isActive = status === 'current';
             const isCompleted = status === 'completed';
@@ -346,10 +377,10 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
                   <div className={`text-sm font-medium ${
                     isActive || isCompleted ? 'text-gray-900' : 'text-gray-500'
                   }`}>
-                    {step.charAt(0).toUpperCase() + step.slice(1)}
+                    {step === 'service-selection' ? 'Service Selection' : step.charAt(0).toUpperCase() + step.slice(1)}
                   </div>
                 </div>
-                {index < 3 && (
+                {index < stepsList.length - 1 && (
                   <ArrowRight className="h-5 w-5 text-gray-400 mx-4" />
                 )}
               </div>
@@ -672,6 +703,16 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
           autoStart={autoStartCreation}
           batchSize={3}
           retryAttempts={3}
+        />
+      )}
+
+      {/* Service Migration Selection */}
+      {currentStep === 'service-selection' && (
+        <UserServiceMigrationSelector
+          userMappings={userMappings}
+          mappingType={mappingType}
+          onSelectionComplete={handleServiceMigrationComplete}
+          defaultServices={['gmail', 'drive', 'calendar', 'contacts']}
         />
       )}
 

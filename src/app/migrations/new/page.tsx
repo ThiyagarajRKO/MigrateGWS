@@ -89,7 +89,7 @@ const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-type WizardStep = 'scenario' | 'auth-and-domains' | 'user-mapping' | 'delegation' | 'user-management' | 'configuration' | 'review' | 'migration';
+type WizardStep = 'scenario' | 'auth-and-domains' | 'domain-mapping' | 'user-mapping' | 'delegation' | 'user-management' | 'configuration' | 'review' | 'migration';
 
 const SERVICE_ICONS = {
   'Gmail': Mail,
@@ -103,7 +103,14 @@ const SERVICE_ICONS = {
   'Slides': Presentation
 } as const;
 
-const STEP_CONFIG = {
+interface StepConfig {
+  icon: any;
+  title: string;
+  description: string;
+  hidden?: boolean;
+}
+
+const STEP_CONFIG: Record<WizardStep, StepConfig> = {
   scenario: { 
     icon: Users, 
     title: 'Migration Strategy', 
@@ -113,6 +120,12 @@ const STEP_CONFIG = {
     icon: Shield, 
     title: 'Authenticate & Configure Domains', 
     description: 'Connect to Google Workspace and configure domain mappings' 
+  },
+  'domain-mapping': {
+    icon: GitBranch,
+    title: 'Domain Mapping',
+    description: 'Configure domain mappings and strategies',
+    hidden: true
   },
   'user-mapping': { 
     icon: GitBranch, 
@@ -145,7 +158,7 @@ const STEP_CONFIG = {
     title: 'Migration in Progress', 
     description: 'Monitor your migration progress in real-time' 
   }
-} as const;
+};
 
 export default function NewMigration() {
   const { user } = useAuth();
@@ -327,10 +340,6 @@ export default function NewMigration() {
           // Preload domain mapping selector
           import('@/components/DomainMappingSelector');
           break;
-        case 'domain-mapping':
-          // Preload delegation setup
-          import('@/components/DomainWideDelegationSetup');
-          break;
         case 'delegation':
           // Preload user management workflow
           import('@/components/UserManagementWorkflow');
@@ -464,7 +473,18 @@ export default function NewMigration() {
     setCurrentStep('auth-and-domains');
   };
 
-  const handleDomainConfiguration = (config: any) => {
+interface DomainConfigurationInput {
+  sourceAuthenticated: boolean;
+  targetAuthenticated: boolean;
+  sourceDomains: string[];
+  targetDomains: string[];
+  domainMappings?: Array<{
+    source: string | string[];
+    target: string | string[];
+  }>;
+}
+
+  const handleDomainConfiguration = (config: DomainConfigurationInput) => {
     // Update authentication status
     if (selectedScenario === 'cross-tenant') {
       setSourceAuthStatus({
@@ -488,19 +508,44 @@ export default function NewMigration() {
 
     // Set up domain mapping from the configuration
     if (config.domainMappings && config.domainMappings.length > 0) {
+      // Extract source and target domains from the domain mappings
+      let sourceDomains: string[] = [];
+      let targetDomains: string[] = [];
+      
+      config.domainMappings.forEach((mapping) => {
+        // Handle source domains
+        if (Array.isArray(mapping.source)) {
+          sourceDomains.push(...mapping.source);
+        } else {
+          sourceDomains.push(mapping.source);
+        }
+        
+        // Handle target domains
+        if (Array.isArray(mapping.target)) {
+          targetDomains.push(...mapping.target);
+        } else {
+          targetDomains.push(mapping.target);
+        }
+      });
+      
+      // Remove duplicates
+      sourceDomains = Array.from(new Set(sourceDomains));
+      targetDomains = Array.from(new Set(targetDomains));
+      
       const mapping: DomainMappingConfig = {
-        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
-        sourceDomains: config.sourceDomains,
-        targetDomain: config.targetDomains[0],
-        targetDomains: config.targetDomains,
-        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${config.sourceDomains.join(', ')} -> ${config.targetDomains.join(', ')}`
+        type: selectedScenario === 'single-super-admin' ? 'single-super-admin' : 'one-to-one',
+        sourceDomains,
+        targetDomain: targetDomains[0],
+        targetDomains,
+        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${sourceDomains.join(', ')} -> ${targetDomains.join(', ')}`
       };
       setDomainMapping(mapping);
+      console.log('[Migration Wizard] Domain mapping created from domain mappings:', mapping);
     } else {
       // Fallback: create a default domain mapping even if domainMappings is empty
       console.log('[Migration Wizard] No domain mappings provided, creating default mapping');
       const mapping: DomainMappingConfig = {
-        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
+        type: selectedScenario === 'single-super-admin' ? 'single-super-admin' : 'one-to-one',
         sourceDomains: config.sourceDomains,
         targetDomain: config.targetDomains[0],
         targetDomains: config.targetDomains,
@@ -509,12 +554,29 @@ export default function NewMigration() {
       setDomainMapping(mapping);
     }
     
-    // Auto-populate migration config
+    // Auto-populate migration config using the extracted domain information
+    let sourceDomainForConfig = config.sourceDomains[0] || '';
+    let targetDomainForConfig = config.targetDomains[0] || '';
+    let targetDomainsForConfig = config.targetDomains;
+    
+    // If we have domain mappings, use the first mapping for migration config
+    if (config.domainMappings && config.domainMappings.length > 0) {
+      const firstMapping = config.domainMappings[0];
+      sourceDomainForConfig = Array.isArray(firstMapping.source) ? firstMapping.source[0] : firstMapping.source;
+      targetDomainForConfig = Array.isArray(firstMapping.target) ? firstMapping.target[0] : firstMapping.target;
+      
+      // Collect all target domains from mappings
+      const allTargets = config.domainMappings.flatMap((mapping) => 
+        Array.isArray(mapping.target) ? mapping.target : [mapping.target]
+      );
+      targetDomainsForConfig = Array.from(new Set(allTargets));
+    }
+    
     setMigrationConfig(prev => ({
       ...prev,
-      sourceDomain: config.sourceDomains[0] || '',
-      targetDomain: config.targetDomains[0] || '',
-      targetDomains: config.targetDomains
+      sourceDomain: sourceDomainForConfig,
+      targetDomain: targetDomainForConfig,
+      targetDomains: targetDomainsForConfig
     }));
 
     // Move to next step
@@ -1059,7 +1121,7 @@ export default function NewMigration() {
                     </div>
                     <div>
                       <span className="font-medium text-blue-900">Domains:</span>
-                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} -> {domainMapping?.targetDomain}</span>
+                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} → {domainMapping?.targetDomain}</span>
                     </div>
                   </div>
                 </div>
@@ -1270,6 +1332,10 @@ export default function NewMigration() {
                     domainMapping?.type === 'one-to-many' ? 'one-to-many' :
                     domainMapping?.type === 'many-to-one' ? 'many-to-one' :
                     domainMapping?.type === 'cross-tenant-single' ? 'one-to-one' :
+                    getSourceDomains().length === 1 && getTargetDomains().length === 1 ? 'one-to-one' :
+                    getSourceDomains().length === 1 && getTargetDomains().length > 1 ? 'one-to-many' :
+                    getSourceDomains().length > 1 && getTargetDomains().length === 1 ? 'many-to-one' :
+                    getSourceDomains().length > 1 && getTargetDomains().length > 1 ? 'many-to-many' :
                     'one-to-one'
                   }
                   onComplete={(results) => {
@@ -2113,11 +2179,11 @@ export default function NewMigration() {
   };
 
   const getTotalSteps = () => {
-    return Object.values(STEP_CONFIG as any).filter((config: any) => !config.hidden).length;
+    return Object.values(STEP_CONFIG).filter((config) => !config.hidden).length;
   };
 
   const getStepNumber = () => {
-    const visibleSteps = Object.keys(STEP_CONFIG).filter(stepKey => !(STEP_CONFIG as any)[stepKey].hidden);
+    const visibleSteps = Object.keys(STEP_CONFIG).filter(stepKey => !STEP_CONFIG[stepKey as WizardStep].hidden);
     const currentIndex = visibleSteps.indexOf(currentStep);
     return currentIndex >= 0 ? currentIndex + 1 : 1;
   };
@@ -2232,7 +2298,7 @@ export default function NewMigration() {
                 
                 {/* Steps */}
                 {Object.entries(STEP_CONFIG)
-                  .filter(([stepKey, config]) => !(config as any).hidden) // Filter out hidden steps
+                  .filter(([stepKey, config]) => !config.hidden) // Filter out hidden steps
                   .map(([stepKey, config], index) => {
                   const stepNumber = index + 1;
                   const isActive = stepNumber === getStepNumber();

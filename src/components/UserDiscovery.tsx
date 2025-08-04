@@ -18,7 +18,9 @@ import {
   EyeOff,
   ArrowRight,
   Target,
-  X
+  X,
+  AlertTriangle,
+  Building
 } from 'lucide-react';
 import UserMappingWithCreation from './UserMappingWithCreation';
 
@@ -65,7 +67,9 @@ interface UserDiscoveryProps {
   sourceAdminEmail?: string; // Single admin email (for backward compatibility)
   sourceAdminEmails?: {[domain: string]: string}; // Multiple admin emails by domain
   targetAdminEmails?: {[domain: string]: string}; // Target admin emails for user creation
-  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'; // Domain mapping type
+  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' ; // Domain mapping type
+  scenario?: 'single-super-admin' | 'cross-tenant'; // Migration scenario type
+  domainMapping?: any; // Domain mapping configuration
   onUsersSelected?: (users: User[]) => void;
   onUserMappingChange?: (userMappings: UserDomainMapping[]) => void; // New callback for user mappings
   onTargetUserCreationRequired?: (mappings: UserDomainMapping[]) => void; // New callback for target user creation
@@ -81,7 +85,9 @@ export const UserDiscovery = memo(function UserDiscovery({
   sourceAdminEmail,
   sourceAdminEmails,
   targetAdminEmails,
-  mappingType = 'one-to-one',
+  mappingType,
+  scenario,
+  domainMapping,
   onUsersSelected, 
   onUserMappingChange,
   onTargetUserCreationRequired,
@@ -108,6 +114,12 @@ export const UserDiscovery = memo(function UserDiscovery({
   
   // Helper function to get domains to process
   const getDomainsToProcess = useCallback((): string[] => {
+    // First check if domainMapping has source domains information
+    if (domainMapping?.sourceDomains && domainMapping.sourceDomains.length > 0) {
+      return domainMapping.sourceDomains;
+    }
+    
+    // Fallback to props
     if (sourceDomains && sourceDomains.length > 0) {
       return sourceDomains;
     }
@@ -115,7 +127,7 @@ export const UserDiscovery = memo(function UserDiscovery({
       return [sourceDomain];
     }
     return [];
-  }, [sourceDomains, sourceDomain]);
+  }, [sourceDomains, sourceDomain, domainMapping]);
 
   // Helper function to get admin email for a domain
   const getAdminEmailForDomain = useCallback((domain: string): string => {
@@ -127,6 +139,15 @@ export const UserDiscovery = memo(function UserDiscovery({
 
   // Helper function to get target domains to process
   const getTargetDomainsToProcess = useCallback((): string[] => {
+    // First check if domainMapping has target domains information
+    if (domainMapping?.targetDomains && domainMapping.targetDomains.length > 0) {
+      return domainMapping.targetDomains;
+    }
+    if (domainMapping?.targetDomain) {
+      return [domainMapping.targetDomain];
+    }
+    
+    // Fallback to props
     if (targetDomains && targetDomains.length > 0) {
       return targetDomains;
     }
@@ -134,14 +155,54 @@ export const UserDiscovery = memo(function UserDiscovery({
       return [targetDomain];
     }
     return [];
-  }, [targetDomains, targetDomain]);
+  }, [targetDomains, targetDomain, domainMapping]);
+
+  // Helper function to dynamically determine the actual mapping strategy
+  const getActualMappingStrategy = useCallback((): 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many' => {
+    const sourceDomainsList = getDomainsToProcess();
+    const targetDomainsList = getTargetDomainsToProcess();
+    const sourceCount = sourceDomainsList.length;
+    const targetCount = targetDomainsList.length;
+    
+    console.log('[UserDiscovery] Strategy calculation:', {
+      sourceDomains: sourceDomainsList,
+      targetDomains: targetDomainsList,
+      sourceCount,
+      targetCount,
+      scenario,
+      domainMapping
+    });
+    
+    if (sourceCount === 1 && targetCount === 1) {
+      return 'one-to-one';
+    } else if (sourceCount === 1 && targetCount > 1) {
+      return 'one-to-many';
+    } else if (sourceCount > 1 && targetCount === 1) {
+      return 'many-to-one';
+    } else if (sourceCount > 1 && targetCount > 1) {
+      return 'many-to-many';
+    }
+    
+    // Default fallback based on available domains
+    return 'one-to-one';
+  }, [getDomainsToProcess, getTargetDomainsToProcess, scenario, domainMapping]);
 
   // Helper function to determine if mapping is required
   const isMappingRequired = useCallback((): boolean => {
     const sourceCount = getDomainsToProcess().length;
     const targetCount = getTargetDomainsToProcess().length;
-    return targetCount > 1 || (sourceCount > 1 && targetCount >= 1) || mappingType !== 'one-to-one';
-  }, [getDomainsToProcess, getTargetDomainsToProcess, mappingType]);
+    const actualStrategy = getActualMappingStrategy();
+    
+    // For single-super-admin scenario, mapping is still required if:
+    // - There are multiple target domains
+    // - There's a mix of source and target domains that need mapping
+    if (scenario === 'single-super-admin') {
+      return targetCount > 1 || (sourceCount > 0 && targetCount > 0 && actualStrategy !== 'one-to-one');
+    }
+    
+    // For cross-tenant scenarios, use the original logic
+    return targetCount > 1 || (sourceCount > 1 && targetCount >= 1) || actualStrategy !== 'one-to-one';
+  }, [getDomainsToProcess, getTargetDomainsToProcess, getActualMappingStrategy, scenario]);
   
   // Filter states
   const [filterAdmin, setFilterAdmin] = useState<'all' | 'admin' | 'non-admin'>('all');
@@ -417,17 +478,24 @@ export const UserDiscovery = memo(function UserDiscovery({
   // Memoize target domains for other uses
   const targetDomainsToProcess = useMemo(() => getTargetDomainsToProcess(), [getTargetDomainsToProcess]);
 
+  // Filter target domains to exclude source domains (to prevent domain conflicts)
+  const availableTargetDomains = useMemo(() => {
+    const sourceDomainSet = new Set(domainsToProcess);
+    return targetDomainsToProcess.filter(domain => !sourceDomainSet.has(domain));
+  }, [targetDomainsToProcess, domainsToProcess]);
+
   // Auto-assign users to target domains based on mapping type
   const autoAssignUserMappings = useCallback((users: User[]) => {
-    const targetDomains = getTargetDomainsToProcess();
+    const targetDomains = availableTargetDomains;
     if (targetDomains.length === 0) return;
 
     const newMappings: {[userId: string]: UserDomainMapping} = {};
+    const actualStrategy = getActualMappingStrategy();
 
     users.forEach((user, index) => {
       let targetDomain: string;
       
-      switch (mappingType) {
+      switch (actualStrategy) {
         case 'one-to-one':
           // Map to single target domain if available
           targetDomain = targetDomains[0] || targetDomains[0];
@@ -462,7 +530,7 @@ export const UserDiscovery = memo(function UserDiscovery({
     if (onUserMappingChange) {
       onUserMappingChange(Object.values(newMappings));
     }
-  }, [mappingType, getTargetDomainsToProcess, domainsToProcess, onUserMappingChange]);
+  }, [getActualMappingStrategy, availableTargetDomains, domainsToProcess, onUserMappingChange]);
 
   // Notify parent when users are initially loaded and handle auto-mapping
   useEffect(() => {
@@ -483,6 +551,17 @@ export const UserDiscovery = memo(function UserDiscovery({
     const sourceCount = domainsToProcess.length;
     const targetCount = targetDomainsToProcess.length;
     
+    // For single-super-admin scenario, show just the list of domains without source/target distinction
+    if (scenario === 'single-super-admin') {
+      if (sourceCount === 1) {
+        return `${filteredUsers.length} users in ${domainsToProcess[0]}`;
+      } else if (sourceCount > 1) {
+        return `${filteredUsers.length} users across ${sourceCount} domains: ${domainsToProcess.join(', ')}`;
+      }
+      return `${filteredUsers.length} users`;
+    }
+    
+    // For cross-tenant scenario, show source → target mapping
     let sourceText = sourceCount === 1 
       ? `${filteredUsers.length} users in ${domainsToProcess[0]}`
       : `${filteredUsers.length} users across ${sourceCount} domains`;
@@ -495,7 +574,7 @@ export const UserDiscovery = memo(function UserDiscovery({
     }
     
     return sourceText;
-  }, [filteredUsers.length, domainsToProcess, targetDomainsToProcess]);
+  }, [filteredUsers.length, domainsToProcess, targetDomainsToProcess, scenario]);
 
   const toggleUserSelection = (userId: string) => {
     const newSelected = new Set(selectedUsers);
@@ -724,7 +803,7 @@ export const UserDiscovery = memo(function UserDiscovery({
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <Users className="h-6 w-6 text-blue-600" />
@@ -756,6 +835,65 @@ export const UserDiscovery = memo(function UserDiscovery({
             >
               <RefreshCw className="h-5 w-5" />
             </button>
+          </div>
+        </div>
+
+        {/* Domain and Strategy Information */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+          {/* Source Domains */}
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Building className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">Source Domain{domainsToProcess.length > 1 ? 's' : ''}</h3>
+              <p className="text-sm text-gray-600">
+                {domainsToProcess.length > 0 ? domainsToProcess.join(', ') : 'None selected'}
+              </p>
+              <span className="text-xs text-blue-600 font-medium">{domainsToProcess.length} domain{domainsToProcess.length !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+
+          {/* Mapping Strategy */}
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-purple-100 rounded-lg">
+              <ArrowRight className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">Migration Strategy</h3>
+              <p className="text-sm font-semibold text-purple-600">
+                {getActualMappingStrategy().replace('-', ' to ').toUpperCase()}
+              </p>
+              <span className="text-xs text-gray-600">
+                {getActualMappingStrategy() === 'one-to-many' ? 'Distributing users across targets' :
+                 getActualMappingStrategy() === 'many-to-one' ? 'Merging users to single target' :
+                 getActualMappingStrategy() === 'many-to-many' ? 'Complex multi-domain mapping' :
+                 'Direct one-to-one mapping'}
+              </span>
+            </div>
+          </div>
+
+          {/* Target Domains */}
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <Target className="h-5 w-5 text-green-600" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">Target Domain{targetDomainsToProcess.length > 1 ? 's' : ''}</h3>
+              <p className="text-sm text-gray-600">
+                {targetDomainsToProcess.length > 0 ? targetDomainsToProcess.join(', ') : 'None selected'}
+              </p>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-green-600 font-medium">
+                  {availableTargetDomains.length} available
+                </span>
+                {availableTargetDomains.length !== targetDomainsToProcess.length && (
+                  <span className="text-xs text-amber-600">
+                    ({targetDomainsToProcess.length - availableTargetDomains.length} excluded)
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -856,8 +994,28 @@ export const UserDiscovery = memo(function UserDiscovery({
         </div>
       )}
 
+      {/* Warning for no available target domains */}
+      {isMappingRequired() && targetDomainsToProcess.length > 0 && availableTargetDomains.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center space-x-3 text-amber-600">
+            <AlertTriangle className="h-6 w-6" />
+            <div>
+              <h3 className="text-lg font-semibold">No Available Target Domains</h3>
+              <p className="text-gray-600 mt-1">
+                All target domains are already being used as source domains. Please provide additional target domains 
+                that are different from your source domains to proceed with the mapping.
+              </p>
+              <div className="mt-2 text-sm">
+                <p><strong>Source domains:</strong> {domainsToProcess.join(', ')}</p>
+                <p><strong>Conflicting target domains:</strong> {targetDomainsToProcess.filter(d => domainsToProcess.includes(d)).join(', ')}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Target Domain Mapping Section */}
-      {isMappingRequired() && targetDomainsToProcess.length > 0 && (
+      {isMappingRequired() && availableTargetDomains.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
@@ -867,8 +1025,8 @@ export const UserDiscovery = memo(function UserDiscovery({
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Target Domain Mapping</h3>
                 <p className="text-gray-600">
-                  {mappingType === 'many-to-one' ? 'Merging users into target domain' :
-                   mappingType === 'one-to-many' ? 'Distributing users across target domains' :
+                  {getActualMappingStrategy() === 'many-to-one' ? 'Merging users into target domain' :
+                   getActualMappingStrategy() === 'one-to-many' ? 'Distributing users across target domains' :
                    'Mapping users to target domains'}
                 </p>
               </div>
@@ -900,7 +1058,7 @@ export const UserDiscovery = memo(function UserDiscovery({
 
           {/* Target Domain Quick Actions */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-            {targetDomainsToProcess.map(domain => {
+            {availableTargetDomains.map(domain => {
               const mappedCount = Object.values(userMappings).filter(m => m.targetDomain === domain).length;
               return (
                 <div key={domain} className="border border-gray-200 rounded-lg p-3">
@@ -928,13 +1086,18 @@ export const UserDiscovery = memo(function UserDiscovery({
 
           {/* Mapping Type Information */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="font-medium text-blue-800 mb-2">Mapping Strategy: {mappingType.replace('-', ' to ').toUpperCase()}</h4>
+            <h4 className="font-medium text-blue-800 mb-2">Mapping Strategy: {getActualMappingStrategy().replace('-', ' to ').toUpperCase()}</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
               <div>
                 <strong>Source Domains:</strong> {domainsToProcess.length} ({domainsToProcess.join(', ')})
               </div>
               <div>
-                <strong>Target Domains:</strong> {targetDomainsToProcess.length} ({targetDomainsToProcess.join(', ')})
+                <strong>Available Target Domains:</strong> {availableTargetDomains.length} ({availableTargetDomains.join(', ')})
+                {availableTargetDomains.length !== targetDomainsToProcess.length && (
+                  <span className="block text-xs text-gray-600 mt-1">
+                    ({targetDomainsToProcess.length - availableTargetDomains.length} domain(s) excluded as they're already source domains)
+                  </span>
+                )}
               </div>
             </div>
             
@@ -989,7 +1152,7 @@ export const UserDiscovery = memo(function UserDiscovery({
                       className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                     >
                       <option value="">Select Target Domain</option>
-                      {targetDomainsToProcess.map(domain => (
+                      {availableTargetDomains.map(domain => (
                         <option key={domain} value={domain}>{domain}</option>
                       ))}
                     </select>
@@ -1164,7 +1327,7 @@ export const UserDiscovery = memo(function UserDiscovery({
                 }))}
                 targetDomains={targetDomainsToProcess}
                 targetAdminEmails={targetAdminEmails || {}}
-                mappingType={mappingType}
+                mappingType={getActualMappingStrategy()}
                 autoStartCreation={false}
                 onMappingComplete={(mappings) => {
                   console.log('Advanced mapping completed:', mappings);

@@ -108,6 +108,28 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     }
   }, [selectedMapping]);
 
+  // Auto-clear conflicting target domains when source domains change
+  useEffect(() => {
+    const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+    const sourceSet = new Set(validSourceDomains);
+    
+    // Clear single target domain if it conflicts with source
+    if (targetDomain && sourceSet.has(targetDomain)) {
+      console.log('[DomainMappingSelector] Clearing conflicting target domain:', targetDomain);
+      setTargetDomain('');
+    }
+    
+    // Clear any conflicting target domains in the array
+    const updatedTargetDomains = targetDomains.map(domain => 
+      sourceSet.has(domain) ? '' : domain
+    );
+    
+    if (JSON.stringify(updatedTargetDomains) !== JSON.stringify(targetDomains)) {
+      console.log('[DomainMappingSelector] Clearing conflicting target domains:', targetDomains.filter(d => sourceSet.has(d)));
+      setTargetDomains(updatedTargetDomains);
+    }
+  }, [sourceDomains, targetDomain, targetDomains]);
+
   const supportedMappings = getSupportedMappingTypes(selectedScenario);
 
   const getIcon = (type: DomainMappingType) => {
@@ -301,7 +323,18 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   // Get available domains for target selection (excluding already selected sources)
   const getAvailableTargetDomainsForIndex = (currentIndex: number) => {
     const otherTargetDomains = targetDomains.filter((_, idx) => idx !== currentIndex);
-    return getAvailableTargetDomains(domains, sourceDomains, otherTargetDomains);
+    const validSourceDomains = sourceDomains.filter(d => d.trim() !== '');
+    const availableDomains = getAvailableTargetDomains(domains, validSourceDomains, otherTargetDomains);
+    
+    // Debug logging
+    console.log(`[DomainMappingSelector] Target domain filtering for index ${currentIndex}:`, {
+      allDomains: domains.map(d => d.domainName),
+      validSourceDomains,
+      otherTargetDomains,
+      availableTargetDomains: availableDomains.map(d => d.domainName)
+    });
+    
+    return availableDomains;
   };
 
   // Get available domains for single target selection (excluding all selected sources)
@@ -313,7 +346,8 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     console.log('[DomainMappingSelector] Target domain filtering:', {
       allDomains: domains.map(d => d.domainName),
       validSourceDomains,
-      availableTargetDomains: availableDomains.map(d => d.domainName)
+      availableTargetDomains: availableDomains.map(d => d.domainName),
+      currentTargetDomain: targetDomain
     });
     
     return availableDomains;

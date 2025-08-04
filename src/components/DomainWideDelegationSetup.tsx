@@ -206,6 +206,17 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   className = '',
   style
 }: DomainWideDelegationSetupProps) {
+  // Debug logging for domain mapping
+  useEffect(() => {
+    console.log('[DomainWideDelegationSetup] Component props:', {
+      migrationScenario,
+      domainMapping,
+      sourceAccount,
+      destAccount,
+      adminEmail
+    });
+  }, [migrationScenario, domainMapping, sourceAccount, destAccount, adminEmail]);
+
   const router = useRouter()
   const { user } = useAuth() // Get authenticated user
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
@@ -700,13 +711,16 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
     const isMultiTarget = domainMapping.type === 'one-to-many' || domainMapping.type === 'cross-tenant-multi-target'
     const isMultiSource = domainMapping.type === 'many-to-one' || domainMapping.type === 'cross-tenant-multi-source'
-    const isCrossTenant = domainMapping.type?.includes('cross-tenant') || false
+    const isSingleSuperAdmin = domainMapping.type === 'single-super-admin' || migrationScenario === 'single-super-admin'
+    // Prioritize migrationScenario prop over domain mapping type for cross-tenant determination
+    const isCrossTenant = migrationScenario === 'cross-tenant' || (migrationScenario !== 'single-super-admin' && domainMapping.type?.includes('cross-tenant')) || false
     
     // Calculate complexity level within the useMemo
     const getComplexityLevel = () => {
       if (isCrossTenant && (isMultiTarget || isMultiSource)) return 'Very High'
       if (isCrossTenant) return 'High'
       if (isMultiTarget || isMultiSource) return 'Medium'
+      if (isSingleSuperAdmin) return 'Low'
       return 'Low'
     }
     
@@ -718,10 +732,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       multiTargetConfig: domainMapping.multiTargetConfig || [],
       isMultiTarget,
       isMultiSource,
-      isCrossTenant,
+      isCrossTenant: isCrossTenant && !isSingleSuperAdmin, // Don't treat single super admin as cross tenant
+      isSingleSuperAdmin,
       complexity: getComplexityLevel()
     }
-  }, [domainMapping])
+  }, [domainMapping, migrationScenario])
 
   const getDomainCount = () => {
     const context = getDomainMappingContext
@@ -1668,8 +1683,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <p className="text-base text-gray-700 leading-relaxed font-medium">
                 {getDomainMappingContext ? (
                   <>
-                    Configure domain-wide delegation for your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration.
-                    {getDomainMappingContext.isCrossTenant ? 
+                    Configure domain-wide delegation for your <strong>{migrationScenario === 'single-super-admin' ? 'single super admin' : migrationScenario === 'cross-tenant' ? 'cross tenant' : 'migration'}</strong> migration.
+                    {migrationScenario === 'cross-tenant' || getDomainMappingContext.isCrossTenant ? 
                       ' Automated setup will generate service accounts and instructions for both domains.' :
                       ' Automated setup will generate service account and instructions for your domain.'
                     }
