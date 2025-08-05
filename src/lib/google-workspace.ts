@@ -3,6 +3,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { JWT } from 'google-auth-library'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 
 export interface GoogleWorkspaceCredentials {
   accessToken: string
@@ -38,6 +39,300 @@ export interface GWSDomain {
   verified: boolean
   creationTime: string
   aliases?: string[]
+}
+
+// Manual JWT creation and verification functions
+export interface JWTHeader {
+  alg: string
+  typ: string
+}
+
+export interface JWTPayload {
+  iss: string // issuer (service account email)
+  sub: string // subject (admin email to impersonate)
+  aud: string // audience (Google's OAuth2 token endpoint)
+  iat: number // issued at
+  exp: number // expiration time
+  scope: string // requested scopes
+}
+
+/**
+ * Creates a manual JWT token for service account authentication
+ * This bypasses the google-auth-library for better debugging and control
+ */
+export function createManualJWT(
+  serviceAccountEmail: string,
+  privateKey: string,
+  subjectEmail: string,
+  scopes: string[]
+): string {
+  const now = Math.floor(Date.now() / 1000)
+  
+  const header: JWTHeader = {
+    alg: 'RS256',
+    typ: 'JWT'
+  }
+  
+  const payload: JWTPayload = {
+    iss: serviceAccountEmail,
+    sub: subjectEmail,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600, // 1 hour expiration
+    scope: scopes.join(' ')
+  }
+  
+  // Base64URL encode header and payload
+  const encodedHeader = base64UrlEncode(JSON.stringify(header))
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload))
+  
+  // Create signature
+  const signingInput = `${encodedHeader}.${encodedPayload}`
+  const signature = crypto
+    .createSign('RSA-SHA256')
+    .update(signingInput)
+    .sign(privateKey, 'base64')
+  
+  const encodedSignature = base64UrlEncode(Buffer.from(signature, 'base64'))
+  
+  return `${signingInput}.${encodedSignature}`
+}
+
+/**
+ * Base64URL encoding (URL-safe base64 without padding)
+ */
+function base64UrlEncode(str: string | Buffer): string {
+  const base64 = Buffer.from(str).toString('base64')
+  return base64
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+/**
+ * Exchanges JWT for an access token
+ */
+export async function exchangeJWTForAccessToken(jwt: string): Promise<{
+  access_token: string
+  token_type: string
+  expires_in: number
+}> {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  })
+  
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Token exchange failed: ${response.status} ${response.statusText} - ${error}`)
+  }
+  
+  return response.json()
+}
+
+/**
+ * Verifies service account email and delegation setup
+ */
+export async function verifyServiceAccountEmail(
+  serviceAccountEmail: string,
+  privateKey: string,
+  adminEmail: string,
+  domain?: string
+): Promise<{
+  verified: boolean
+  error?: string
+  details?: string
+  accessToken?: string
+}> {
+  try {
+    console.log(`Verifying service account ${serviceAccountEmail} for admin ${adminEmail} on domain ${domain}`)
+    
+    // Step 1: Create manual JWT
+    const scopes = [
+      'https://www.googleapis.com/auth/admin.directory.user',
+      'https://www.googleapis.com/auth/admin.directory.domain'
+    ]
+    
+    const jwt = createManualJWT(serviceAccountEmail, privateKey, adminEmail, scopes)
+    console.log('Manual JWT created successfully')
+    
+    // Step 2: Exchange JWT for access token
+    const tokenResponse = await exchangeJWTForAccessToken(jwt)
+    console.log('Access token obtained successfully')
+    
+    // Step 3: Test the access token with a simple API call
+    const testResponse = await fetch('https://admin.googleapis.com/admin/directory/v1/users?maxResults=1' + 
+      (domain ? `&domain=${domain}` : '&customer=my_customer'), {
+      headers: {
+        'Authorization': `Bearer ${tokenResponse.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    
+    if (testResponse.ok) {
+      console.log('Service account verification successful')
+      return {
+        verified: true,
+        accessToken: tokenResponse.access_token
+      }
+    } else {
+      const errorText = await testResponse.text()
+      console.error('API test failed:', testResponse.status, errorText)
+      
+      let errorMessage = 'API access test failed'
+      let details = ''
+      
+      if (testResponse.status === 401) {
+        errorMessage = 'Authentication failed'
+        details = 'The service account credentials are invalid or the JWT signature is incorrect'
+      } else if (testResponse.status === 403) {
+        errorMessage = 'Domain-wide delegation not configured'
+        details = `The service account ${serviceAccountEmail} is not authorized to impersonate ${adminEmail}. Please configure domain-wide delegation in Google Admin Console.`
+      } else if (testResponse.status === 404) {
+        errorMessage = 'Domain not found or not accessible'
+        details = `The domain ${domain} may not exist or the admin email ${adminEmail} may not have access to it`
+      }
+      
+      return {
+        verified: false,
+        error: errorMessage,
+        details: details
+      }
+    }
+  } catch (error: any) {
+    console.error('Service account verification failed:', error)
+    
+    let errorMessage = 'Service account verification failed'
+    let details = error.message || 'Unknown error'
+    
+    if (error.message?.includes('Token exchange failed')) {
+      errorMessage = 'JWT token exchange failed'
+      details = 'The service account credentials may be invalid or the private key may be corrupted'
+    } else if (error.message?.includes('privateKey')) {
+      errorMessage = 'Private key error'
+      details = 'The service account private key is invalid or corrupted'
+    }
+    
+    return {
+      verified: false,
+      error: errorMessage,
+      details: details
+    }
+  }
+}
+
+/**
+ * Enhanced service account verification with detailed diagnostics
+ */
+export async function diagnoseServiceAccountSetup(
+  serviceAccountEmail: string,
+  privateKey: string,
+  adminEmail: string,
+  domain: string
+): Promise<{
+  success: boolean
+  checks: Array<{
+    name: string
+    passed: boolean
+    error?: string
+    details?: string
+  }>
+}> {
+  const checks: Array<{
+    name: string
+    passed: boolean
+    error?: string
+    details?: string
+  }> = []
+  
+  // Check 1: Private key format
+  try {
+    const keyTest = crypto.createSign('RSA-SHA256')
+    keyTest.update('test')
+    keyTest.sign(privateKey, 'base64')
+    checks.push({
+      name: 'Private Key Format',
+      passed: true
+    })
+  } catch (error: any) {
+    checks.push({
+      name: 'Private Key Format',
+      passed: false,
+      error: 'Invalid private key format',
+      details: error.message
+    })
+  }
+  
+  // Check 2: JWT Creation
+  try {
+    const jwt = createManualJWT(serviceAccountEmail, privateKey, adminEmail, [
+      'https://www.googleapis.com/auth/admin.directory.user'
+    ])
+    checks.push({
+      name: 'JWT Creation',
+      passed: true
+    })
+  } catch (error: any) {
+    checks.push({
+      name: 'JWT Creation',
+      passed: false,
+      error: 'Failed to create JWT',
+      details: error.message
+    })
+    return { success: false, checks }
+  }
+  
+  // Check 3: Token Exchange
+  try {
+    const jwt = createManualJWT(serviceAccountEmail, privateKey, adminEmail, [
+      'https://www.googleapis.com/auth/admin.directory.user'
+    ])
+    const tokenResponse = await exchangeJWTForAccessToken(jwt)
+    checks.push({
+      name: 'Token Exchange',
+      passed: true
+    })
+    
+    // Check 4: API Access Test
+    const apiTest = await fetch(`https://admin.googleapis.com/admin/directory/v1/users?maxResults=1&domain=${domain}`, {
+      headers: {
+        'Authorization': `Bearer ${tokenResponse.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    
+    if (apiTest.ok) {
+      checks.push({
+        name: 'API Access Test',
+        passed: true
+      })
+    } else {
+      const errorText = await apiTest.text()
+      checks.push({
+        name: 'API Access Test',
+        passed: false,
+        error: `HTTP ${apiTest.status}: ${apiTest.statusText}`,
+        details: errorText
+      })
+    }
+    
+  } catch (error: any) {
+    checks.push({
+      name: 'Token Exchange',
+      passed: false,
+      error: 'Failed to exchange JWT for access token',
+      details: error.message
+    })
+  }
+  
+  const allPassed = checks.every(check => check.passed)
+  return { success: allPassed, checks }
 }
 
 // Domain management functions
@@ -86,13 +381,23 @@ export class GoogleWorkspaceService {
   constructor(credentials: GoogleWorkspaceCredentials | ServiceAccountCredentials, isServiceAccount: boolean = false) {
     if (isServiceAccount) {
       const serviceAccountCreds = credentials as ServiceAccountCredentials
+      
+      // Ensure we have all required fields
+      if (!serviceAccountCreds.clientEmail || !serviceAccountCreds.privateKey || !serviceAccountCreds.subjectEmail) {
+        throw new Error('Missing required service account credentials: clientEmail, privateKey, or subjectEmail')
+      }
+      
+      console.log(`Creating service account JWT for subject: ${serviceAccountCreds.subjectEmail}`)
+      
       this.jwtClient = new google.auth.JWT({
         email: serviceAccountCreds.clientEmail,
-        key: serviceAccountCreds.privateKey,
+        key: serviceAccountCreds.privateKey.replace(/\\n/g, '\n'), // Ensure proper newline formatting
         scopes: [
           'https://www.googleapis.com/auth/admin.directory.user',
           'https://www.googleapis.com/auth/admin.directory.domain',
           'https://www.googleapis.com/auth/admin.directory.group',
+          'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+          'https://www.googleapis.com/auth/admin.directory.orgunit',
           'https://www.googleapis.com/auth/gmail.readonly',
           'https://www.googleapis.com/auth/gmail.modify',
           'https://www.googleapis.com/auth/drive.readonly',
@@ -100,7 +405,7 @@ export class GoogleWorkspaceService {
           'https://www.googleapis.com/auth/calendar.readonly',
           'https://www.googleapis.com/auth/contacts.readonly'
         ],
-        subject: serviceAccountCreds.subjectEmail
+        subject: serviceAccountCreds.subjectEmail // This is the admin email to impersonate
       })
       this.accessToken = ''
     } else {
@@ -126,20 +431,68 @@ export class GoogleWorkspaceService {
   // Test connection to verify domain-wide delegation is working
   async testConnection(domain?: string): Promise<boolean> {
     try {
+      // For service account authentication, use manual verification
+      if (this.jwtClient instanceof JWT && this.jwtClient.email && this.jwtClient.key && this.jwtClient.subject) {
+        console.log(`Using manual JWT verification for service account ${this.jwtClient.email}`)
+        
+        const verification = await verifyServiceAccountEmail(
+          this.jwtClient.email,
+          this.jwtClient.key as string,
+          this.jwtClient.subject,
+          domain
+        )
+        
+        if (verification.verified) {
+          console.log('Manual JWT verification successful')
+          return true
+        } else {
+          throw new Error(`${verification.error}: ${verification.details}`)
+        }
+      }
+      
+      // Fallback to standard Google Auth Library approach
       const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
       
-      // Simple test: try to get a minimal user list or domain info
+      // Try multiple approaches to test delegation
+      
+      // First, try to get domain info (lighter than user list)
+      try {
+        const domainResponse = await admin.domains.list({
+          customer: 'my_customer'
+        })
+        console.log(`Successfully tested delegation via domains API for ${domain || 'customer'}`)
+        return true
+      } catch (domainError: any) {
+        console.log('Domain API test failed, trying user API...', domainError.message)
+      }
+      
+      // Fallback: try to get minimal user list
       const response = await admin.users.list({
         domain,
         maxResults: 1, // Just one user to test connection
-        orderBy: 'email'
+        orderBy: 'email',
+        projection: 'basic'
       })
       
+      console.log(`Successfully tested delegation via users API for ${domain || 'customer'}`)
       // If we get here without error, delegation is working
       return true
     } catch (error: any) {
       console.error('Test connection failed:', error)
-      throw new Error(`Domain-wide delegation error: ${error.message}`)
+      
+      // Provide more specific error messages based on error type
+      let specificError = 'Domain-wide delegation error'
+      if (error.code === 401) {
+        specificError = 'Authentication failed - check service account configuration'
+      } else if (error.code === 403) {
+        specificError = 'Insufficient permissions - verify domain-wide delegation and scopes'
+      } else if (error.code === 404) {
+        specificError = 'Domain not found or not accessible'
+      } else if (error.message?.includes('delegation')) {
+        specificError = 'Domain-wide delegation not properly configured'
+      }
+      
+      throw new Error(`${specificError}: ${error.message}`)
     }
   }
 
@@ -552,6 +905,71 @@ export function createServiceAccountService(adminEmail: string): GoogleWorkspace
   }
 }
 
+// Enhanced service account factory with manual verification
+export async function createVerifiedServiceAccountService(
+  adminEmail: string,
+  domain?: string
+): Promise<{
+  service: GoogleWorkspaceService
+  verification: {
+    verified: boolean
+    error?: string
+    details?: string
+    diagnostics?: any
+  }
+}> {
+  try {
+    const serviceAccountKeyPath = process.env.SERVICE_ACCOUNT_KEY_PATH || './source-service-account-key.json'
+    const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
+    const serviceAccountData = JSON.parse(serviceAccountDataRaw)
+    
+    // First, run manual verification
+    const verification = await verifyServiceAccountEmail(
+      serviceAccountData.client_email,
+      serviceAccountData.private_key,
+      adminEmail,
+      domain
+    )
+    
+    // Also run detailed diagnostics if verification fails
+    let diagnostics
+    if (!verification.verified && domain) {
+      diagnostics = await diagnoseServiceAccountSetup(
+        serviceAccountData.client_email,
+        serviceAccountData.private_key,
+        adminEmail,
+        domain
+      )
+    }
+    
+    const serviceAccountCredentials: ServiceAccountCredentials = {
+      clientEmail: serviceAccountData.client_email,
+      privateKey: serviceAccountData.private_key,
+      subjectEmail: adminEmail
+    }
+    
+    const service = new GoogleWorkspaceService(serviceAccountCredentials, true)
+    
+    return {
+      service,
+      verification: {
+        ...verification,
+        diagnostics
+      }
+    }
+  } catch (error: any) {
+    console.error('Failed to create verified service account service:', error)
+    return {
+      service: createServiceAccountService(adminEmail), // Fallback to basic service
+      verification: {
+        verified: false,
+        error: 'Failed to create service account',
+        details: error.message
+      }
+    }
+  }
+}
+
 // Helper to get service account client ID from key file
 export function getServiceAccountClientId(): string {
   try {
@@ -562,5 +980,60 @@ export function getServiceAccountClientId(): string {
   } catch (error) {
     console.error('Failed to read service account client ID:', error)
     return process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || ''
+  }
+}
+
+// Direct test function for service account delegation
+export async function testServiceAccountDelegation(
+  adminEmail: string,
+  domain: string
+): Promise<{
+  success: boolean
+  error?: string
+  details?: string
+  diagnostics?: any
+}> {
+  try {
+    const serviceAccountKeyPath = process.env.SERVICE_ACCOUNT_KEY_PATH || './source-service-account-key.json'
+    const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
+    const serviceAccountData = JSON.parse(serviceAccountDataRaw)
+    
+    console.log(`Testing service account delegation for ${adminEmail} on domain ${domain}`)
+    
+    // Run verification
+    const verification = await verifyServiceAccountEmail(
+      serviceAccountData.client_email,
+      serviceAccountData.private_key,
+      adminEmail,
+      domain
+    )
+    
+    if (verification.verified) {
+      return {
+        success: true
+      }
+    }
+    
+    // If verification failed, run diagnostics
+    const diagnostics = await diagnoseServiceAccountSetup(
+      serviceAccountData.client_email,
+      serviceAccountData.private_key,
+      adminEmail,
+      domain
+    )
+    
+    return {
+      success: false,
+      error: verification.error,
+      details: verification.details,
+      diagnostics
+    }
+  } catch (error: any) {
+    console.error('Service account delegation test failed:', error)
+    return {
+      success: false,
+      error: 'Test failed',
+      details: error.message
+    }
   }
 }

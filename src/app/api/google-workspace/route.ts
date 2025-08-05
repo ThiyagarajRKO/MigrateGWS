@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { createGoogleWorkspaceService, createServiceAccountService } from '@/lib/google-workspace'
+import { 
+  createGoogleWorkspaceService, 
+  createServiceAccountService,
+  createVerifiedServiceAccountService,
+  testServiceAccountDelegation 
+} from '@/lib/google-workspace'
 import { ExtendedSession } from '@/lib/auth-options'
 
 // Import the authOptions from NextAuth
@@ -223,7 +228,46 @@ export async function GET(request: NextRequest) {
 
       case 'test-connection':
         try {
-          // Simple test to verify domain-wide delegation is working
+          // Use enhanced manual verification for better error diagnostics
+          if (adminEmail && domain && process.env.SERVICE_ACCOUNT_EMAIL) {
+            console.log(`Testing service account delegation for ${adminEmail} on domain ${domain}`)
+            
+            const delegationTest = await testServiceAccountDelegation(adminEmail, domain)
+            
+            if (delegationTest.success) {
+              return NextResponse.json({ 
+                success: true,
+                message: `Successfully connected to ${domain}`,
+                details: [
+                  'Domain-wide delegation is properly configured',
+                  'Service account has the required permissions',
+                  'Admin email has sufficient privileges',
+                  'Manual JWT verification passed'
+                ],
+                domain: domain,
+                adminEmail: adminEmail,
+                timestamp: new Date().toISOString()
+              })
+            } else {
+              // Return detailed diagnostic information
+              return NextResponse.json({
+                error: 'Domain-wide delegation not configured',
+                message: delegationTest.error || 'Service account verification failed',
+                details: [
+                  delegationTest.details || 'Unknown verification error',
+                  'Please check domain-wide delegation configuration in Google Admin Console',
+                  `Ensure service account ${process.env.SERVICE_ACCOUNT_EMAIL} is authorized`,
+                  `Verify admin email ${adminEmail} has Super Admin privileges for ${domain}`
+                ],
+                diagnostics: delegationTest.diagnostics,
+                domain: domain,
+                adminEmail: adminEmail,
+                timestamp: new Date().toISOString()
+              }, { status: 403 })
+            }
+          }
+          
+          // Fallback to standard test connection
           const testResult = await gwsService.testConnection(domain || undefined)
           
           return NextResponse.json({ 
