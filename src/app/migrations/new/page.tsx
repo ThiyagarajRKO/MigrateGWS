@@ -327,9 +327,9 @@ export default function NewMigration() {
           // Preload domain mapping selector
           import('@/components/DomainMappingSelector');
           break;
-        case 'domain-mapping':
+        case 'auth-and-domains':
           // Preload delegation setup
-          import('@/components/DomainWideDelegationSetup');
+          import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }));
           break;
         case 'delegation':
           // Preload user management workflow
@@ -377,6 +377,18 @@ export default function NewMigration() {
       stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
     });
   }, [adminEmail, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
+
+  // Auto-redirect to authentication when both scenario and user mapping are selected
+  useEffect(() => {
+    if (currentStep === 'scenario' && selectedScenario && userMappingConfig?.relationship) {
+      console.log('[Migration Wizard] Both scenario and user mapping are selected, auto-redirecting to auth-and-domains');
+      const timer = setTimeout(() => {
+        setCurrentStep('auth-and-domains');
+      }, 1000); // Give user time to see the "Ready to Proceed" status
+      
+      return () => clearTimeout(timer);
+    }
+  }, [currentStep, selectedScenario, userMappingConfig?.relationship]);
 
   // Debug useEffect to track user mapping configuration changes
   useEffect(() => {
@@ -461,7 +473,17 @@ export default function NewMigration() {
 
   const handleScenarioSelect = (scenario: MigrationScenario) => {
     setSelectedScenario(scenario);
-    setCurrentStep('auth-and-domains');
+    
+    // Auto-redirect to authentication if user mapping is already selected
+    if (userMappingConfig?.relationship) {
+      console.log('[Migration Wizard] Both scenario and user mapping already selected, auto-redirecting to auth-and-domains');
+      setTimeout(() => {
+        setCurrentStep('auth-and-domains');
+      }, 500); // Small delay to show the selection visually before redirecting
+    } else {
+      // If user mapping not selected yet, stay on current step to allow user mapping selection
+      console.log('[Migration Wizard] Scenario selected, waiting for user mapping selection');
+    }
   };
 
   const handleDomainConfiguration = (config: any) => {
@@ -570,8 +592,15 @@ export default function NewMigration() {
   const handleNext = () => {
     switch (currentStep) {
       case 'scenario':
-        // Skip user-mapping step and go directly to auth-and-domains
-        setCurrentStep('auth-and-domains');
+        // Only proceed if both scenario and user mapping are selected
+        if (selectedScenario && userMappingConfig?.relationship) {
+          setCurrentStep('auth-and-domains');
+        } else {
+          console.log('[Migration Wizard] Cannot proceed from scenario step - missing selections:', {
+            selectedScenario,
+            userMappingStrategy: userMappingConfig?.relationship
+          });
+        }
         break;
       case 'auth-and-domains':
         // Skip user-mapping and go directly to delegation
@@ -638,10 +667,41 @@ export default function NewMigration() {
       startTime: new Date().toISOString(),
       estimatedCompletion: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), // 6 hours from now
       overallProgress: 0,
-      errors: []
+      errors: [],
+      // Add migration configuration data
+      migrationConfig: {
+        services: migrationConfig.services,
+        sourceDomain: migrationConfig.sourceDomain,
+        targetDomain: migrationConfig.targetDomain,
+        migrationOptions: migrationConfig.migrationOptions,
+        userMappings: userMappings,
+        selectedUsers: selectedUsers,
+        domainMapping: domainMapping,
+        userMappingConfig: userMappingConfig,
+        adminCredentials: {
+          scenario: selectedScenario,
+          adminEmail: selectedScenario === 'single-super-admin' ? adminEmail : undefined,
+          sourceAdminEmail: selectedScenario === 'cross-tenant' ? sourceAdminEmail : undefined,
+          targetAdminEmail: selectedScenario === 'cross-tenant' ? targetAdminEmail : undefined,
+          sourceAdminEmails: selectedScenario === 'cross-tenant' ? sourceAdminEmails : undefined,
+          targetAdminEmails: targetAdminEmails
+        }
+      }
     };
 
     setMigrationStatus(status);
+    
+    // Log the migration start for debugging
+    console.log('[Migration Wizard] Starting migration with configuration:', {
+      migrationId: status.id,
+      scenarioType: selectedScenario,
+      services: migrationConfig.services,
+      userCount: selectedUsers.length,
+      mappingType: userMappingConfig?.relationship,
+      domainMapping: domainMapping?.type,
+      timestamp: new Date().toISOString()
+    });
+    
     setCurrentStep('migration');
   };
 
@@ -970,15 +1030,76 @@ export default function NewMigration() {
                   onScenarioSelect={handleScenarioSelect}
                   selectedUserMapping={userMappingConfig?.relationship}
                   onUserMappingSelect={(mapping) => {
-                    setUserMappingConfig({
+                    const newUserMappingConfig = {
                       relationship: mapping,
-                      strategy: 'automatic',
-                      conflictResolution: 'rename',
+                      strategy: 'automatic' as const,
+                      conflictResolution: 'rename' as const,
                       preserveUsernames: true
-                    });
+                    };
+                    setUserMappingConfig(newUserMappingConfig);
+                    
+                    // Auto-redirect to authentication if both scenario and user mapping are selected
+                    if (selectedScenario) {
+                      console.log('[Migration Wizard] Both scenario and user mapping selected, auto-redirecting to auth-and-domains');
+                      setTimeout(() => {
+                        setCurrentStep('auth-and-domains');
+                      }, 500); // Small delay to show the selection visually before redirecting
+                    }
                   }}
                 />
               </ComponentLoader>
+            </div>
+
+            {/* Selection Status Indicator */}
+            <div className="max-w-4xl mx-auto">
+              <div className={`p-4 rounded-xl border ${
+                selectedScenario && userMappingConfig?.relationship
+                  ? 'bg-green-50 border-green-200'
+                  : 'bg-yellow-50 border-yellow-200'
+              }`}>
+                <div className="flex items-center space-x-3">
+                  {selectedScenario && userMappingConfig?.relationship ? (
+                    <>
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <div>
+                        <h3 className="font-medium text-green-900">Ready to Proceed</h3>
+                        <p className="text-sm text-green-700">
+                          {selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} migration with {userMappingConfig.relationship} user mapping selected. 
+                          Redirecting to authentication...
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="h-5 w-5 text-yellow-600" />
+                      <div>
+                        <h3 className="font-medium text-yellow-900">Complete Your Selection</h3>
+                        <div className="text-sm text-yellow-800 space-y-1">
+                          <p>Please select both options to continue:</p>
+                          <div className="ml-4 space-y-1">
+                            <div className="flex items-center space-x-2">
+                              {selectedScenario ? (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-gray-400" />
+                              )}
+                              <span>Migration scenario</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              {userMappingConfig?.relationship ? (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-gray-400" />
+                              )}
+                              <span>User mapping strategy</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Info Panel */}
@@ -1001,14 +1122,60 @@ export default function NewMigration() {
         if (!selectedScenario) return null;
         return (
           <div className="space-y-8">
-            <ComponentLoader>
-              <AuthenticateAndConfigureDomains
-                selectedScenario={selectedScenario}
-                sessionId={oauthSessionId}
-                userMappingStrategy={userMappingConfig?.relationship}
-                onConfigurationComplete={handleDomainConfiguration}
-              />
-            </ComponentLoader>
+            {/* Header */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl">
+                  <Shield className="h-8 w-8 text-indigo-600" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                Authenticate Google Workspace
+              </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                {selectedScenario === 'single-super-admin' 
+                  ? 'Authenticate with your Google Workspace to discover and configure domains under your super admin account.'
+                  : 'Authenticate with both source and target Google Workspace domains to enable cross-tenant migration.'}
+              </p>
+            </div>
+
+            {/* Configuration Summary */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-semibold text-indigo-900 mb-2 flex items-center">
+                    <Users className="h-5 w-5 mr-2" />
+                    Migration Scenario
+                  </h3>
+                  <p className="text-indigo-800 text-sm">
+                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-indigo-900 mb-2 flex items-center">
+                    <GitBranch className="h-5 w-5 mr-2" />
+                    User Mapping Strategy
+                  </h3>
+                  <p className="text-indigo-800 text-sm">
+                    {userMappingConfig?.relationship ? 
+                      userMappingConfig.relationship.charAt(0).toUpperCase() + userMappingConfig.relationship.slice(1).replace('-', ' to ') + ' mapping'
+                      : 'Not configured'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Authentication Component */}
+            <div className="max-w-4xl mx-auto">
+              <ComponentLoader>
+                <AuthenticateAndConfigureDomains
+                  selectedScenario={selectedScenario}
+                  sessionId={oauthSessionId}
+                  userMappingStrategy={userMappingConfig?.relationship}
+                  onConfigurationComplete={handleDomainConfiguration}
+                />
+              </ComponentLoader>
+            </div>
           </div>
         );
 
@@ -1059,7 +1226,7 @@ export default function NewMigration() {
                     </div>
                     <div>
                       <span className="font-medium text-blue-900">Domains:</span>
-                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} -> {domainMapping?.targetDomain}</span>
+                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} → {domainMapping?.targetDomain}</span>
                     </div>
                   </div>
                 </div>
@@ -1235,25 +1402,64 @@ export default function NewMigration() {
 
       case 'user-management':
         // Debug log the props being passed to UserManagementWorkflow
-        console.log('[Migration Wizard] Rendering UserManagementWorkflow with props:', {
-          sourceDomains: getSourceDomains(),
-          targetDomains: getTargetDomains(),
-          migrationScenario: selectedScenario,
-          domainMapping: domainMapping,
-          userMappingStrategy: userMappingConfig?.relationship,
-          userMappingConfig: userMappingConfig,
-          mappingType: (
-            userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
-            userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
-            userMappingConfig?.relationship === 'many-to-many' ? 'many-to-many' :
-            'one-to-one'
-          ),
-          domainMappingType: domainMapping?.type,
-          timestamp: new Date().toISOString()
-        });
+        // Debug log the props being passed to UserManagementWorkflow
         
         return (
           <div className="space-y-8">
+            {/* Header */}
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
+                  <Users className="h-8 w-8 text-green-600" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">
+                User Management & Discovery
+              </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                {selectedScenario === 'single-super-admin' 
+                  ? 'Discover users from your Google Workspace and configure user mappings for migration across domains.'
+                  : 'Discover users from both source and target domains and configure cross-tenant user mappings.'}
+              </p>
+            </div>
+
+            {/* Configuration Summary */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
+                    <Shield className="h-5 w-5 mr-2" />
+                    Migration Scenario
+                  </h3>
+                  <p className="text-green-800 text-sm">
+                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
+                    <GitBranch className="h-5 w-5 mr-2" />
+                    User Mapping Strategy
+                  </h3>
+                  <p className="text-green-800 text-sm">
+                    {userMappingConfig?.relationship ? 
+                      userMappingConfig.relationship.charAt(0).toUpperCase() + userMappingConfig.relationship.slice(1).replace('-', ' to ') + ' mapping'
+                      : 'Not configured'}
+                  </p>
+                </div>
+              </div>
+              {domainMapping && (
+                <div className="mt-4 pt-4 border-t border-green-300">
+                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
+                    <Database className="h-5 w-5 mr-2" />
+                    Domain Configuration
+                  </h3>
+                  <p className="text-green-800 text-sm">
+                    {domainMapping.description}
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* UserManagementWorkflow Component */}
             <div className="max-w-6xl mx-auto">
               <ComponentLoader>
@@ -1270,13 +1476,16 @@ export default function NewMigration() {
                   mappingType={
                     userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
                     userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
-                    userMappingConfig?.relationship === 'many-to-many' ? 'many-to-many' :
                     'one-to-one'
                   }
                   onComplete={(results) => {
                     setDiscoveredUsers(results.discoveredUsers);
                     setCreatedUsers(results.createdUsers);
                     setUserMappings(results.mappings);
+                    
+                    // Log the source-to-target user pairs for services migration
+                    console.log('[Migration Wizard] Source-to-target user pairs:', results.userPairs);
+                    console.log('[Migration Wizard] Comprehensive mapping:', results.sourceToTargetMapping);
                   }}
                 />
               </ComponentLoader>

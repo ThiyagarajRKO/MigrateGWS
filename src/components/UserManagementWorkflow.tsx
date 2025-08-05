@@ -84,6 +84,25 @@ interface UserManagementWorkflowProps {
     createdUsers: CreationResult[];
     mappings: UserMapping[];
     sourceToTargetMapping?: any;
+    userPairs?: Array<{
+      sourceUser: {
+        id: string;
+        email: string;
+        name: string;
+        domain: string;
+        isAdmin: boolean;
+        adminEmail: string;
+      };
+      targetUser: {
+        email: string;
+        domain: string;
+        adminEmail: string;
+        exists: boolean;
+        created: boolean;
+      };
+      mappingId: string;
+      status: string;
+    }>;
   }) => void;
 }
 
@@ -1312,11 +1331,33 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         }
       };
       
+      // Create explicit source-to-target user pairs for services migration
+      const sourceToTargetUserPairs = selectedMappings.map(mapping => ({
+        sourceUser: {
+          id: mapping.user.id,
+          email: mapping.user.primaryEmail,
+          name: mapping.user.name?.fullName || `${mapping.user.name?.givenName} ${mapping.user.name?.familyName}`.trim(),
+          domain: mapping.user.sourceDomain || 'unknown',
+          isAdmin: mapping.user.isAdmin,
+          adminEmail: sourceAdminEmails?.[mapping.user.sourceDomain!] || sourceAdminEmail || ''
+        },
+        targetUser: {
+          email: mapping.targetEmail,
+          domain: mapping.targetDomain,
+          adminEmail: getEffectiveTargetAdminEmails()[mapping.targetDomain] || '',
+          exists: existingUserStatus[mapping.targetEmail]?.exists || false,
+          created: mapping.status === 'created' || false
+        },
+        mappingId: mapping.user.id,
+        status: mapping.status || 'pending'
+      }));
+
       onComplete({
         discoveredUsers,
         createdUsers: creationResults,
-        mappings: selectedMappings,
-        sourceToTargetMapping // Pass comprehensive mapping for services migration
+        mappings: selectedMappings, // Original mapping structure for backward compatibility
+        sourceToTargetMapping, // Comprehensive mapping for services migration
+        userPairs: sourceToTargetUserPairs // Explicit source-to-target pairs for easy iteration
       });
     }
   }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete, 

@@ -35,6 +35,7 @@ export interface MigrationStatus {
   estimatedCompletion: string;
   overallProgress: number;
   errors: MigrationError[];
+  migrationConfig?: any; // Configuration data for the migration including services, users, and mappings
 }
 
 export interface DomainMapping {
