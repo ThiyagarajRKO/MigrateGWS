@@ -83,6 +83,7 @@ interface UserManagementWorkflowProps {
     discoveredUsers: User[];
     createdUsers: CreationResult[];
     mappings: UserMapping[];
+    sourceToTargetMapping?: any;
   }) => void;
 }
 
@@ -1129,13 +1130,198 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         selectedUsers.has(mapping.user.id)
       );
       
+      // Create comprehensive source-to-target mapping for services migration
+      const sourceToTargetMapping = {
+        // Core mapping information
+        mappingType,
+        migrationScenario,
+        userMappingStrategy,
+        userMappingConfig,
+        
+        // Domain mapping information
+        sourceDomains,
+        targetDomains,
+        domainMapping,
+        
+        // Admin credentials mapping
+        sourceAdminEmails,
+        sourceAdminEmail,
+        targetAdminEmails,
+        effectiveTargetAdminEmails: getEffectiveTargetAdminEmails(),
+        
+        // User mappings organized by scenario
+        userMappings: selectedMappings,
+        
+        // Scenario-specific mappings
+        mappingDetails: (() => {
+          switch (mappingType) {
+            case 'one-to-one':
+              return {
+                type: 'one-to-one',
+                description: migrationScenario === 'single-super-admin' 
+                  ? 'Single super admin managing one-to-one user migration across domains'
+                  : 'Cross-tenant one-to-one user migration with separate admin credentials',
+                userPairs: selectedMappings.map(mapping => ({
+                  sourceUser: {
+                    email: mapping.user.primaryEmail,
+                    domain: mapping.user.sourceDomain,
+                    id: mapping.user.id,
+                    name: mapping.user.name,
+                    isAdmin: mapping.user.isAdmin,
+                    adminEmail: sourceAdminEmails?.[mapping.user.sourceDomain!] || sourceAdminEmail
+                  },
+                  targetUser: {
+                    email: mapping.targetEmail,
+                    domain: mapping.targetDomain,
+                    adminEmail: getEffectiveTargetAdminEmails()[mapping.targetDomain]
+                  }
+                }))
+              };
+              
+            case 'one-to-many':
+              return {
+                type: 'one-to-many',
+                description: migrationScenario === 'single-super-admin'
+                  ? 'Single super admin managing one-to-many user replication across multiple target domains'
+                  : 'Cross-tenant one-to-many user replication with separate admin credentials',
+                sourceUserGroups: (() => {
+                  const groups = new Map<string, typeof selectedMappings>();
+                  selectedMappings.forEach(mapping => {
+                    const sourceId = mapping.user.id;
+                    if (!groups.has(sourceId)) {
+                      groups.set(sourceId, []);
+                    }
+                    groups.get(sourceId)!.push(mapping);
+                  });
+                  
+                  return Array.from(groups.entries()).map(([sourceId, mappings]) => ({
+                    sourceUser: {
+                      email: mappings[0].user.primaryEmail,
+                      domain: mappings[0].user.sourceDomain,
+                      id: mappings[0].user.id,
+                      name: mappings[0].user.name,
+                      isAdmin: mappings[0].user.isAdmin,
+                      adminEmail: sourceAdminEmails?.[mappings[0].user.sourceDomain!] || sourceAdminEmail
+                    },
+                    targetUsers: mappings.map(mapping => ({
+                      email: mapping.targetEmail,
+                      domain: mapping.targetDomain,
+                      adminEmail: getEffectiveTargetAdminEmails()[mapping.targetDomain]
+                    }))
+                  }));
+                })()
+              };
+              
+            case 'many-to-one':
+              return {
+                type: 'many-to-one',
+                description: migrationScenario === 'single-super-admin'
+                  ? 'Single super admin managing many-to-one user consolidation across domains'
+                  : 'Cross-tenant many-to-one user consolidation with separate admin credentials',
+                consolidationGroups: (() => {
+                  const groups = new Map<string, typeof selectedMappings>();
+                  selectedMappings.forEach(mapping => {
+                    // Group by target email (consolidation target)
+                    const targetKey = `${mapping.targetEmail}-${mapping.targetDomain}`;
+                    if (!groups.has(targetKey)) {
+                      groups.set(targetKey, []);
+                    }
+                    groups.get(targetKey)!.push(mapping);
+                  });
+                  
+                  return Array.from(groups.entries()).map(([targetKey, mappings]) => {
+                    const primaryMapping = mappings[0];
+                    const sourceUsers = mappings.map(mapping => ({
+                      email: mapping.user.primaryEmail,
+                      domain: mapping.user.sourceDomain,
+                      id: mapping.user.id,
+                      name: mapping.user.name,
+                      isAdmin: mapping.user.isAdmin,
+                      adminEmail: sourceAdminEmails?.[mapping.user.sourceDomain!] || sourceAdminEmail
+                    }));
+                    
+                    // Handle merged users from many-to-one scenarios
+                    const mergedSourceUsers = primaryMapping.user.sourceUsers || [primaryMapping.user];
+                    const allSourceUsers = mergedSourceUsers.map(user => ({
+                      email: user.primaryEmail,
+                      domain: user.sourceDomain,
+                      id: user.id,
+                      name: user.name,
+                      isAdmin: user.isAdmin,
+                      adminEmail: sourceAdminEmails?.[user.sourceDomain!] || sourceAdminEmail
+                    }));
+                    
+                    return {
+                      targetUser: {
+                        email: primaryMapping.targetEmail,
+                        domain: primaryMapping.targetDomain,
+                        adminEmail: getEffectiveTargetAdminEmails()[primaryMapping.targetDomain]
+                      },
+                      sourceUsers: allSourceUsers,
+                      consolidationType: allSourceUsers.length > 1 
+                        ? (new Set(allSourceUsers.map(u => u.domain)).size > 1 ? 'multi-domain' : 'duplicate-accounts')
+                        : 'single-user'
+                    };
+                  });
+                })()
+              };
+              
+            default:
+              return {
+                type: 'unknown',
+                description: 'Unknown mapping type',
+                rawMappings: selectedMappings
+              };
+          }
+        })(),
+        
+        // Services migration context
+        servicesContext: {
+          totalUsers: discoveredUsers.length,
+          selectedUsers: selectedMappings.length,
+          createdUsers: creationResults.filter(r => r.success).length,
+          failedUsers: creationResults.filter(r => !r.success).length,
+          existingTargetUsers: selectedMappings.filter(mapping => 
+            existingUserStatus[mapping.targetEmail]?.exists
+          ).length,
+          
+          // Admin credential strategy
+          adminStrategy: migrationScenario === 'single-super-admin' 
+            ? {
+                type: 'single-super-admin',
+                adminEmail: sourceAdminEmail,
+                description: 'Using single super admin credentials for both source and target domains'
+              }
+            : {
+                type: 'cross-tenant',
+                sourceAdminEmails,
+                targetAdminEmails,
+                description: 'Using separate admin credentials for each domain/tenant'
+              },
+          
+          // Migration readiness
+          readyForServicesMigration: creationResults.filter(r => r.success).length > 0,
+          migrationScope: {
+            sourceDomains: sourceDomains.length,
+            targetDomains: targetDomains.length,
+            userAccounts: selectedMappings.length,
+            consolidatedAccounts: mappingType === 'many-to-one' 
+              ? new Set(selectedMappings.map(m => `${m.targetEmail}-${m.targetDomain}`)).size
+              : selectedMappings.length
+          }
+        }
+      };
+      
       onComplete({
         discoveredUsers,
         createdUsers: creationResults,
-        mappings: selectedMappings // Only selected mappings for migration
+        mappings: selectedMappings,
+        sourceToTargetMapping // Pass comprehensive mapping for services migration
       });
     }
-  }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete]);
+  }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete, 
+      mappingType, migrationScenario, userMappingStrategy, userMappingConfig, sourceDomains, 
+      targetDomains, domainMapping, sourceAdminEmails, sourceAdminEmail, targetAdminEmails, existingUserStatus]);
 
   return (
     <div className="space-y-6">
