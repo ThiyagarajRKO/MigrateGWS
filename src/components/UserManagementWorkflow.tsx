@@ -252,9 +252,155 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const generateInitialMappings = useCallback((users: User[]): UserMapping[] => {
-    if (users.length === 0 || targetDomains.length === 0) return [];
+    if (users.length === 0) return [];
 
     const mappings: UserMapping[] = [];
+
+    // Use domain mappings from the auth step if available
+    if (domainMapping?.domainMappings && domainMapping.domainMappings.length > 0) {
+      console.log('Using configured domain mappings:', domainMapping.domainMappings);
+      
+      domainMapping.domainMappings.forEach(mapping => {
+        const sourceDomains = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
+        const targetDomains = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
+        
+        // Filter users that belong to the source domains for this mapping
+        const mappingUsers = users.filter(user => 
+          sourceDomains.includes(user.sourceDomain)
+        );
+        
+        if (mappingUsers.length === 0) {
+          console.log(`No users found for source domains: ${sourceDomains.join(', ')}`);
+          return;
+        }
+
+        // Generate user mappings based on the mapping type
+        switch (mappingType) {
+          case 'one-to-one':
+            mappingUsers.forEach((user, index) => {
+              const targetDomain = targetDomains[index % targetDomains.length];
+              mappings.push({
+                user,
+                targetDomain,
+                targetEmail: generateTargetEmail(user, targetDomain),
+                status: 'pending'
+              });
+            });
+            break;
+
+          case 'one-to-many':
+            mappingUsers.forEach(user => {
+              targetDomains.forEach(targetDomain => {
+                mappings.push({
+                  user,
+                  targetDomain,
+                  targetEmail: generateTargetEmail(user, targetDomain),
+                  status: 'pending'
+                });
+              });
+            });
+            break;
+
+          case 'many-to-one':
+            // Group users by normalized name for merging
+            const usersByName = new Map<string, User[]>();
+            mappingUsers.forEach(user => {
+              const nameKey = normalizeUserName(user);
+              if (!usersByName.has(nameKey)) {
+                usersByName.set(nameKey, []);
+              }
+              usersByName.get(nameKey)!.push(user);
+            });
+
+            console.log('Merging users from multiple source domains:', {
+              sourceDomains,
+              targetDomains,
+              totalUsers: mappingUsers.length,
+              uniqueNames: usersByName.size,
+              mergingDetails: Array.from(usersByName.entries()).map(([name, users]) => ({
+                name,
+                sourceUsers: users.map(u => ({ email: u.primaryEmail, domain: u.sourceDomain })),
+                count: users.length
+              }))
+            });
+
+            usersByName.forEach((usersWithSameName, nameKey) => {
+              // Find the primary user (prefer admin, then most recent, then first)
+              const primaryUser = usersWithSameName.find(u => u.isAdmin) || 
+                                 usersWithSameName.sort((a, b) => 
+                                   new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime()
+                                 )[0];
+              
+              // Collect all source emails and domains
+              const sourceEmailsList = usersWithSameName.map(u => u.primaryEmail);
+              const sourceDomainsForUser = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
+              const allEmails = sourceEmailsList.join(', ');
+              
+              // Merge user properties
+              const mergedUser: User = {
+                ...primaryUser,
+                id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).join('-')}`,
+                primaryEmail: allEmails, // Show all source emails
+                name: {
+                  fullName: primaryUser.name.fullName,
+                  givenName: primaryUser.name.givenName,
+                  familyName: primaryUser.name.familyName
+                },
+                isAdmin: usersWithSameName.some(u => u.isAdmin), // True if any source user is admin
+                suspended: usersWithSameName.every(u => u.suspended), // Only suspended if all are suspended
+                sourceDomain: sourceDomainsForUser.join(', '), // Show all source domains
+                // Custom properties for tracking merge
+                sourceUsers: usersWithSameName,
+                mergedFromDomains: sourceDomainsForUser
+              } as User & { sourceUsers: User[], mergedFromDomains: string[] };
+              
+              // Create mapping to each target domain
+              targetDomains.forEach(targetDomain => {
+                mappings.push({
+                  user: mergedUser,
+                  targetDomain,
+                  targetEmail: generateTargetEmail(primaryUser, targetDomain),
+                  status: 'pending'
+                });
+              });
+            });
+            break;
+
+          case 'many-to-many':
+            // For many-to-many, create mappings for all users to all target domains
+            mappingUsers.forEach(user => {
+              targetDomains.forEach(targetDomain => {
+                mappings.push({
+                  user,
+                  targetDomain,
+                  targetEmail: generateTargetEmail(user, targetDomain),
+                  status: 'pending'
+                });
+              });
+            });
+            break;
+
+          default:
+            // Default: round-robin assignment
+            mappingUsers.forEach((user, index) => {
+              const targetDomain = targetDomains[index % targetDomains.length];
+              mappings.push({
+                user,
+                targetDomain,
+                targetEmail: generateTargetEmail(user, targetDomain),
+                status: 'pending'
+              });
+            });
+        }
+      });
+
+      console.log(`Generated ${mappings.length} user mappings from ${domainMapping.domainMappings.length} domain mappings`);
+      return mappings;
+    }
+
+    // Fallback: Use old logic if no domain mappings are configured
+    console.log('No domain mappings configured, using fallback logic with all domains');
+    if (targetDomains.length === 0) return [];
 
     switch (mappingType) {
       case 'one-to-one':
@@ -352,7 +498,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     }
 
     return mappings;
-  }, [targetDomains, mappingType]);
+  }, [targetDomains, mappingType, domainMapping]);
 
   // User Discovery
   const discoverUsers = async () => {
@@ -1107,7 +1253,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Strategy:</span>
-                <span className="font-medium">{mappingType?.replace('-', ' to ').toUpperCase() || 'Not specified'}</span>
+                <span className="font-medium">{mappingType?.replace(/-/g, ' TO ').toUpperCase() || 'Not specified'}</span>
               </div>
             </div>
             

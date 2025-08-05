@@ -308,9 +308,23 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         target: targetAuthStatus.domains
       };
     }
+    
+    // For single-super-admin scenario, ensure source and target domains don't overlap
+    const allDomains = singleAuthStatus.domains;
+    
+    // Get currently selected source domains from domain mappings
+    const selectedSourceDomains = domainMappings.flatMap(mapping => 
+      Array.isArray(mapping.source) ? mapping.source : [mapping.source]
+    ).filter(Boolean);
+    
+    // Get currently selected target domains from domain mappings  
+    const selectedTargetDomains = domainMappings.flatMap(mapping =>
+      Array.isArray(mapping.target) ? mapping.target : [mapping.target]
+    ).filter(Boolean);
+    
     return {
-      source: singleAuthStatus.domains,
-      target: singleAuthStatus.domains
+      source: allDomains.filter(domain => !selectedTargetDomains.includes(domain)),
+      target: allDomains.filter(domain => !selectedSourceDomains.includes(domain))
     };
   };
 
@@ -854,12 +868,82 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     }
   };
 
+  // Validation function to check for domain overlap
+  const validateDomainMappings = () => {
+    if (selectedScenario === 'cross-tenant') {
+      // Cross-tenant scenario - different auth domains, no overlap possible
+      return { isValid: true, conflicts: [] };
+    }
+    
+    // For single-super-admin scenario, check for domain conflicts
+    const sourceDomainsUsed = new Set<string>();
+    const targetDomainsUsed = new Set<string>();
+    const conflicts: string[] = [];
+    
+    domainMappings.forEach((mapping, index) => {
+      const sources = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
+      const targets = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
+      
+      sources.forEach(sourceDomain => {
+        if (sourceDomain) {
+          sourceDomainsUsed.add(sourceDomain);
+          // Check if this source domain is also used as a target
+          if (targetDomainsUsed.has(sourceDomain)) {
+            conflicts.push(`Domain "${sourceDomain}" is used as both source and target`);
+          }
+        }
+      });
+      
+      targets.forEach(targetDomain => {
+        if (targetDomain) {
+          targetDomainsUsed.add(targetDomain);
+          // Check if this target domain is also used as a source
+          if (sourceDomainsUsed.has(targetDomain)) {
+            conflicts.push(`Domain "${targetDomain}" is used as both source and target`);
+          }
+        }
+      });
+    });
+    
+    return { isValid: conflicts.length === 0, conflicts };
+  };
+
   const handleConfigurationComplete = () => {
+    // Validate domain mappings before proceeding
+    const validation = validateDomainMappings();
+    if (!validation.isValid) {
+      alert(`Cannot proceed with conflicting domain assignments:\n\n${validation.conflicts.join('\n')}\n\nPlease ensure each domain is used either as source OR target, not both.`);
+      return;
+    }
+    
+    let sourceDomains: string[];
+    let targetDomains: string[];
+    
+    if (selectedScenario === 'cross-tenant') {
+      sourceDomains = sourceAuthStatus.domains;
+      targetDomains = targetAuthStatus.domains;
+    } else {
+      // For single-super-admin, extract actual selected domains from mappings
+      const sourceDomainsSet = new Set<string>();
+      const targetDomainsSet = new Set<string>();
+      
+      domainMappings.forEach(mapping => {
+        const sources = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
+        const targets = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
+        
+        sources.forEach(domain => domain && sourceDomainsSet.add(domain));
+        targets.forEach(domain => domain && targetDomainsSet.add(domain));
+      });
+      
+      sourceDomains = Array.from(sourceDomainsSet);
+      targetDomains = Array.from(targetDomainsSet);
+    }
+    
     const config: DomainConfiguration = {
       sourceAuthenticated: selectedScenario === 'cross-tenant' ? sourceAuthStatus.authenticated : singleAuthStatus.authenticated,
       targetAuthenticated: selectedScenario === 'cross-tenant' ? targetAuthStatus.authenticated : singleAuthStatus.authenticated,
-      sourceDomains: selectedScenario === 'cross-tenant' ? sourceAuthStatus.domains : singleAuthStatus.domains,
-      targetDomains: selectedScenario === 'cross-tenant' ? targetAuthStatus.domains : singleAuthStatus.domains,
+      sourceDomains,
+      targetDomains,
       domainMappings
     };
     

@@ -1243,11 +1243,12 @@ export default function NewMigration() {
           userMappingStrategy: userMappingConfig?.relationship,
           userMappingConfig: userMappingConfig,
           mappingType: (
-            domainMapping?.type === 'one-to-many' ? 'one-to-many' :
-            domainMapping?.type === 'many-to-one' ? 'many-to-one' :
-            domainMapping?.type === 'cross-tenant-single' ? 'one-to-one' :
+            userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
+            userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
+            userMappingConfig?.relationship === 'many-to-many' ? 'many-to-many' :
             'one-to-one'
           ),
+          domainMappingType: domainMapping?.type,
           timestamp: new Date().toISOString()
         });
         
@@ -1267,9 +1268,9 @@ export default function NewMigration() {
                   userMappingStrategy={userMappingConfig?.relationship}
                   userMappingConfig={userMappingConfig || undefined}
                   mappingType={
-                    domainMapping?.type === 'one-to-many' ? 'one-to-many' :
-                    domainMapping?.type === 'many-to-one' ? 'many-to-one' :
-                    domainMapping?.type === 'cross-tenant-single' ? 'one-to-one' :
+                    userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
+                    userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
+                    userMappingConfig?.relationship === 'many-to-many' ? 'many-to-many' :
                     'one-to-one'
                   }
                   onComplete={(results) => {

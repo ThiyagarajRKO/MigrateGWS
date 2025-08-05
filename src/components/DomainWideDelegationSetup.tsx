@@ -694,13 +694,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     return cachedInfo !== null && cachedInfo !== undefined;
   }, [getCachedAdminInfo])
 
+  // Helper function to get display text for migration scenario
+  const getMigrationScenarioDisplayText = useCallback(() => {
+    if (migrationScenario === 'single-super-admin') {
+      return 'single super admin';
+    } else if (migrationScenario === 'cross-tenant') {
+      return 'cross-tenant';
+    } else if (domainMapping?.type) {
+      // Fallback to domain mapping type if scenario not specified
+      return domainMapping.type.replace('-', ' ');
+    }
+    return 'migration';
+  }, [migrationScenario, domainMapping?.type]);
+
   // Domain mapping context helpers
   const getDomainMappingContext = useMemo(() => {
     if (!domainMapping || !domainMapping.type) return null
 
     const isMultiTarget = domainMapping.type === 'one-to-many' || domainMapping.type === 'cross-tenant-multi-target'
     const isMultiSource = domainMapping.type === 'many-to-one' || domainMapping.type === 'cross-tenant-multi-source'
-    const isCrossTenant = domainMapping.type?.includes('cross-tenant') || false
+    // Prioritize migrationScenario prop over domainMapping.type for cross-tenant detection
+    const isCrossTenant = migrationScenario === 'cross-tenant' || (migrationScenario !== 'single-super-admin' && domainMapping.type?.includes('cross-tenant'))
     
     // Calculate complexity level within the useMemo
     const getComplexityLevel = () => {
@@ -721,7 +735,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       isCrossTenant,
       complexity: getComplexityLevel()
     }
-  }, [domainMapping])
+  }, [domainMapping, migrationScenario])
 
   const getDomainCount = () => {
     const context = getDomainMappingContext
@@ -1668,7 +1682,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <p className="text-base text-gray-700 leading-relaxed font-medium">
                 {getDomainMappingContext ? (
                   <>
-                    Configure domain-wide delegation for your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration.
+                    Configure domain-wide delegation for your <strong>{getMigrationScenarioDisplayText()}</strong> migration.
                     {getDomainMappingContext.isCrossTenant ? 
                       ' Automated setup will generate service accounts and instructions for both domains.' :
                       ' Automated setup will generate service account and instructions for your domain.'
@@ -1730,7 +1744,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <p className="text-base text-gray-700 mb-4 leading-relaxed">
                 {getDomainMappingContext ? (
                   <>
-                    For your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration scenario:
+                    For your <strong>{getMigrationScenarioDisplayText()}</strong> migration scenario:
                     {getDomainMappingContext.isCrossTenant ? (
                       <div className="mt-2">
                         <div className="font-semibold">Cross-Tenant Migration Requirements:</div>
@@ -2565,7 +2579,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <p className="text-blue-700 text-base mt-2 font-medium leading-relaxed">
                   {getDomainMappingContext ? (
                     <>
-                      Your <strong>{getDomainMappingContext.type?.replace('-', ' ') || 'migration'}</strong> migration configuration is complete.
+                      Your <strong>{getMigrationScenarioDisplayText()}</strong> migration configuration is complete.
                       {getDomainMappingContext.isCrossTenant ? 
                         ' Both source and destination domains should now be configured for secure cross-domain migration.' :
                         ` All ${getDomainCount().source === 1 ? 'domain is' : 'domains are'} now configured for secure migration.`
