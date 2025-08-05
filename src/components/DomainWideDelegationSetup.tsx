@@ -2116,7 +2116,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     <div className="space-y-2 mb-3">
                       <div className="p-2 bg-blue-50 rounded border border-blue-200">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-bold text-blue-800">🎯 All Scopes (Recommended):</span>
+                          <span className="text-sm font-bold text-blue-800"> All Scopes (Recommended):</span>
                           <button
                             onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'step5-all-scopes')}
                             className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-semibold"
@@ -2137,7 +2137,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           {delegationSetupData.scopes.join(',')}
                         </code>
                         <p className="text-xs text-blue-700 mt-1 font-medium">
-                          💡 Copy this complete list for full migration functionality
+                           Copy this complete list for full migration functionality
                         </p>
                       </div>
                       
@@ -2214,7 +2214,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <div className="space-y-3">
                     <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-bold text-gray-800">📋 Client ID Reference</span>
+                        <span className="text-sm font-bold text-gray-800"> Client ID Reference</span>
                         <button
                           onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'ref-client-id')}
                           className="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
@@ -2239,7 +2239,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   
                   <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-bold text-gray-800">🎯 OAuth Scopes Reference</span>
+                      <span className="text-sm font-bold text-gray-800"> OAuth Scopes Reference</span>
                       <button
                         onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'ref-scopes')}
                         className="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
@@ -2261,7 +2261,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       {delegationSetupData.scopes.join(',')}
                     </code>
                     <p className="text-xs text-gray-600 mt-1">
-                      📝 {delegationSetupData.scopes.length} total scopes • Use Step 5 above for detailed options
+                       {delegationSetupData.scopes.length} total scopes • Use Step 5 above for detailed options
                     </p>
                   </div>
 

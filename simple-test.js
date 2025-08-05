@@ -1,0 +1,1 @@
+console.log('Testing migration system...'); console.log('File structure check:'); const fs = require('fs'); console.log('Types:', fs.existsSync('src/types/migration.ts')); console.log('Coordinator:', fs.existsSync('src/services/migration/coordinator.ts')); console.log('API:', fs.existsSync('src/app/api/v1/migrations/route.ts'));

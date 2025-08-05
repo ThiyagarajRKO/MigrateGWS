@@ -65,7 +65,7 @@ interface UserDiscoveryProps {
   sourceAdminEmail?: string; // Single admin email (for backward compatibility)
   sourceAdminEmails?: {[domain: string]: string}; // Multiple admin emails by domain
   targetAdminEmails?: {[domain: string]: string}; // Target admin emails for user creation
-  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'; // Domain mapping type
+  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one'; // Domain mapping type
   onUsersSelected?: (users: User[]) => void;
   onUserMappingChange?: (userMappings: UserDomainMapping[]) => void; // New callback for user mappings
   onTargetUserCreationRequired?: (mappings: UserDomainMapping[]) => void; // New callback for target user creation
@@ -81,7 +81,7 @@ export const UserDiscovery = memo(function UserDiscovery({
   sourceAdminEmail,
   sourceAdminEmails,
   targetAdminEmails,
-  mappingType = 'one-to-one',
+  mappingType,
   onUsersSelected, 
   onUserMappingChange,
   onTargetUserCreationRequired,
@@ -440,11 +440,7 @@ export const UserDiscovery = memo(function UserDiscovery({
           // All users go to the first target domain
           targetDomain = targetDomains[0];
           break;
-        case 'many-to-many':
-          // Distribute based on source domain preference
-          const sourceDomainIndex = domainsToProcess.indexOf(user.sourceDomain || '');
-          targetDomain = targetDomains[sourceDomainIndex % targetDomains.length];
-          break;
+
         default:
           targetDomain = targetDomains[0];
       }
@@ -928,7 +924,7 @@ export const UserDiscovery = memo(function UserDiscovery({
 
           {/* Mapping Type Information */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="font-medium text-blue-800 mb-2">Mapping Strategy: {mappingType.replace('-', ' to ').toUpperCase()}</h4>
+            <h4 className="font-medium text-blue-800 mb-2">Mapping Strategy: {mappingType?.replace('-', ' to ').toUpperCase() || 'ONE TO ONE'}</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
               <div>
                 <strong>Source Domains:</strong> {domainsToProcess.length} ({domainsToProcess.join(', ')})

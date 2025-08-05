@@ -74,7 +74,7 @@ interface UserManagementWorkflowProps {
   sourceAdminEmails?: {[domain: string]: string};
   sourceAdminEmail?: string;
   targetAdminEmails: {[domain: string]: string};
-  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many';
+  mappingType?: 'one-to-one' | 'one-to-many' | 'many-to-one';
   migrationScenario?: 'single-super-admin' | 'cross-tenant';
   domainMapping?: DomainMappingConfig;
   userMappingStrategy?: UserMappingRelationship;
@@ -94,7 +94,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   sourceAdminEmails,
   sourceAdminEmail,
   targetAdminEmails,
-  mappingType = 'one-to-one',
+  mappingType,
   migrationScenario,
   domainMapping,
   userMappingStrategy,
@@ -1107,7 +1107,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Strategy:</span>
-                <span className="font-medium">{mappingType.replace('-', ' to ').toUpperCase()}</span>
+                <span className="font-medium">{mappingType?.replace('-', ' to ').toUpperCase() || 'Not specified'}</span>
               </div>
             </div>
             
