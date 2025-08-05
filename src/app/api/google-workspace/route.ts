@@ -354,6 +354,64 @@ export async function GET(request: NextRequest) {
           }, { status: 500 })
         }
 
+      case 'get-user':
+        const userEmail = searchParams.get('userEmail')
+        
+        try {
+          if (!userEmail) {
+            return NextResponse.json({
+              error: 'User email is required',
+              message: 'userEmail parameter is required to check if user exists'
+            }, { status: 400 })
+          }
+
+          // Check if user exists in the specified domain
+          const user = await gwsService.getUser(userEmail)
+          
+          return NextResponse.json({ 
+            user: user,
+            exists: !!user,
+            userEmail: userEmail,
+            domain: domain,
+            timestamp: new Date().toISOString()
+          })
+        } catch (error: any) {
+          console.error('Error getting user:', userEmail, error)
+          
+          // If user doesn't exist, return exists: false instead of error
+          if (error.code === 404 || error.message?.includes('not found') || error.message?.includes('does not exist')) {
+            return NextResponse.json({ 
+              user: null,
+              exists: false,
+              userEmail: userEmail,
+              domain: domain,
+              timestamp: new Date().toISOString()
+            })
+          }
+          
+          // Check for domain-wide delegation issues
+          if (error.message?.includes('Domain-wide delegation error') || 
+              error.message?.includes('unauthorized_client') ||
+              error.message?.includes('invalid_grant') ||
+              error.code === 401 || error.code === 400) {
+            return NextResponse.json({
+              error: 'Domain-wide delegation not configured',
+              message: `Unable to access user ${userEmail || 'requested'} from ${domain || 'the domain'}`,
+              userEmail: userEmail,
+              domain: domain,
+              adminEmail: adminEmail
+            }, { status: 401 })
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to get user',
+            message: error.message || 'Unknown error occurred',
+            userEmail: userEmail,
+            domain: domain,
+            adminEmail: adminEmail
+          }, { status: 500 })
+        }
+
       case 'domains':
         try {
           // Create cache key based on admin email or session

@@ -123,6 +123,8 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [discoveryProgress, setDiscoveryProgress] = useState<{[domain: string]: {loading: boolean, users: User[], error?: string}}>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [isCheckingExistingUsers, setIsCheckingExistingUsers] = useState(false);
+  const [existingUserStatus, setExistingUserStatus] = useState<{[userEmail: string]: {exists: boolean, targetDomain: string, error?: string}}>({});
   
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
@@ -138,6 +140,59 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const retryAttempts = 3;
   
   // Helper functions
+  // Helper function to get users that exist in multiple source domains (for many-to-one)
+  const getUsersWithMultiDomainAccounts = (users: User[]): User[] => {
+    if (mappingType !== 'many-to-one') return users;
+    
+    // Group users by normalized name
+    const usersByName = new Map<string, User[]>();
+    users.forEach(user => {
+      const nameKey = normalizeUserName(user);
+      if (!usersByName.has(nameKey)) {
+        usersByName.set(nameKey, []);
+      }
+      usersByName.get(nameKey)!.push(user);
+    });
+
+    // For many-to-one scenarios, we need to handle different cases:
+    // 1. Single Super Admin: Users from different source domains that should be merged
+    // 2. Cross-tenant: Users from different organizations/tenants that should be merged
+    // 3. Multi-domain consolidation: Users from multiple domains within same org
+    
+    const multiDomainUsers: User[] = [];
+    usersByName.forEach((usersWithSameName, nameKey) => {
+      // For many-to-one, we want to show users that can be consolidated
+      if (usersWithSameName.length > 1) {
+        const uniqueDomains = Array.from(new Set(usersWithSameName.map(u => u.sourceDomain).filter(Boolean)));
+        
+        // Include users if they exist across multiple domains OR
+        // if we have multiple user accounts with same name (potential duplicates)
+        if (uniqueDomains.length > 1 || usersWithSameName.length > 1) {
+          // These users can be consolidated into a single target account
+          multiDomainUsers.push(...usersWithSameName);
+        }
+      }
+    });
+
+    console.log('Multi-domain users for many-to-one migration:', {
+      migrationScenario,
+      mappingType,
+      totalUsers: users.length,
+      multiDomainUsers: multiDomainUsers.length,
+      sourceDomains: sourceDomains,
+      breakdown: Array.from(usersByName.entries())
+        .filter(([_, users]) => users.length > 1)
+        .map(([name, users]) => ({
+          name,
+          domains: Array.from(new Set(users.map(u => u.sourceDomain).filter(Boolean))),
+          emails: users.map(u => u.primaryEmail),
+          count: users.length
+        }))
+    });
+
+    return multiDomainUsers;
+  };
+
   const normalizeUserName = (user: User): string => {
     const cleanName = (name: string): string => {
       return name?.toLowerCase().trim().replace(/[^a-z0-9]/g, '') || '';
@@ -257,28 +312,44 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     const mappings: UserMapping[] = [];
 
     // Use domain mappings from the auth step if available
-    if (domainMapping?.domainMappings && domainMapping.domainMappings.length > 0) {
-      console.log('Using configured domain mappings:', domainMapping.domainMappings);
+    if (domainMapping && (domainMapping.targetDomains?.length || domainMapping.targetDomain)) {
+      console.log('Using configured domain mapping:', domainMapping);
       
-      domainMapping.domainMappings.forEach(mapping => {
-        const sourceDomains = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
-        const targetDomains = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
-        
-        // Filter users that belong to the source domains for this mapping
-        const mappingUsers = users.filter(user => 
-          sourceDomains.includes(user.sourceDomain)
-        );
-        
-        if (mappingUsers.length === 0) {
-          console.log(`No users found for source domains: ${sourceDomains.join(', ')}`);
-          return;
-        }
+      const sourceDomains = domainMapping.sourceDomains || [];
+      const targetDomains = domainMapping.targetDomains || (domainMapping.targetDomain ? [domainMapping.targetDomain] : []);
+      
+      if (targetDomains.length === 0) {
+        console.log('No target domains configured in domain mapping');
+        return mappings;
+      }
 
-        // Generate user mappings based on the mapping type
-        switch (mappingType) {
-          case 'one-to-one':
-            mappingUsers.forEach((user, index) => {
-              const targetDomain = targetDomains[index % targetDomains.length];
+      // Filter users that belong to the source domains for this mapping
+      const mappingUsers = users.filter(user => 
+        sourceDomains.length === 0 || sourceDomains.includes(user.sourceDomain || '')
+      );
+      
+      if (mappingUsers.length === 0) {
+        console.log(`No users found for source domains: ${sourceDomains.join(', ')}`);
+        return mappings;
+      }
+
+      // Generate user mappings based on the mapping type
+      switch (mappingType) {
+        case 'one-to-one':
+          mappingUsers.forEach((user, index) => {
+            const targetDomain = targetDomains[index % targetDomains.length];
+            mappings.push({
+              user,
+              targetDomain,
+              targetEmail: generateTargetEmail(user, targetDomain),
+              status: 'pending'
+            });
+          });
+          break;
+
+        case 'one-to-many':
+          mappingUsers.forEach(user => {
+            targetDomains.forEach((targetDomain: string) => {
               mappings.push({
                 user,
                 targetDomain,
@@ -286,115 +357,88 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                 status: 'pending'
               });
             });
-            break;
+          });
+          break;
 
-          case 'one-to-many':
-            mappingUsers.forEach(user => {
-              targetDomains.forEach(targetDomain => {
-                mappings.push({
-                  user,
-                  targetDomain,
-                  targetEmail: generateTargetEmail(user, targetDomain),
-                  status: 'pending'
-                });
-              });
-            });
-            break;
+        case 'many-to-one':
+          // Group users by normalized name for merging
+          const usersByName = new Map<string, User[]>();
+          mappingUsers.forEach(user => {
+            const nameKey = normalizeUserName(user);
+            if (!usersByName.has(nameKey)) {
+              usersByName.set(nameKey, []);
+            }
+            usersByName.get(nameKey)!.push(user);
+          });
 
-          case 'many-to-one':
-            // Group users by normalized name for merging
-            const usersByName = new Map<string, User[]>();
-            mappingUsers.forEach(user => {
-              const nameKey = normalizeUserName(user);
-              if (!usersByName.has(nameKey)) {
-                usersByName.set(nameKey, []);
-              }
-              usersByName.get(nameKey)!.push(user);
-            });
+          console.log('Merging users from multiple source domains:', {
+            sourceDomains,
+            targetDomains,
+            totalUsers: mappingUsers.length,
+            uniqueNames: usersByName.size,
+            mergingDetails: Array.from(usersByName.entries()).map(([name, users]) => ({
+              name,
+              sourceUsers: users.map(u => ({ email: u.primaryEmail, domain: u.sourceDomain })),
+              count: users.length
+            }))
+          });
 
-            console.log('Merging users from multiple source domains:', {
-              sourceDomains,
-              targetDomains,
-              totalUsers: mappingUsers.length,
-              uniqueNames: usersByName.size,
-              mergingDetails: Array.from(usersByName.entries()).map(([name, users]) => ({
-                name,
-                sourceUsers: users.map(u => ({ email: u.primaryEmail, domain: u.sourceDomain })),
-                count: users.length
-              }))
-            });
-
-            usersByName.forEach((usersWithSameName, nameKey) => {
-              // Find the primary user (prefer admin, then most recent, then first)
-              const primaryUser = usersWithSameName.find(u => u.isAdmin) || 
-                                 usersWithSameName.sort((a, b) => 
-                                   new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime()
-                                 )[0];
-              
-              // Collect all source emails and domains
-              const sourceEmailsList = usersWithSameName.map(u => u.primaryEmail);
-              const sourceDomainsForUser = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
-              const allEmails = sourceEmailsList.join(', ');
-              
-              // Merge user properties
-              const mergedUser: User = {
-                ...primaryUser,
-                id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).join('-')}`,
-                primaryEmail: allEmails, // Show all source emails
-                name: {
-                  fullName: primaryUser.name.fullName,
-                  givenName: primaryUser.name.givenName,
-                  familyName: primaryUser.name.familyName
-                },
-                isAdmin: usersWithSameName.some(u => u.isAdmin), // True if any source user is admin
-                suspended: usersWithSameName.every(u => u.suspended), // Only suspended if all are suspended
-                sourceDomain: sourceDomainsForUser.join(', '), // Show all source domains
-                // Custom properties for tracking merge
-                sourceUsers: usersWithSameName,
-                mergedFromDomains: sourceDomainsForUser
-              } as User & { sourceUsers: User[], mergedFromDomains: string[] };
-              
-              // Create mapping to each target domain
-              targetDomains.forEach(targetDomain => {
-                mappings.push({
-                  user: mergedUser,
-                  targetDomain,
-                  targetEmail: generateTargetEmail(primaryUser, targetDomain),
-                  status: 'pending'
-                });
-              });
-            });
-            break;
-
-          case 'many-to-many':
-            // For many-to-many, create mappings for all users to all target domains
-            mappingUsers.forEach(user => {
-              targetDomains.forEach(targetDomain => {
-                mappings.push({
-                  user,
-                  targetDomain,
-                  targetEmail: generateTargetEmail(user, targetDomain),
-                  status: 'pending'
-                });
-              });
-            });
-            break;
-
-          default:
-            // Default: round-robin assignment
-            mappingUsers.forEach((user, index) => {
-              const targetDomain = targetDomains[index % targetDomains.length];
+          usersByName.forEach((usersWithSameName, nameKey) => {
+            // Find the primary user (prefer admin, then most recent, then first)
+            const primaryUser = usersWithSameName.find(u => u.isAdmin) || 
+                               usersWithSameName.sort((a, b) => 
+                                 new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime()
+                               )[0];
+            
+            // Collect all source emails and domains
+            const sourceEmailsList = usersWithSameName.map(u => u.primaryEmail);
+            const sourceDomainsForUser = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
+            const allEmails = sourceEmailsList.join(', ');
+            
+            // Merge user properties
+            const mergedUser: User = {
+              ...primaryUser,
+              id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).join('-')}`,
+              primaryEmail: allEmails, // Show all source emails
+              name: {
+                fullName: primaryUser.name.fullName,
+                givenName: primaryUser.name.givenName,
+                familyName: primaryUser.name.familyName
+              },
+              isAdmin: usersWithSameName.some(u => u.isAdmin), // True if any source user is admin
+              suspended: usersWithSameName.every(u => u.suspended), // Only suspended if all are suspended
+              sourceDomain: sourceDomainsForUser.join(', '), // Show all source domains
+              // Custom properties for tracking merge
+              sourceUsers: usersWithSameName,
+              mergedFromDomains: sourceDomainsForUser
+            } as User & { sourceUsers: User[], mergedFromDomains: string[] };
+            
+            // Create mapping to each target domain
+            targetDomains.forEach((targetDomain: string) => {
               mappings.push({
-                user,
+                user: mergedUser,
                 targetDomain,
-                targetEmail: generateTargetEmail(user, targetDomain),
+                targetEmail: generateTargetEmail(primaryUser, targetDomain),
                 status: 'pending'
               });
             });
-        }
-      });
+          });
+          break;
 
-      console.log(`Generated ${mappings.length} user mappings from ${domainMapping.domainMappings.length} domain mappings`);
+        default:
+          // Default: round-robin assignment
+          mappingUsers.forEach((user, index) => {
+            const targetDomain = targetDomains[index % targetDomains.length];
+            mappings.push({
+              user,
+              targetDomain,
+              targetEmail: generateTargetEmail(user, targetDomain),
+              status: 'pending'
+            });
+          });
+      }
+
+      console.log(`Generated ${mappings.length} user mappings from domain mapping configuration`);
       return mappings;
     }
 
@@ -605,7 +649,8 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     }
 
     setDiscoveredUsers(allUsers);
-    setSelectedUsers(new Set(allUsers.map(u => u.id)));
+    // Start with no users selected - user must explicitly select
+    setSelectedUsers(new Set());
     
     // Generate initial mappings and validate emails
     const mappings = generateInitialMappings(allUsers);
@@ -618,6 +663,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     });
     
     setUserMappings(mappings);
+    
+    // Check if target users already exist
+    await checkExistingTargetUsers(allUsers);
     
     setIsDiscovering(false);
     
@@ -979,6 +1027,93 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     setSelectedUsers(new Set());
   };
 
+  const checkExistingTargetUsers = async (users: User[]) => {
+    setIsCheckingExistingUsers(true);
+    const effectiveTargetAdminEmails = getEffectiveTargetAdminEmails();
+    const existingStatus: {[userEmail: string]: {exists: boolean, targetDomain: string, error?: string}} = {};
+
+    // Generate mappings for all users to check
+    const mappingsToCheck = generateInitialMappings(users);
+    
+    console.log('Checking existing target users:', {
+      usersCount: users.length,
+      mappingsToCheck: mappingsToCheck.length,
+      effectiveTargetAdminEmails,
+      sampleMappings: mappingsToCheck.slice(0, 3).map(m => ({
+        targetEmail: m.targetEmail,
+        targetDomain: m.targetDomain
+      }))
+    });
+
+    if (mappingsToCheck.length === 0) {
+      console.warn('No mappings to check for existing users');
+      setIsCheckingExistingUsers(false);
+      return;
+    }
+
+    for (const mapping of mappingsToCheck) {
+      const adminEmail = effectiveTargetAdminEmails[mapping.targetDomain];
+      
+      if (!adminEmail) {
+        console.warn(`No admin email for target domain: ${mapping.targetDomain}`);
+        existingStatus[mapping.targetEmail] = {
+          exists: false,
+          targetDomain: mapping.targetDomain,
+          error: `No admin email configured for ${mapping.targetDomain}`
+        };
+        continue;
+      }
+
+      try {
+        console.log(`Checking if user exists: ${mapping.targetEmail} in ${mapping.targetDomain}`);
+        
+        const params = new URLSearchParams({
+          action: 'get-user',
+          domain: mapping.targetDomain,
+          userEmail: mapping.targetEmail,
+          adminEmail
+        });
+
+        const response = await fetch(`/api/google-workspace?${params}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+        
+        console.log(`Check result for ${mapping.targetEmail}:`, {
+          status: response.status,
+          exists: data.exists,
+          hasUser: !!data.user
+        });
+
+        if (response.ok && data.exists && data.user) {
+          existingStatus[mapping.targetEmail] = {
+            exists: true,
+            targetDomain: mapping.targetDomain
+          };
+        } else {
+          existingStatus[mapping.targetEmail] = {
+            exists: false,
+            targetDomain: mapping.targetDomain
+          };
+        }
+      } catch (error) {
+        console.error(`Error checking user ${mapping.targetEmail}:`, error);
+        existingStatus[mapping.targetEmail] = {
+          exists: false,
+          targetDomain: mapping.targetDomain,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
+    }
+
+    console.log('Final existing user status:', existingStatus);
+    setExistingUserStatus(existingStatus);
+    setIsCheckingExistingUsers(false);
+  };
+
   // Statistics
   const stats = {
     total: userMappings.length,
@@ -989,13 +1124,18 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
   useEffect(() => {
     if (currentStep === 'complete' && onComplete) {
+      // Only pass selected user mappings for migration
+      const selectedMappings = userMappings.filter(mapping => 
+        selectedUsers.has(mapping.user.id)
+      );
+      
       onComplete({
         discoveredUsers,
         createdUsers: creationResults,
-        mappings: userMappings
+        mappings: selectedMappings // Only selected mappings for migration
       });
     }
-  }, [currentStep, discoveredUsers, creationResults, userMappings, onComplete]);
+  }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete]);
 
   return (
     <div className="space-y-6">
@@ -1154,12 +1294,486 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
           {/* Discovery Results */}
           {discoveredUsers.length > 0 && (
-            <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center space-x-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium text-green-900">
-                  Discovery Complete: {discoveredUsers.length} users found
-                </span>
+            <div className="mt-6 space-y-4">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <span className="font-medium text-green-900">
+                      Discovery Complete: {discoveredUsers.length} users found
+                      {mappingType === 'many-to-one' && (
+                        <span className="ml-2 text-sm text-blue-700">
+                          ({getUsersWithMultiDomainAccounts(discoveredUsers).length} users can be {
+                            migrationScenario === 'single-super-admin' ? 'consolidated' : 'merged across tenants'
+                          })
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => checkExistingTargetUsers(discoveredUsers)}
+                      disabled={isCheckingExistingUsers}
+                      className={`px-3 py-2 rounded-lg transition-colors text-sm flex items-center space-x-2 ${
+                        isCheckingExistingUsers
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : 'bg-orange-600 text-white hover:bg-orange-700'
+                      }`}
+                    >
+                      {isCheckingExistingUsers ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                      <span>{isCheckingExistingUsers ? 'Checking...' : 'Recheck Targets'}</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedUsers(new Set(discoveredUsers.map(u => u.id)))}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={() => setSelectedUsers(new Set())}
+                      className="px-3 py-2 text-gray-600 hover:text-gray-800 transition-colors text-sm"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+                
+                {selectedUsers.size > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-sm text-blue-700">
+                      {selectedUsers.size} of {discoveredUsers.length} users selected for migration
+                    </div>
+                    {(() => {
+                      // Count users with existing target accounts
+                      const selectedMappings = userMappings.filter(mapping => 
+                        selectedUsers.has(mapping.user.id)
+                      );
+                      const existingTargetCount = selectedMappings.filter(mapping =>
+                        existingUserStatus[mapping.targetEmail]?.exists
+                      ).length;
+                      
+                      if (existingTargetCount > 0) {
+                        return (
+                          <div className="text-sm text-yellow-700">
+                            ⚠️ {existingTargetCount} target account(s) already exist and will be skipped
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* User Selection List */}
+              <div className="bg-white border border-gray-200 rounded-lg">
+                <div className="p-4 border-b border-gray-200">
+                  <h4 className="font-medium text-gray-900">
+                    {mappingType === 'many-to-one' 
+                      ? (migrationScenario === 'single-super-admin' 
+                          ? 'Select Users for Consolidation - Single Super Admin' 
+                          : 'Select Users for Cross-Tenant Merge')
+                      : 'Select Users for Migration'
+                    }
+                  </h4>
+                  <p className="text-sm text-gray-600">
+                    {mappingType === 'many-to-one' 
+                      ? (migrationScenario === 'single-super-admin' 
+                          ? 'Users shown below exist across multiple domains and will be consolidated into single target accounts using your super admin credentials'
+                          : 'Users shown below exist across different tenants/organizations and will be merged into single target accounts during cross-tenant migration')
+                      : 'Choose which users to migrate to target domains'
+                    }
+                  </p>
+                </div>
+                
+                {mappingType === 'many-to-one' && (
+                  <div className="p-4 border-b border-gray-200 bg-blue-50">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <TrendingUp className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-900">
+                        Many-to-One Migration Summary - {migrationScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Scenario
+                      </span>
+                    </div>
+                    <div className="text-xs text-blue-800">
+                      {(() => {
+                        const multiDomainUsers = getUsersWithMultiDomainAccounts(discoveredUsers);
+                        const usersByName = new Map<string, User[]>();
+                        multiDomainUsers.forEach(user => {
+                          const nameKey = normalizeUserName(user);
+                          if (!usersByName.has(nameKey)) {
+                            usersByName.set(nameKey, []);
+                          }
+                          usersByName.get(nameKey)!.push(user);
+                        });
+                        
+                        const mergeGroups = Array.from(usersByName.entries()).filter(([_, users]) => {
+                          const uniqueDomains = Array.from(new Set(users.map(u => u.sourceDomain).filter(Boolean)));
+                          return uniqueDomains.length > 1 || users.length > 1;
+                        });
+                        
+                        return (
+                          <div>
+                            <p>
+                              {migrationScenario === 'single-super-admin' 
+                                ? `Found ${mergeGroups.length} user(s) across source domains that will be consolidated into single target accounts:`
+                                : `Found ${mergeGroups.length} user(s) from different tenants that will be merged into single target accounts:`
+                              }
+                            </p>
+                            <ul className="mt-1 list-disc list-inside max-h-20 overflow-y-auto">
+                              {mergeGroups.slice(0, 5).map(([name, users]) => {
+                                const domains = Array.from(new Set(users.map(u => u.sourceDomain).filter(Boolean)));
+                                return (
+                                  <li key={name}>
+                                    <strong>{users[0].name.fullName}</strong> 
+                                    {domains.length > 1 
+                                      ? ` (${domains.join(', ')})` 
+                                      : ` (${users.length} accounts${domains.length > 0 ? ` in ${domains[0]}` : ''})`
+                                    }
+                                  </li>
+                                );
+                              })}
+                              {mergeGroups.length > 5 && (
+                                <li>... and {mergeGroups.length - 5} more</li>
+                              )}
+                            </ul>
+                            <div className="mt-2 text-xs text-blue-700">
+                              {migrationScenario === 'single-super-admin' 
+                                ? 'These users will be consolidated using your super admin credentials for both source and target access.'
+                                : 'These users will be merged during cross-tenant migration with separate admin credentials for each domain.'
+                              }
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+                
+                {isCheckingExistingUsers && (
+                  <div className="p-4 border-b border-gray-200">
+                    <div className="flex items-center space-x-2">
+                      <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                      <span className="text-sm text-blue-700">Checking existing users in target domains...</span>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="max-h-96 overflow-y-auto">
+                  {(() => {
+                    // For many-to-one, show grouped users (merged view)
+                    if (mappingType === 'many-to-one') {
+                      // Use ALL discovered users, not just multi-domain ones
+                      const usersByName = new Map<string, User[]>();
+                      
+                      discoveredUsers.forEach(user => {
+                        const nameKey = normalizeUserName(user);
+                        if (!usersByName.has(nameKey)) {
+                          usersByName.set(nameKey, []);
+                        }
+                        usersByName.get(nameKey)!.push(user);
+                      });
+
+                      return Array.from(usersByName.entries())
+                        .map(([nameKey, users]) => {
+                          // Create a merged user representation
+                          const primaryUser = users.find(u => u.isAdmin) || 
+                                            users.sort((a, b) => 
+                                              new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime()
+                                            )[0];
+                          
+                          const mergedUserId = `merged-${nameKey}-${users.map(u => u.id).join('-')}`;
+                          const isSelected = users.some(u => selectedUsers.has(u.id)) || selectedUsers.has(mergedUserId);
+                          const userMappingsForUser = userMappings.filter(m => 
+                            users.some(u => m.user.id === u.id) || m.user.id === mergedUserId
+                          );
+                          
+                          const uniqueDomains = Array.from(new Set(users.map(u => u.sourceDomain).filter(Boolean)));
+                          const consolidationType = uniqueDomains.length > 1 ? 'Multi-Domain' : users.length > 1 ? 'Duplicate Accounts' : 'Single User';
+                          
+                          // Check if any target mappings already exist
+                          const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
+                            existingUserStatus[mapping.targetEmail]?.exists
+                          );
+                          
+                          return (
+                            <div key={nameKey} className={`p-4 border-b border-gray-100 last:border-b-0 ${
+                              hasExistingTargetUsers ? 'bg-yellow-50 border-l-4 border-l-yellow-500' : ''
+                            }`}>
+                              <div className="flex items-start space-x-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    // Toggle selection for all source users in this group
+                                    const allSelected = users.every(u => selectedUsers.has(u.id));
+                                    setSelectedUsers(prev => {
+                                      const newSet = new Set(prev);
+                                      if (allSelected) {
+                                        users.forEach(u => newSet.delete(u.id));
+                                        newSet.delete(mergedUserId);
+                                      } else {
+                                        users.forEach(u => newSet.add(u.id));
+                                        newSet.add(mergedUserId);
+                                      }
+                                      return newSet;
+                                    });
+                                  }}
+                                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-1"
+                                />
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-gray-900 flex items-center space-x-2">
+                                        <span>{primaryUser.name.fullName}</span>
+                                        {consolidationType !== 'Single User' && (
+                                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${
+                                            consolidationType === 'Multi-Domain' 
+                                              ? 'bg-purple-100 text-purple-800' 
+                                              : 'bg-orange-100 text-orange-800'
+                                          }`}>
+                                            <TrendingUp className="h-3 w-3 mr-1" />
+                                            {consolidationType}
+                                          </span>
+                                        )}
+                                        {migrationScenario === 'single-super-admin' && (
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                            <Shield className="h-3 w-3 mr-1" />
+                                            Super Admin Migration
+                                          </span>
+                                        )}
+                                        {hasExistingTargetUsers && (
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
+                                            <AlertCircle className="h-3 w-3 mr-1" />
+                                            Target Exists
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-sm text-gray-600 mt-1">
+                                        {users.length > 1 ? (
+                                          <>
+                                            <strong>Source Accounts ({users.length}):</strong>
+                                            <div className="ml-2">
+                                              {users.map(user => (
+                                                <div key={user.id} className="flex items-center space-x-2 text-xs">
+                                                  <Mail className="h-3 w-3 text-gray-400" />
+                                                  <span>{user.primaryEmail}</span>
+                                                  <span className="text-gray-500">({user.sourceDomain})</span>
+                                                  {user.isAdmin && (
+                                                    <span className="text-purple-600">
+                                                      <Shield className="h-3 w-3 inline" />
+                                                    </span>
+                                                  )}
+                                                  {user.suspended && (
+                                                    <span className="text-red-600">
+                                                      <XCircle className="h-3 w-3 inline" />
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <div className="flex items-center space-x-2 text-sm">
+                                              <Mail className="h-4 w-4 text-gray-400" />
+                                              <span>{primaryUser.primaryEmail}</span>
+                                              <span className="text-gray-500">({primaryUser.sourceDomain})</span>
+                                              {primaryUser.isAdmin && (
+                                                <span className="text-purple-600">
+                                                  <Shield className="h-4 w-4 inline" />
+                                                </span>
+                                              )}
+                                              {primaryUser.suspended && (
+                                                <span className="text-red-600">
+                                                  <XCircle className="h-4 w-4 inline" />
+                                                </span>
+                                              )}
+                                            </div>
+                                          </>
+                                        )}
+                                        {migrationScenario === 'cross-tenant' && users.length > 1 && (
+                                          <div className="mt-2 text-xs text-blue-600">
+                                            ℹ️ Cross-tenant migration: Will merge accounts from different organizations
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Target Mappings */}
+                                  <div className="mt-3 space-y-2">
+                                    <div className="text-xs font-medium text-gray-700">Target Mappings:</div>
+                                    {userMappingsForUser.map(mapping => {
+                                      const existingStatus = existingUserStatus[mapping.targetEmail];
+                                      
+                                      return (
+                                        <div key={`${mapping.targetEmail}-${mapping.targetDomain}`} 
+                                             className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                          <div className="flex items-center space-x-2">
+                                            <Mail className="h-3 w-3 text-gray-400" />
+                                            <span className="text-gray-700">{mapping.targetEmail}</span>
+                                            <span className="text-gray-500">→ {mapping.targetDomain}</span>
+                                          </div>
+                                          
+                                          <div className="flex items-center space-x-1">
+                                            {isCheckingExistingUsers ? (
+                                              <div className="flex items-center space-x-1">
+                                                <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />
+                                                <span className="text-xs text-blue-700">Checking...</span>
+                                              </div>
+                                            ) : existingStatus ? (
+                                              existingStatus.exists ? (
+                                                <div className="flex items-center space-x-1">
+                                                  <AlertCircle className="h-3 w-3 text-yellow-600" />
+                                                  <span className="text-xs text-yellow-700">Already exists</span>
+                                                </div>
+                                              ) : existingStatus.error ? (
+                                                <div className="flex items-center space-x-1">
+                                                  <XCircle className="h-3 w-3 text-red-600" />
+                                                  <span className="text-xs text-red-700">Check failed</span>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center space-x-1">
+                                                  <CheckCircle className="h-3 w-3 text-green-600" />
+                                                  <span className="text-xs text-green-700">Available</span>
+                                                </div>
+                                              )
+                                            ) : (
+                                              <div className="flex items-center space-x-1">
+                                                <Clock className="h-3 w-3 text-gray-400" />
+                                                <span className="text-xs text-gray-500">Pending check</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        });
+                    } else {
+                      // For other mapping types, show individual users
+                      return discoveredUsers.map(user => {
+                        const userMappingsForUser = userMappings.filter(m => m.user.id === user.id);
+                        const isSelected = selectedUsers.has(user.id);
+                        
+                        // Check if any target mappings already exist
+                        const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
+                          existingUserStatus[mapping.targetEmail]?.exists
+                        );
+                        
+                        return (
+                          <div key={user.id} className={`p-4 border-b border-gray-100 last:border-b-0 ${
+                            hasExistingTargetUsers ? 'bg-yellow-50 border-l-4 border-l-yellow-500' : ''
+                          }`}>
+                            <div className="flex items-start space-x-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleUserSelection(user.id)}
+                                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mt-1"
+                              />
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-medium text-gray-900 flex items-center space-x-2">
+                                      <span>{user.name.fullName}</span>
+                                      {hasExistingTargetUsers && (
+                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
+                                          <AlertCircle className="h-3 w-3 mr-1" />
+                                          Target Exists
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-sm text-gray-600">{user.primaryEmail}</div>
+                                    <div className="flex items-center space-x-4 mt-1">
+                                      <span className="text-xs text-gray-500">
+                                        <Building className="h-3 w-3 inline mr-1" />
+                                        {user.sourceDomain}
+                                      </span>
+                                      {user.isAdmin && (
+                                        <span className="text-xs text-purple-600">
+                                          <Shield className="h-3 w-3 inline mr-1" />
+                                          Admin
+                                        </span>
+                                      )}
+                                      {user.suspended && (
+                                        <span className="text-xs text-red-600">
+                                          <XCircle className="h-3 w-3 inline mr-1" />
+                                          Suspended
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {/* Target Mappings */}
+                                <div className="mt-3 space-y-2">
+                                  <div className="text-xs font-medium text-gray-700">Target Mappings:</div>
+                                  {userMappingsForUser.map(mapping => {
+                                    const existingStatus = existingUserStatus[mapping.targetEmail];
+                                    
+                                    return (
+                                      <div key={`${mapping.targetEmail}-${mapping.targetDomain}`} 
+                                           className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                        <div className="flex items-center space-x-2">
+                                          <Mail className="h-3 w-3 text-gray-400" />
+                                          <span className="text-gray-700">{mapping.targetEmail}</span>
+                                          <span className="text-gray-500">→ {mapping.targetDomain}</span>
+                                        </div>
+                                        
+                                        <div className="flex items-center space-x-1">
+                                          {isCheckingExistingUsers ? (
+                                            <div className="flex items-center space-x-1">
+                                              <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />
+                                              <span className="text-xs text-blue-700">Checking...</span>
+                                            </div>
+                                          ) : existingStatus ? (
+                                            existingStatus.exists ? (
+                                              <div className="flex items-center space-x-1">
+                                                <AlertCircle className="h-3 w-3 text-yellow-600" />
+                                                <span className="text-xs text-yellow-700">Already exists</span>
+                                              </div>
+                                            ) : existingStatus.error ? (
+                                              <div className="flex items-center space-x-1">
+                                                <XCircle className="h-3 w-3 text-red-600" />
+                                                <span className="text-xs text-red-700">Check failed</span>
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center space-x-1">
+                                                <CheckCircle className="h-3 w-3 text-green-600" />
+                                                <span className="text-xs text-green-700">Available</span>
+                                              </div>
+                                            )
+                                          ) : (
+                                            <div className="flex items-center space-x-1">
+                                              <Clock className="h-3 w-3 text-gray-400" />
+                                              <span className="text-xs text-gray-500">Pending check</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    }
+                  })()}
+                </div>
               </div>
             </div>
           )}
