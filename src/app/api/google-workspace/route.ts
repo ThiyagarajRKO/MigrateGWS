@@ -4,7 +4,8 @@ import {
   createGoogleWorkspaceService, 
   createServiceAccountService,
   createVerifiedServiceAccountService,
-  testServiceAccountDelegation 
+  testServiceAccountDelegation,
+  verifyCrossTenantServiceAccount
 } from '@/lib/google-workspace'
 import { ExtendedSession } from '@/lib/auth-options'
 
@@ -299,6 +300,119 @@ export async function GET(request: NextRequest) {
             domain: domain,
             adminEmail: adminEmail
           }, { status: 401 })
+        }
+
+      case 'test-cross-tenant':
+        try {
+          // Extract cross-tenant parameters
+          const sourceDomain = searchParams.get('sourceDomain')
+          const sourceAdminEmail = searchParams.get('sourceAdminEmail')
+          const targetDomain = searchParams.get('targetDomain')
+          const targetAdminEmail = searchParams.get('targetAdminEmail')
+          
+          // Validate required parameters
+          if (!sourceDomain || !sourceAdminEmail || !targetDomain || !targetAdminEmail) {
+            return NextResponse.json({
+              error: 'Missing required parameters',
+              message: 'Cross-tenant verification requires sourceDomain, sourceAdminEmail, targetDomain, and targetAdminEmail',
+              required: ['sourceDomain', 'sourceAdminEmail', 'targetDomain', 'targetAdminEmail']
+            }, { status: 400 })
+          }
+
+          if (!process.env.SERVICE_ACCOUNT_EMAIL) {
+            return NextResponse.json({
+              error: 'Service account not configured',
+              message: 'SERVICE_ACCOUNT_EMAIL environment variable is required for cross-tenant verification'
+            }, { status: 500 })
+          }
+
+          console.log('Starting cross-tenant service account verification')
+          console.log('Source:', sourceDomain, sourceAdminEmail)
+          console.log('Target:', targetDomain, targetAdminEmail)
+
+          // Read service account credentials
+          const serviceAccountKeyPath = process.env.SERVICE_ACCOUNT_KEY_PATH || './source-service-account-key.json'
+          const fs = require('fs')
+          const path = require('path')
+          
+          let serviceAccountData
+          try {
+            const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
+            serviceAccountData = JSON.parse(serviceAccountDataRaw)
+          } catch (error) {
+            return NextResponse.json({
+              error: 'Service account key not found',
+              message: 'Unable to read service account key file',
+              details: 'Please ensure the service account key file exists and is accessible'
+            }, { status: 500 })
+          }
+
+          // Perform cross-tenant verification
+          const crossTenantVerification = await verifyCrossTenantServiceAccount(
+            serviceAccountData.client_email,
+            serviceAccountData.private_key,
+            sourceDomain,
+            sourceAdminEmail,
+            targetDomain,
+            targetAdminEmail
+          )
+
+          if (crossTenantVerification.success) {
+            return NextResponse.json({
+              success: true,
+              message: 'Cross-tenant service account verification successful',
+              details: [
+                'Service account has been verified for both source and target domains',
+                'Domain-wide delegation is properly configured for cross-tenant migration',
+                'All required scopes are accessible across both tenants',
+                'Ready for cross-tenant migration operations'
+              ],
+              verification: {
+                sourceDomain,
+                sourceAdminEmail,
+                targetDomain,
+                targetAdminEmail,
+                sourceChecks: crossTenantVerification.sourceChecks,
+                targetChecks: crossTenantVerification.targetChecks,
+                serviceAccountEmail: serviceAccountData.client_email
+              },
+              timestamp: new Date().toISOString()
+            })
+          } else {
+            return NextResponse.json({
+              error: 'Cross-tenant verification failed',
+              message: 'Service account is not properly configured for cross-tenant access',
+              details: [
+                'One or more domains failed verification checks',
+                'Please ensure domain-wide delegation is configured in both Google Admin Consoles',
+                'Verify that both admin emails have Super Admin privileges',
+                'Check that all required scopes are granted in both domains'
+              ],
+              verification: {
+                sourceDomain,
+                sourceAdminEmail,
+                targetDomain,
+                targetAdminEmail,
+                sourceChecks: crossTenantVerification.sourceChecks,
+                targetChecks: crossTenantVerification.targetChecks,
+                serviceAccountEmail: serviceAccountData.client_email,
+                error: crossTenantVerification.error
+              },
+              timestamp: new Date().toISOString()
+            }, { status: 403 })
+          }
+        } catch (error: any) {
+          console.error('Error during cross-tenant verification:', error)
+          return NextResponse.json({
+            error: 'Cross-tenant verification failed',
+            message: 'An error occurred during cross-tenant service account verification',
+            details: [
+              error.message || 'Unknown error occurred',
+              'Please check service account configuration and try again',
+              'Ensure both domains have proper domain-wide delegation setup'
+            ],
+            timestamp: new Date().toISOString()
+          }, { status: 500 })
         }
 
       case 'all-users':

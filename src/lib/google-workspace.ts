@@ -335,6 +335,181 @@ export async function diagnoseServiceAccountSetup(
   return { success: allPassed, checks }
 }
 
+// Cross-tenant service account verification
+export async function verifyCrossTenantServiceAccount(
+  serviceAccountEmail: string,
+  privateKey: string,
+  sourceDomain: string,
+  sourceAdminEmail: string,
+  targetDomain: string,
+  targetAdminEmail: string
+): Promise<{
+  success: boolean
+  sourceChecks: Array<{ name: string; passed: boolean; error?: string }>
+  targetChecks: Array<{ name: string; passed: boolean; error?: string }>
+  error?: string
+}> {
+  try {
+    console.log('Starting cross-tenant service account verification')
+    console.log('Source Domain:', sourceDomain, 'Admin:', sourceAdminEmail)
+    console.log('Target Domain:', targetDomain, 'Admin:', targetAdminEmail)
+
+    const sourceChecks: Array<{ name: string; passed: boolean; error?: string }> = []
+    const targetChecks: Array<{ name: string; passed: boolean; error?: string }> = []
+
+    // Verify source domain access
+    console.log('Verifying source domain access...')
+    try {
+      const sourceJWT = createManualJWT(serviceAccountEmail, privateKey, sourceAdminEmail, [
+        'https://www.googleapis.com/auth/admin.directory.user',
+        'https://www.googleapis.com/auth/admin.directory.group',
+        'https://www.googleapis.com/auth/admin.directory.orgunit',
+        'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/contacts.readonly',
+        'https://www.googleapis.com/auth/contacts',
+        'https://www.googleapis.com/auth/forms.body.readonly',
+        'https://www.googleapis.com/auth/forms.responses.readonly',
+        'https://www.googleapis.com/auth/chat.spaces.readonly',
+        'https://www.googleapis.com/auth/chat.messages.readonly',
+        'https://www.googleapis.com/auth/photoslibrary.readonly',
+        'https://www.googleapis.com/auth/presentations.readonly',
+        'https://www.googleapis.com/auth/spreadsheets.readonly'
+      ])
+      
+      const sourceTokenResponse = await exchangeJWTForAccessToken(sourceJWT)
+      sourceChecks.push({
+        name: 'Source Token Exchange',
+        passed: true
+      })
+
+      // Test source domain API access
+      const sourceApiTest = await fetch(
+        `https://admin.googleapis.com/admin/directory/v1/users?maxResults=1&domain=${sourceDomain}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${sourceTokenResponse.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+
+      if (sourceApiTest.ok) {
+        sourceChecks.push({
+          name: 'Source API Access',
+          passed: true
+        })
+      } else {
+        const errorText = await sourceApiTest.text()
+        sourceChecks.push({
+          name: 'Source API Access',
+          passed: false,
+          error: `HTTP ${sourceApiTest.status}: ${errorText}`
+        })
+      }
+    } catch (error) {
+      sourceChecks.push({
+        name: 'Source Domain Verification',
+        passed: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+
+    // Verify target domain access
+    console.log('Verifying target domain access...')
+    try {
+      const targetJWT = createManualJWT(serviceAccountEmail, privateKey, targetAdminEmail, [
+        'https://www.googleapis.com/auth/admin.directory.user',
+        'https://www.googleapis.com/auth/admin.directory.group',
+        'https://www.googleapis.com/auth/admin.directory.orgunit',
+        'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/contacts.readonly',
+        'https://www.googleapis.com/auth/contacts',
+        'https://www.googleapis.com/auth/forms.body.readonly',
+        'https://www.googleapis.com/auth/forms.responses.readonly',
+        'https://www.googleapis.com/auth/chat.spaces.readonly',
+        'https://www.googleapis.com/auth/chat.messages.readonly',
+        'https://www.googleapis.com/auth/photoslibrary.readonly',
+        'https://www.googleapis.com/auth/presentations.readonly',
+        'https://www.googleapis.com/auth/spreadsheets.readonly'
+      ])
+      
+      const targetTokenResponse = await exchangeJWTForAccessToken(targetJWT)
+      targetChecks.push({
+        name: 'Target Token Exchange',
+        passed: true
+      })
+
+      // Test target domain API access
+      const targetApiTest = await fetch(
+        `https://admin.googleapis.com/admin/directory/v1/users?maxResults=1&domain=${targetDomain}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${targetTokenResponse.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+
+      if (targetApiTest.ok) {
+        targetChecks.push({
+          name: 'Target API Access',
+          passed: true
+        })
+      } else {
+        const errorText = await targetApiTest.text()
+        targetChecks.push({
+          name: 'Target API Access',
+          passed: false,
+          error: `HTTP ${targetApiTest.status}: ${errorText}`
+        })
+      }
+    } catch (error) {
+      targetChecks.push({
+        name: 'Target Domain Verification',
+        passed: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+
+    const sourceSuccess = sourceChecks.every(check => check.passed)
+    const targetSuccess = targetChecks.every(check => check.passed)
+    const overallSuccess = sourceSuccess && targetSuccess
+
+    console.log('Cross-tenant verification completed:', {
+      sourceSuccess,
+      targetSuccess,
+      overallSuccess
+    })
+
+    return {
+      success: overallSuccess,
+      sourceChecks,
+      targetChecks
+    }
+
+  } catch (error) {
+    console.error('Cross-tenant verification error:', error)
+    return {
+      success: false,
+      sourceChecks: [],
+      targetChecks: [],
+      error: error instanceof Error ? error.message : 'Unknown error during cross-tenant verification'
+    }
+  }
+}
+
 // Domain management functions
 export async function listDomains(credentials: GoogleWorkspaceCredentials): Promise<{
   success: boolean
