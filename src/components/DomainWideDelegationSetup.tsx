@@ -98,68 +98,117 @@ interface DelegationStatus {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
-// Required OAuth scopes for complete Google Workspace migration
+// Required OAuth scopes for complete Google Workspace migration - COMPREHENSIVE LIST
 const REQUIRED_SCOPES = [
-  // Admin Directory API - Core user and domain management
-  'https://www.googleapis.com/auth/admin.directory.user',
-  'https://www.googleapis.com/auth/admin.directory.user.readonly',
-  'https://www.googleapis.com/auth/admin.directory.domain',
-  'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+  // Admin Directory API - Complete organizational management
+  'https://www.googleapis.com/auth/admin.directory.orgunit',
+  'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
   'https://www.googleapis.com/auth/admin.directory.group',
   'https://www.googleapis.com/auth/admin.directory.group.readonly',
   'https://www.googleapis.com/auth/admin.directory.group.member',
   'https://www.googleapis.com/auth/admin.directory.group.member.readonly',
-  'https://www.googleapis.com/auth/admin.directory.orgunit',
-  'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
+  'https://www.googleapis.com/auth/admin.directory.user',
+  'https://www.googleapis.com/auth/admin.directory.user.readonly',
+  'https://www.googleapis.com/auth/admin.directory.domain',
+  'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+  'https://www.googleapis.com/auth/admin.directory.customer.readonly',
+  'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+  'https://www.googleapis.com/auth/admin.directory.resource.calendar.readonly',
+  'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly',
   
-  // Gmail API - Email migration
-  'https://www.googleapis.com/auth/gmail.readonly',
+  // Admin Reports API - Usage and audit data
+  'https://www.googleapis.com/auth/admin.reports.usage.readonly',
+  'https://www.googleapis.com/auth/admin.reports.audit.readonly',
+  
+  // Google Drive API - Complete file and metadata management
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.metadata',
+  'https://www.googleapis.com/auth/drive.metadata.readonly',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.photos.readonly',
+  
+  // Gmail API - Complete email management (including legacy mail scope)
+  'https://mail.google.com/',
   'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/gmail.labels',
   'https://www.googleapis.com/auth/gmail.settings.basic',
   'https://www.googleapis.com/auth/gmail.settings.sharing',
   
-  // Google Drive API - File and folder migration
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.metadata.readonly',
-  'https://www.googleapis.com/auth/drive.photos.readonly',
-  
-  // Calendar API - Calendar and events migration
-  'https://www.googleapis.com/auth/calendar.readonly',
+  // Calendar API - Calendar and events management
   'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events.readonly',
   'https://www.googleapis.com/auth/calendar.settings.readonly',
   
-  // Contacts API - Contact migration
-  'https://www.googleapis.com/auth/contacts.readonly',
+  // Groups Migration and Settings
+  'https://www.googleapis.com/auth/apps.groups.migration',
+  'https://www.googleapis.com/auth/apps.groups.settings',
+  
+  // Contacts API - Contact management
   'https://www.googleapis.com/auth/contacts',
+  'https://www.googleapis.com/auth/contacts.readonly',
   
-  // Google Photos API - Photo migration
-  'https://www.googleapis.com/auth/photoslibrary.readonly',
-  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+  // User Info and Profile
+  'https://www.googleapis.com/auth/userinfo.email',
   
-  // Google Chat API - Chat and messaging migration
+  // Google Sites (legacy scope)
+  'https://sites.google.com/feeds',
+  
+  // Email Settings (legacy scope)
+  'https://apps-apis.google.com/a/feeds/emailsettings/2.0/',
+  
+  // Google Chat API - Complete chat and messaging
   'https://www.googleapis.com/auth/chat.bot',
-  'https://www.googleapis.com/auth/chat.messages.readonly',
+  'https://www.googleapis.com/auth/chat.spaces',
+  'https://www.googleapis.com/auth/chat.spaces.create',
   'https://www.googleapis.com/auth/chat.spaces.readonly',
+  'https://www.googleapis.com/auth/chat.memberships',
+  'https://www.googleapis.com/auth/chat.memberships.app',
+  'https://www.googleapis.com/auth/chat.memberships.readonly',
+  'https://www.googleapis.com/auth/chat.messages',
+  'https://www.googleapis.com/auth/chat.messages.create',
+  'https://www.googleapis.com/auth/chat.messages.reactions',
+  'https://www.googleapis.com/auth/chat.messages.reactions.create',
+  'https://www.googleapis.com/auth/chat.messages.reactions.readonly',
+  'https://www.googleapis.com/auth/chat.messages.readonly',
+  'https://www.googleapis.com/auth/chat.users.readstate',
+  'https://www.googleapis.com/auth/chat.users.readstate.readonly',
+  'https://www.googleapis.com/auth/chat.admin.spaces.readonly',
+  'https://www.googleapis.com/auth/chat.admin.spaces',
+  'https://www.googleapis.com/auth/chat.admin.memberships.readonly',
+  'https://www.googleapis.com/auth/chat.admin.memberships',
+  'https://www.googleapis.com/auth/chat.app.spaces',
+  'https://www.googleapis.com/auth/chat.app.spaces.create',
+  'https://www.googleapis.com/auth/chat.app.memberships',
+  'https://www.googleapis.com/auth/chat.customemojis',
+  'https://www.googleapis.com/auth/chat.customemojis.readonly',
+  'https://www.googleapis.com/auth/chat.users.spacesettings',
+  'https://www.googleapis.com/auth/chat.import',
   
-  // Google Slides API - Presentation migration
+  // Google Photos API - Complete photo library management
+  'https://www.googleapis.com/auth/photoslibrary',
+  'https://www.googleapis.com/auth/photoslibrary.readonly',
+  'https://www.googleapis.com/auth/photoslibrary.sharing',
+  'https://www.googleapis.com/auth/photoslibrary.appendonly',
+  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
+  'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+  
+  // Google Slides API - Presentation management
   'https://www.googleapis.com/auth/presentations.readonly',
   'https://www.googleapis.com/auth/presentations',
   
-  // Google Forms API - Forms migration
+  // Google Forms API - Forms management
   'https://www.googleapis.com/auth/forms.body.readonly',
   'https://www.googleapis.com/auth/forms.responses.readonly',
   
-  // Google Apps Script API - Script migration
+  // Google Apps Script API - Script management
   'https://www.googleapis.com/auth/script.projects.readonly',
   'https://www.googleapis.com/auth/script.webapp.deploy.readonly',
-  
-  // Admin Reports API - Audit logs and usage reports
-  'https://www.googleapis.com/auth/admin.reports.audit.readonly',
-  'https://www.googleapis.com/auth/admin.reports.usage.readonly',
   
   // Cloud Identity API - Advanced identity management
   'https://www.googleapis.com/auth/cloud-identity.groups.readonly',
@@ -186,6 +235,17 @@ const chunkScopes = (scopes: string[], chunkSize: number): string[][] => {
     chunks.push(scopes.slice(i, i + chunkSize))
   }
   return chunks
+}
+
+// Admin verification interfaces
+interface AdminVerificationState {
+  isVerifying: boolean
+  isVerified: boolean
+  verificationMethod: 'crypto' | 'jwt' | 'both'
+  challenge?: any
+  jwtToken?: string
+  verificationResult?: any
+  error?: string
 }
 
 const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({ 
@@ -236,6 +296,32 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   const [delegationStatus, setDelegationStatus] = useState<DelegationStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  
+  // Admin verification state
+  const [adminVerification, setAdminVerification] = useState<AdminVerificationState>({
+    isVerifying: false,
+    isVerified: false,
+    verificationMethod: 'both'
+  })
+  
+  // Extract admin email from OAuth authentication
+  const authenticatedAdminEmail = useMemo(() => {
+    return user?.email || ''
+  }, [user?.email])
+  
+  // Determine final admin email (prioritize props, fallback to OAuth)
+  const finalAdminEmail = useMemo(() => {
+    if (migrationScenario === 'single-super-admin') {
+      return adminEmail || authenticatedAdminEmail
+    }
+    return authenticatedAdminEmail
+  }, [adminEmail, authenticatedAdminEmail, migrationScenario])
+  
+  // Extract domain from admin email
+  const adminDomain = useMemo(() => {
+    if (!finalAdminEmail) return ''
+    return finalAdminEmail.split('@')[1] || ''
+  }, [finalAdminEmail])
   
   // Input state for when no admin emails are provided as props
   const [inputsourceAdminEmail, setInputsourceAdminEmail] = useState<string>('')
@@ -480,6 +566,171 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     adminEmail, inputAdminEmail, sourceAccount, inputsourceAdminEmail, destAccount, inputdestAdminEmail,
     destAccounts, sourceAccounts, migrationScenario, persistedVerifications, getVerificationKey
   ])
+
+  // Admin verification functions
+  const initiateAdminVerification = useCallback(async (verificationMethod: 'crypto' | 'jwt' | 'both' = 'both') => {
+    if (!finalAdminEmail || !adminDomain) {
+      setAdminVerification(prev => ({
+        ...prev,
+        error: 'Admin email not available from OAuth authentication'
+      }))
+      return
+    }
+
+    setAdminVerification(prev => ({
+      ...prev,
+      isVerifying: true,
+      error: undefined,
+      verificationMethod
+    }))
+
+    try {
+      // Step 1: Generate challenge or JWT token
+      const response = await fetch(`/api/v1/admin/verify?adminEmail=${encodeURIComponent(finalAdminEmail)}&domain=${encodeURIComponent(adminDomain)}&method=${verificationMethod}`)
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate verification challenge: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to generate verification challenge')
+      }
+
+      // Store challenge or JWT token for verification
+      setAdminVerification(prev => ({
+        ...prev,
+        challenge: data.challenge,
+        jwtToken: data.jwtToken,
+        isVerifying: false
+      }))
+
+      return data
+    } catch (error) {
+      setAdminVerification(prev => ({
+        ...prev,
+        isVerifying: false,
+        error: error instanceof Error ? error.message : 'Unknown verification error'
+      }))
+      throw error
+    }
+  }, [finalAdminEmail, adminDomain])
+
+  const performAdminVerification = useCallback(async (signature?: string) => {
+    if (!finalAdminEmail || !adminDomain) {
+      throw new Error('Admin email not available')
+    }
+
+    setAdminVerification(prev => ({
+      ...prev,
+      isVerifying: true,
+      error: undefined
+    }))
+
+    try {
+      const requestBody = {
+        adminEmail: finalAdminEmail,
+        domain: adminDomain,
+        migrationScenario: migrationScenario || 'single-super-admin',
+        verificationMethod: adminVerification.verificationMethod,
+        challenge: adminVerification.challenge?.challenge,
+        jwtToken: adminVerification.jwtToken
+      }
+
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      }
+
+      // Add signature to headers if provided (for crypto verification)
+      if (signature && adminVerification.verificationMethod !== 'jwt') {
+        headers['x-challenge-signature'] = signature
+      }
+
+      const response = await fetch('/api/v1/admin/verify', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody)
+      })
+
+      if (!response.ok) {
+        throw new Error(`Verification failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      
+      if (!result.success) {
+        // Handle cases where additional steps are required
+        if (result.requiresChallenge || result.requiresJWT) {
+          setAdminVerification(prev => ({
+            ...prev,
+            challenge: result.challenge,
+            jwtToken: result.jwtToken,
+            isVerifying: false
+          }))
+          return result
+        }
+        throw new Error(result.error || 'Verification failed')
+      }
+
+      // Verification successful
+      setAdminVerification(prev => ({
+        ...prev,
+        isVerified: result.verified,
+        verificationResult: result.result,
+        isVerifying: false
+      }))
+
+      // Save verification status
+      if (result.verified) {
+        saveVerificationStatus(
+          finalAdminEmail,
+          undefined,
+          undefined,
+          migrationScenario || 'single-super-admin',
+          true
+        )
+      }
+
+      return result
+    } catch (error) {
+      setAdminVerification(prev => ({
+        ...prev,
+        isVerifying: false,
+        error: error instanceof Error ? error.message : 'Unknown verification error'
+      }))
+      throw error
+    }
+  }, [finalAdminEmail, adminDomain, migrationScenario, adminVerification.verificationMethod, adminVerification.challenge, adminVerification.jwtToken, saveVerificationStatus])
+
+  // Load cached verification status when admin email is available
+  useEffect(() => {
+    if (finalAdminEmail && adminDomain) {
+      // Check if already verified in cache
+      const verificationKey = getVerificationKey(finalAdminEmail, undefined, undefined, migrationScenario || 'single-super-admin')
+      const cachedVerification = persistedVerifications[verificationKey]
+      
+      if (cachedVerification?.verified) {
+        console.log('[DomainWideDelegationSetup] Found cached verification for:', finalAdminEmail)
+        setAdminVerification(prev => ({
+          ...prev,
+          isVerified: true,
+          verificationResult: {
+            email: finalAdminEmail,
+            domain: adminDomain,
+            verified: true,
+            lastVerified: new Date(cachedVerification.timestamp).toISOString(),
+            permissions: {
+              canManageUsers: true,
+              canAccessDirectory: true,
+              canConfigureDelegation: true,
+              adminLevel: 'super'
+            }
+          }
+        }))
+      }
+    }
+  }, [finalAdminEmail, adminDomain, migrationScenario, getVerificationKey, persistedVerifications])
 
   // Helper function to check if verification is successful
   const isVerificationSuccessful = useCallback((): boolean => {
@@ -1216,51 +1467,56 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     })
     
     try {
+      // Proceed with domain-wide delegation verification using input values
+      console.log('[Delegation Verify] Starting delegation verification directly with input values:', {
+        effectiveAdminEmail,
+        effectiveSourceAccount,
+        effectiveDestAccount,
+        isSingleSuperAdmin,
+        isCrossTenant
+      })
       let requestPayload: any
+      let apiUrl: string
 
       if (isSingleSuperAdmin) {
         requestPayload = {
           adminEmail: effectiveAdminEmail,
           migrationScenario: 'single-super-admin'
         }
+        apiUrl = `${API_BASE_URL}/api/v1/delegation/verify`
       } else {
-        // Cross-tenant scenario
+        // Cross-tenant scenario - use the same verification endpoint as single super admin
+        console.log('[Delegation Verify] Using same verification endpoint as single super admin for cross-tenant')
+        
         requestPayload = {
           migrationScenario: 'cross-tenant'
         }
         
-        // Handle single source or multiple sources
+        // Add source account details
         if (effectiveSourceAccount) {
-          requestPayload.sourceAdminEmail = effectiveSourceAccount
-          requestPayload.sourceAdminEmail = effectiveSourceAccount
+          requestPayload.sourceAdminEmail = effectiveSourceAccount.trim()
         } else if (hasMultipleSourceAccounts) {
-          // For multiple sources, we'll use the first one for the API call
+          // For multiple sources, use the first one for verification
           const firstSourceDomain = Object.keys(sourceAccounts)[0]
-          const firstsourceAdminEmail = sourceAccounts[firstSourceDomain]
-          requestPayload.sourceAdminEmail = firstsourceAdminEmail
-          requestPayload.sourceAdminEmail = firstsourceAdminEmail
+          const firstSourceAdminEmail = sourceAccounts[firstSourceDomain]
+          requestPayload.sourceAdminEmail = firstSourceAdminEmail?.trim() || ''
           requestPayload.sourceAccounts = sourceAccounts
         }
         
-        // Handle single destination or multiple destinations
+        // Add destination account details
         if (effectiveDestAccount) {
-          requestPayload.destAdminEmail = effectiveDestAccount
-          requestPayload.destAdminEmail = effectiveDestAccount
+          requestPayload.destAdminEmail = effectiveDestAccount.trim()
         } else if (hasMultipleDestAccounts) {
-          // For multiple destinations, we'll use the first one for the API call
+          // For multiple destinations, use the first one for verification
           const firstDestDomain = Object.keys(destAccounts)[0]
-          const firstdestAdminEmail = destAccounts[firstDestDomain]
-          requestPayload.destAdminEmail = firstdestAdminEmail
-          requestPayload.destAdminEmail = firstdestAdminEmail
+          const firstDestAdminEmail = destAccounts[firstDestDomain]
+          requestPayload.destAdminEmail = firstDestAdminEmail?.trim() || ''
           requestPayload.destAccounts = destAccounts
-        } else {
-          // Fallback - this shouldn't happen due to our validation above
-          setError('Destination admin email is required for cross-tenant verification.')
-          return
         }
+        
+        apiUrl = `${API_BASE_URL}/api/v1/delegation/verify`
       }
       
-      const apiUrl = `${API_BASE_URL}/api/v1/delegation/verify`
       console.log('[Delegation Verify] Making API call to:', apiUrl)
       console.log('[Delegation Verify] Request payload:', requestPayload)
       
@@ -1279,7 +1535,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
       const data = await response.json()
 
-      if (data.success && data.verification) {
+      if (data.success && (data.verification || data.message)) {
         if (isSingleSuperAdmin) {
           // Handle single super admin verification - set both source and dest with same admin email
           const domainVerified = data.verification.domain?.verified || false
@@ -1301,9 +1557,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             saveVerificationStatus(effectiveAdminEmail, undefined, undefined, 'single-super-admin', true)
           }
         } else {
-          // Handle cross-tenant verification
+          // Handle cross-tenant verification - same structure as single super admin
           const sourceVerified = data.verification.source?.verified || false
           const destVerified = data.verification.destination?.verified || false
+          
           setDelegationStatus({
             source: {
               configured: data.verification.source?.testResults?.length > 0 || false,
@@ -1326,33 +1583,23 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         setTimeout(() => setSuccessMessage(null), 5000) // Clear after 5 seconds
       } else {
         const errorMessage = data.error || data.message || 'Verification failed'
-        if (isSingleSuperAdmin) {
-          setDelegationStatus({
-            source: { configured: false, verified: false, error: errorMessage },
-            dest: { configured: false, verified: false, error: errorMessage }
-          })
-        } else {
-          setDelegationStatus({
-            source: { configured: false, verified: false, error: errorMessage },
-            dest: { configured: false, verified: false, error: errorMessage }
-          })
-        }
+        
+        // Set delegation status to failed for both scenarios
+        setDelegationStatus({
+          source: { configured: false, verified: false, error: errorMessage },
+          dest: { configured: false, verified: false, error: errorMessage }
+        })
         setError(errorMessage)
       }
     } catch (error) {
       console.error('[Delegation Verify] Error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Verification failed'
-      if (isSingleSuperAdmin) {
-        setDelegationStatus({
-          source: { configured: false, verified: false, error: errorMessage },
-          dest: { configured: false, verified: false, error: errorMessage }
-        })
-      } else {
-        setDelegationStatus({
-          source: { configured: false, verified: false, error: errorMessage },
-          dest: { configured: false, verified: false, error: errorMessage }
-        })
-      }
+      
+      // Set delegation status to failed for both scenarios
+      setDelegationStatus({
+        source: { configured: false, verified: false, error: errorMessage },
+        dest: { configured: false, verified: false, error: errorMessage }
+      })
       setError(errorMessage)
     } finally {
       setDelegationVerifyLoading(false)
@@ -1461,7 +1708,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       
                       {getDomainMappingContext && (
                         <div>
-                          <h4 className="font-semibold text-gray-900 mb-2">�️ Your Migration Scenario:</h4>
+                          <h4 className="font-semibold text-gray-900 mb-2"> ️ Your Migration Scenario:</h4>
                           <div className="text-gray-600 space-y-1">
                             <div className="font-medium">{getDomainMappingContext.description}</div>
                             <div className="text-sm text-slate-600 font-medium">
@@ -1477,7 +1724,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       )}
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-2">�🔧 Setup Requirements:</h4>
+                        <h4 className="font-semibold text-gray-900 mb-2"> 🔧 Setup Requirements:</h4>
                         <ul className="text-gray-600 space-y-1">
                           <li>• Super Admin access to {getDomainMappingContext?.isCrossTenant ? 'source and target domains' : 'your domain'}</li>
                           <li>• Google Cloud Project with enabled APIs</li>
@@ -1668,6 +1915,186 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             </div>
           );
         })()}
+
+        {/* Admin Email Verification Section */}
+        {finalAdminEmail && (
+          <div className="mb-6 p-5 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-300/60 rounded-xl shadow-sm">
+            <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <Shield className="h-5 w-5 text-green-600" />
+              Admin Email Verification
+              <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium">
+                OAuth Authenticated
+              </span>
+            </h3>
+            
+            <div className="space-y-4">
+              {/* Admin Email Display */}
+              <div className="p-4 bg-white/70 border border-green-200/60 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Authenticated Admin Email:</span>
+                  <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
+                    {finalAdminEmail}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Domain:</span>
+                  <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
+                    {adminDomain}
+                  </span>
+                </div>
+              </div>
+
+              {/* Verification Status */}
+              <div className="p-4 bg-white/70 border border-green-200/60 rounded-lg shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Verification Status:</span>
+                  <div className="flex items-center gap-2">
+                    {adminVerification.isVerified ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-sm font-medium text-green-700">Verified</span>
+                      </>
+                    ) : adminVerification.isVerifying ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                        <span className="text-sm font-medium text-blue-700">Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <X className="h-4 w-4 text-orange-600" />
+                        <span className="text-sm font-medium text-orange-700">Not Verified</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Verification Method */}
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Method:</span>
+                  <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium">
+                    {adminVerification.verificationMethod.toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Verification Error */}
+                {adminVerification.error && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                    <strong>Error:</strong> {adminVerification.error}
+                  </div>
+                )}
+
+                {/* Verification Result Details */}
+                {adminVerification.verificationResult && (
+                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <h5 className="font-medium text-green-800 mb-2">Verification Details:</h5>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">Admin Level:</span>
+                        <span className="font-medium text-green-800 capitalize">
+                          {adminVerification.verificationResult.permissions?.adminLevel}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">Can Manage Users:</span>
+                        <span className={`font-medium ${adminVerification.verificationResult.permissions?.canManageUsers ? 'text-green-800' : 'text-red-800'}`}>
+                          {adminVerification.verificationResult.permissions?.canManageUsers ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">Last Verified:</span>
+                        <span className="font-medium text-gray-800">
+                          {new Date(adminVerification.verificationResult.lastVerified).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Verification Actions */}
+              <div className="flex gap-3">
+                {!adminVerification.isVerified && (
+                  <button
+                    onClick={() => initiateAdminVerification('both')}
+                    disabled={adminVerification.isVerifying}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {adminVerification.isVerifying ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Verifying...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4" />
+                        Start Verification
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {(adminVerification.challenge || adminVerification.jwtToken) && !adminVerification.isVerified && (
+                  <button
+                    onClick={() => performAdminVerification()}
+                    disabled={adminVerification.isVerifying}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {adminVerification.isVerifying ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Complete Verification
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {adminVerification.isVerified && (
+                  <button
+                    onClick={() => setAdminVerification({
+                      isVerifying: false,
+                      isVerified: false,
+                      verificationMethod: 'both'
+                    })}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg hover:from-orange-700 hover:to-red-700 transition-all duration-200 font-medium"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Re-verify
+                  </button>
+                )}
+              </div>
+
+              {/* Challenge or JWT Token Display */}
+              {adminVerification.challenge && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h5 className="font-medium text-yellow-800 mb-2">Cryptographic Challenge:</h5>
+                  <div className="font-mono text-xs bg-white p-2 rounded border break-all">
+                    {adminVerification.challenge.challenge}
+                  </div>
+                  <p className="text-sm text-yellow-700 mt-2">
+                    Sign this challenge with your admin private key and provide the signature.
+                  </p>
+                </div>
+              )}
+
+              {adminVerification.jwtToken && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h5 className="font-medium text-blue-800 mb-2">JWT Token:</h5>
+                  <div className="font-mono text-xs bg-white p-2 rounded border break-all">
+                    {adminVerification.jwtToken}
+                  </div>
+                  <p className="text-sm text-blue-700 mt-2">
+                    Verify this JWT token and return it for final validation.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Unified Setup Section - Always Available */}
         <div className="mb-6 p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/60 rounded-xl shadow-lg shadow-blue-100/50">
@@ -2367,10 +2794,6 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             </div>
                           ))}
                         </div>
-
-                        <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.scopes.join(',')}
-                        </code>
                       </div>
 
                       <a
@@ -2450,10 +2873,6 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             </div>
                           ))}
                         </div>
-
-                        <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.scopes.join(',')}
-                        </code>
                       </div>
 
                       <a

@@ -65,6 +65,12 @@ export class MultiAdminAuthManager {
 
   private loadFromStorage(): void {
     try {
+      // Check if we're in a browser environment
+      if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+        console.log('MultiAdminAuthManager: Server-side environment detected, skipping localStorage load');
+        return;
+      }
+
       // Load admin tokens from localStorage
       const tokensData = localStorage.getItem('gws-admin-tokens');
       if (tokensData) {
@@ -94,6 +100,12 @@ export class MultiAdminAuthManager {
 
   private saveToStorage(): void {
     try {
+      // Check if we're in a browser environment
+      if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+        console.log('MultiAdminAuthManager: Server-side environment detected, skipping localStorage save');
+        return;
+      }
+
       // Save admin tokens
       const tokensObj = Object.fromEntries(this.adminTokens);
       localStorage.setItem('gws-admin-tokens', JSON.stringify(tokensObj));

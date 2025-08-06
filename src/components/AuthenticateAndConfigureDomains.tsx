@@ -683,17 +683,20 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
 
     if (userMappingStrategy === 'one-to-many') {
       return (
-        <div key={index} className="p-4 bg-gray-50 rounded-lg border">
+        <div key={index} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex items-start space-x-4">
             {/* Single Source */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Source Domain</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                Source Domain
+              </label>
               <select
                 value={sources[0]}
                 onChange={(e) => updateDomainMapping(index, 'source', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {getAvailableDomains().source.map((domain) => (
+                {Array.from(new Set([...getAvailableDomains().source, ...sources])).map((domain) => (
                   <option key={domain} value={domain}>{domain}</option>
                 ))}
               </select>
@@ -703,7 +706,10 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             
             {/* Multiple Targets */}
             <div className="flex-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Target Domains</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Target Domains
+              </label>
               <div className="space-y-2">
                 {targets.map((target, targetIndex) => (
                   <div key={targetIndex} className="flex items-center space-x-2">
@@ -716,7 +722,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                       }}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {getAvailableDomains().target.map((domain) => (
+                      {Array.from(new Set([...getAvailableDomains().target, ...targets])).map((domain) => (
                         <option key={domain} value={domain}>{domain}</option>
                       ))}
                     </select>
@@ -755,11 +761,14 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       );
     } else if (userMappingStrategy === 'many-to-one') {
       return (
-        <div key={index} className="p-4 bg-gray-50 rounded-lg border">
+        <div key={index} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex items-start space-x-4">
             {/* Multiple Sources */}
             <div className="flex-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Source Domains</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                Source Domains
+              </label>
               <div className="space-y-2">
                 {sources.map((source, sourceIndex) => (
                   <div key={sourceIndex} className="flex items-center space-x-2">
@@ -772,7 +781,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                       }}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {getAvailableDomains().source.map((domain) => (
+                      {Array.from(new Set([...getAvailableDomains().source, ...sources])).map((domain) => (
                         <option key={domain} value={domain}>{domain}</option>
                       ))}
                     </select>
@@ -804,13 +813,16 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             
             {/* Single Target */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Target Domain</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                Target Domain
+              </label>
               <select
                 value={targets[0]}
                 onChange={(e) => updateDomainMapping(index, 'target', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {getAvailableDomains().target.map((domain) => (
+                {Array.from(new Set([...getAvailableDomains().target, ...targets])).map((domain) => (
                   <option key={domain} value={domain}>{domain}</option>
                 ))}
               </select>
@@ -828,15 +840,18 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     } else {
       // Default one-to-one mapping
       return (
-        <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+        <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+              Source
+            </label>
             <select
               value={sources[0]}
               onChange={(e) => updateDomainMapping(index, 'source', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {getAvailableDomains().source.map((domain) => (
+              {Array.from(new Set([...getAvailableDomains().source, ...sources])).map((domain) => (
                 <option key={domain} value={domain}>{domain}</option>
               ))}
             </select>
@@ -845,13 +860,16 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <ArrowRight className="h-5 w-5 text-gray-400 mt-6" />
           
           <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+              Target
+            </label>
             <select
               value={targets[0]}
               onChange={(e) => updateDomainMapping(index, 'target', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {getAvailableDomains().target.map((domain) => (
+              {Array.from(new Set([...getAvailableDomains().target, ...targets])).map((domain) => (
                 <option key={domain} value={domain}>{domain}</option>
               ))}
             </select>
@@ -1055,16 +1073,19 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                 <p className="text-sm text-gray-600 mt-1">
                   {selectedScenario === 'single-super-admin' 
                     ? userMappingStrategy === 'one-to-many'
-                      ? 'Configure how one source domain maps to multiple target domains (one-to-many strategy)'
+                      ? 'Configure how one source domain maps to multiple target domains'
                       : userMappingStrategy === 'many-to-one'
-                      ? 'Configure how multiple source domains map to one target domain (many-to-one strategy)'
-                      : 'Configure how your domains should be mapped based on your migration strategy (one-to-one)'
+                      ? 'Configure how multiple source domains map to one target domain'
+                      : 'Configure one-to-one domain mappings for your migration'
                     : 'Configure how source domains map to target domains for cross-tenant migration'
                   }
                 </p>
                 {userMappingStrategy && (
-                  <div className="mt-2 inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">
-                    Strategy: {userMappingStrategy.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  <div className="mt-2 inline-flex items-center px-3 py-1 bg-blue-100 border border-blue-200 text-blue-800 text-xs font-medium rounded-full">
+                    <Settings className="h-3 w-3 mr-1" />
+                    Strategy: {userMappingStrategy === 'one-to-many' ? 'One-To-Many' : 
+                              userMappingStrategy === 'many-to-one' ? 'Many-To-One' : 
+                              'One-To-One'}
                   </div>
                 )}
               </div>
@@ -1131,7 +1152,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Cross-Tenant Authentication
+                  Google Workspace Authentication
                 </h3>
                 <button
                   onClick={() => setShowCrossTenantAuth(false)}
@@ -1239,6 +1260,15 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                     </div>
                   )}
                 </div>
+
+                {error && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <span className="text-sm text-red-700">{error}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {sourceAuthStatus.authenticated && targetAuthStatus.authenticated && (
@@ -1259,74 +1289,92 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       {/* Single Super Admin Authentication Modal */}
       {showSingleAuthModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Authenticate Google Workspace
-              </h3>
-              <button
-                onClick={() => setShowSingleAuthModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
-                <Shield className="h-6 w-6 text-blue-600" />
-                <div>
-                  <h4 className="font-medium text-blue-900">Secure Authentication Required</h4>
-                  <p className="text-sm text-blue-700">
-                    Authenticate with your Google Workspace account to discover available domains
-                  </p>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Google Workspace Authentication
+                </h3>
+                <button
+                  onClick={() => setShowSingleAuthModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <p className="text-gray-600 mb-6">
+                Authenticate with your Google Workspace account to discover available domains and configure migration settings.
+              </p>
+
+              <div className="space-y-4">
+                {/* Single Authentication Section - Matching Cross-Tenant Design */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <h4 className="font-medium text-gray-900">Google Workspace</h4>
+                    </div>
+                    {singleAuthStatus.authenticated ? (
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                    ) : (
+                      <div className="w-5 h-5 border-2 border-gray-300 rounded-full"></div>
+                    )}
+                  </div>
+                  
+                  {singleAuthStatus.authenticated ? (
+                    <div>
+                      <p className="text-sm text-green-600 mb-2">✓ Authenticated successfully</p>
+                      <p className="text-xs text-gray-500">
+                        Discovered {singleAuthStatus.domains.length} domain(s)
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Authenticate with your Google Workspace account to discover domains
+                      </p>
+                      <button
+                        onClick={handleSingleAuthFromModal}
+                        disabled={isLoading}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
+                      >
+                        {isLoading ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>Authenticating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="h-4 w-4" />
+                            <span>Authenticate</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
+
+                {error && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <span className="text-sm text-red-700">{error}</span>
+                    </div>
+                  </div>
+                )}
               </div>
-              
-              <div className="text-sm text-gray-600 space-y-2">
-                <p>This will:</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Open a secure Google authentication window</li>
-                  <li>Discover all available domains in your workspace</li>
-                  <li>Generate verification tokens for migration setup</li>
-                  <li>Redirect you to domain mapping configuration</li>
-                </ul>
-              </div>
-              
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <div className="flex items-center space-x-2">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <span className="text-sm text-red-700">{error}</span>
+
+              {singleAuthStatus.authenticated && (
+                <div className="mt-6 pt-4 border-t border-gray-200">
+                  <div className="flex items-center space-x-2 text-green-600">
+                    <CheckCircle className="h-5 w-5" />
+                    <span className="text-sm font-medium">
+                      Authentication successful! Proceeding to domain configuration...
+                    </span>
                   </div>
                 </div>
               )}
-              
-              <div className="flex space-x-3 pt-4">
-                <button
-                  onClick={() => setShowSingleAuthModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSingleAuthFromModal}
-                  disabled={isLoading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                      <span>Authenticating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Shield className="h-4 w-4" />
-                      <span>Authenticate</span>
-                    </>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
         </div>

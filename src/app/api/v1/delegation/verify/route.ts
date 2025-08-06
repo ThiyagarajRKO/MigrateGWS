@@ -1,48 +1,132 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { google } from 'googleapis'
+import path from 'path'
+import fs from 'fs'
 
-// Mock verification function - in production, this would test actual API calls
+// Real service account verification function
 const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: string) => {
-  // This would typically make actual Google API calls to verify delegation
-  // For now, we'll simulate the verification process
-  
   try {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500))
+    // Load service account credentials
+    const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
     
-    // Mock verification logic
-    const isConfigured = clientId && clientId !== 'your-service-account-client-id'
-    const isVerified = isConfigured && adminEmail.includes(domain)
-    
-    return {
-      domain,
-      clientId,
-      adminEmail,
-      configured: isConfigured,
-      verified: isVerified,
-      testResults: [{
-        test: 'Directory API Access',
-        status: isVerified ? 'success' : 'failed',
-        message: isVerified 
-          ? 'Successfully accessed Admin Directory API' 
-          : 'Failed to access Admin Directory API - check delegation configuration',
-        error: isVerified ? null : 'Insufficient permissions or delegation not configured'
-      }],
-      lastChecked: new Date().toISOString()
+    if (!fs.existsSync(serviceAccountPath)) {
+      throw new Error('Service account key file not found')
     }
-  } catch (error) {
+    
+    const serviceAccountKey = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+    
+    // Create JWT client for domain-wide delegation
+    const jwtClient = new google.auth.JWT({
+      email: serviceAccountKey.client_email,
+      key: serviceAccountKey.private_key,
+      scopes: [
+        // Core Admin Directory scopes for verification
+        'https://www.googleapis.com/auth/admin.directory.user.readonly',
+        'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+        'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
+        'https://www.googleapis.com/auth/admin.directory.group.readonly',
+        'https://www.googleapis.com/auth/admin.directory.customer.readonly'
+      ],
+      subject: adminEmail // Subject (admin email to impersonate)
+    })
+
+    // Test 1: Authenticate and get access token
+    console.log(`[Verification] Testing authentication for domain: ${domain} with admin: ${adminEmail}`)
+    await jwtClient.authorize()
+    
+    // Test 2: Try to access Admin Directory API
+    const admin = google.admin({ version: 'directory_v1', auth: jwtClient })
+    
+    // Test basic directory access by getting domain info
+    const domainResponse = await admin.domains.get({
+      customer: 'my_customer',
+      domainName: domain
+    })
+    
+    // Test user directory access
+    const usersResponse = await admin.users.list({
+      customer: 'my_customer',
+      domain: domain,
+      maxResults: 1 // Just test access, don't fetch all users
+    })
+
+    console.log(`[Verification] Successfully verified domain access for ${domain}`)
+    
     return {
       domain,
-      clientId,
+      clientId: serviceAccountKey.client_id,
       adminEmail,
-      configured: false,
+      configured: true,
+      verified: true,
+      testResults: [
+        {
+          test: 'Service Account Authentication',
+          status: 'success',
+          message: 'Successfully authenticated with service account'
+        },
+        {
+          test: 'Domain API Access',
+          status: 'success',
+          message: `Successfully accessed domain information for ${domain}`
+        },
+        {
+          test: 'Directory API Access',
+          status: 'success',
+          message: 'Successfully accessed Admin Directory API'
+        }
+      ],
+      lastChecked: new Date().toISOString(),
+      serviceAccountEmail: serviceAccountKey.client_email,
+      domainInfo: {
+        domainName: domainResponse.data.domainName,
+        verified: domainResponse.data.verified,
+        isPrimary: domainResponse.data.isPrimary
+      }
+    }
+  } catch (error: any) {
+    console.error(`[Verification] Error verifying domain access for ${domain}:`, error)
+    
+    // Determine the type of error for better diagnostics
+    let errorType = 'unknown'
+    let errorMessage = 'Unknown error occurred'
+    let configured = false
+    
+    if (error.code === 401 || error.message?.includes('unauthorized_client')) {
+      errorType = 'delegation_not_configured'
+      errorMessage = 'Domain-wide delegation not configured or service account not authorized'
+      configured = false
+    } else if (error.code === 403) {
+      errorType = 'insufficient_permissions'
+      errorMessage = 'Service account lacks required permissions or admin email is invalid'
+      configured = true
+    } else if (error.message?.includes('Service account key file not found')) {
+      errorType = 'missing_service_account'
+      errorMessage = 'Service account key file not found'
+      configured = false
+    } else if (error.message?.includes('invalid_grant')) {
+      errorType = 'invalid_subject'
+      errorMessage = 'Invalid admin email or domain-wide delegation not properly configured'
+      configured = true
+    } else {
+      errorMessage = error.message || 'Verification failed'
+    }
+
+    return {
+      domain,
+      clientId: clientId || 'unknown',
+      adminEmail,
+      configured,
       verified: false,
       testResults: [{
-        test: 'Directory API Access',
-        status: 'error',
-        message: 'Error during verification',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        test: 'Domain-wide Delegation Verification',
+        status: 'failed',
+        message: `Failed to verify domain access: ${errorMessage}`,
+        error: errorMessage,
+        errorType,
+        errorCode: error.code
       }],
-      lastChecked: new Date().toISOString()
+      lastChecked: new Date().toISOString(),
+      error: errorMessage
     }
   }
 }
@@ -75,8 +159,25 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Mock client ID for single domain
-      const clientId = process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || `mock-client-id-${domain.replace(/\./g, '-')}`
+      // Get client ID from service account key file
+      let clientId: string
+      try {
+        const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
+        if (fs.existsSync(serviceAccountPath)) {
+          const serviceAccountKey = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+          clientId = serviceAccountKey.client_id
+        } else {
+          throw new Error('Service account key file not found')
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Service account configuration error: ' + (error instanceof Error ? error.message : 'Unknown error')
+          },
+          { status: 500 }
+        )
+      }
 
       // Verify the single domain
       const domainVerification = await verifyDomainAccess(domain, clientId, adminEmail)
@@ -152,14 +253,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Mock client IDs - in production, these would be retrieved from your service account configuration
-    const sourceClientId = process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || `mock-client-id-${sourceDomain.replace(/\./g, '-')}`
-    const destClientId = process.env.NEXT_PUBLIC_SERVICE_ACCOUNT_CLIENT_ID || `mock-client-id-${destDomain.replace(/\./g, '-')}`
+    // Get client ID from service account key file for both domains
+    let clientId: string
+    try {
+      const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
+      if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccountKey = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+        clientId = serviceAccountKey.client_id
+      } else {
+        throw new Error('Service account key file not found')
+      }
+    } catch (error) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Service account configuration error: ' + (error instanceof Error ? error.message : 'Unknown error')
+        },
+        { status: 500 }
+      )
+    }
 
-    // Verify both domains
+    // Verify both domains using the same service account
     const [sourceVerification, destVerification] = await Promise.all([
-      verifyDomainAccess(sourceDomain, sourceClientId, sourceAdminEmail),
-      verifyDomainAccess(destDomain, destClientId, destAdminEmail)
+      verifyDomainAccess(sourceDomain, clientId, sourceAdminEmail),
+      verifyDomainAccess(destDomain, clientId, destAdminEmail)
     ])
 
     const response = {

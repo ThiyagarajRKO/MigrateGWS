@@ -85,6 +85,37 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   const [conflictResolution, setConflictResolution] = useState<'prefix' | 'suffix' | 'manual'>(
     selectedMapping?.conflictResolution || 'prefix'
   );
+  const [hasAutoSelectedPrimary, setHasAutoSelectedPrimary] = useState(false);
+
+  // Auto-select primary domain as source when domains are loaded
+  useEffect(() => {
+    console.log('[DomainMappingSelector] Auto-select useEffect triggered:', {
+      domainsLength: domains.length,
+      selectedMapping: !!selectedMapping,
+      hasAutoSelectedPrimary,
+      selectedType,
+      availableDomains: domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary }))
+    });
+    
+    if (domains.length > 0 && !selectedMapping && !hasAutoSelectedPrimary) {
+      const primaryDomain = domains.find(domain => domain.isPrimary);
+      if (primaryDomain) {
+        console.log('[DomainMappingSelector] Auto-selecting primary domain:', {
+          primaryDomainName: primaryDomain.domainName,
+          selectedType
+        });
+        
+        // Auto-select primary domain regardless of mapping type selection status
+        // This ensures the primary domain is selected as soon as domains are loaded
+        setSourceDomains([primaryDomain.domainName]);
+        console.log('[DomainMappingSelector] Auto-selected primary domain as source:', primaryDomain.domainName);
+        
+        setHasAutoSelectedPrimary(true);
+      } else {
+        console.log('[DomainMappingSelector] No primary domain found in domains:', domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary })));
+      }
+    }
+  }, [domains, selectedMapping, hasAutoSelectedPrimary]); // Removed selectedType dependency since we want this to work without type selection
 
   // Sync state when selectedMapping prop changes
   useEffect(() => {
@@ -132,13 +163,34 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   };
 
   const handleTypeSelect = (option: DomainMappingOption) => {
+    console.log('[DomainMappingSelector] handleTypeSelect called:', { 
+      optionType: option.type, 
+      currentSourceDomains: sourceDomains,
+      availableDomains: domains.map(d => d.domainName),
+      primaryDomain: domains.find(d => d.isPrimary)?.domainName 
+    });
+    
     setSelectedType(option.type);
     
-    // Reset domains based on type
+    // Get the primary domain to preserve auto-selection
+    const primaryDomain = domains.find(domain => domain.isPrimary);
+    const primaryDomainName = primaryDomain?.domainName || '';
+    
+    // Check if primary domain is already selected
+    const currentlyHasPrimary = sourceDomains.includes(primaryDomainName);
+    
     if (isMultiSourceMapping(option.type)) {
-      setSourceDomains(['', '']); // Start with 2 domains for multi-source mappings
+      // For multi-source mappings, ensure primary is first if it was already selected
+      if (currentlyHasPrimary) {
+        setSourceDomains([primaryDomainName, '']); // Keep primary as first, add empty second
+      } else {
+        setSourceDomains([primaryDomainName, '']); // Start with primary + empty
+      }
+      console.log('[DomainMappingSelector] Set multi-source domains:', [primaryDomainName, '']);
     } else {
-      setSourceDomains(['']); // Single domain for other types
+      // For single source mappings, use primary if available
+      setSourceDomains([primaryDomainName]);
+      console.log('[DomainMappingSelector] Set single source domain:', [primaryDomainName]);
     }
     
     if (isMultiTargetMapping(option.type)) {
@@ -147,6 +199,11 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     } else {
       setTargetDomains(['']); // Single target for other types
       setMultiTargetConfig([]); // Reset multi-target config
+    }
+    
+    // Set the auto-selection flag since we preserved/set the primary
+    if (primaryDomainName) {
+      setHasAutoSelectedPrimary(true);
     }
   };
 

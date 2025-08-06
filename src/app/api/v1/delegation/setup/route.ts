@@ -53,17 +53,121 @@ const generateServiceAccount = (domain: string) => {
   }
 }
 
-// Required OAuth scopes for Google Workspace migration
+// Required OAuth scopes for Google Workspace migration - COMPREHENSIVE LIST
 const REQUIRED_SCOPES = [
-  'https://www.googleapis.com/auth/admin.directory.user',
-  'https://www.googleapis.com/auth/admin.directory.domain',
+  // Admin Directory API - Complete organizational management
+  'https://www.googleapis.com/auth/admin.directory.orgunit',
+  'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
   'https://www.googleapis.com/auth/admin.directory.group',
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/admin.directory.group.readonly',
+  'https://www.googleapis.com/auth/admin.directory.group.member',
+  'https://www.googleapis.com/auth/admin.directory.group.member.readonly',
+  'https://www.googleapis.com/auth/admin.directory.user',
+  'https://www.googleapis.com/auth/admin.directory.user.readonly',
+  'https://www.googleapis.com/auth/admin.directory.domain',
+  'https://www.googleapis.com/auth/admin.directory.domain.readonly',
+  'https://www.googleapis.com/auth/admin.directory.customer.readonly',
+  'https://www.googleapis.com/auth/admin.directory.resource.calendar',
+  'https://www.googleapis.com/auth/admin.directory.resource.calendar.readonly',
+  'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly',
+  
+  // Admin Reports API - Usage and audit data
+  'https://www.googleapis.com/auth/admin.reports.usage.readonly',
+  'https://www.googleapis.com/auth/admin.reports.audit.readonly',
+  
+  // Google Drive API - Complete file and metadata management
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.metadata',
+  'https://www.googleapis.com/auth/drive.metadata.readonly',
   'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.photos.readonly',
+  
+  // Gmail API - Complete email management (including legacy mail scope)
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.labels',
+  'https://www.googleapis.com/auth/gmail.settings.basic',
+  'https://www.googleapis.com/auth/gmail.settings.sharing',
+  
+  // Calendar API - Calendar and events management
+  'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/contacts.readonly'
+  'https://www.googleapis.com/auth/calendar.events.readonly',
+  'https://www.googleapis.com/auth/calendar.settings.readonly',
+  
+  // Groups Migration and Settings
+  'https://www.googleapis.com/auth/apps.groups.migration',
+  'https://www.googleapis.com/auth/apps.groups.settings',
+  
+  // Contacts API - Contact management
+  'https://www.googleapis.com/auth/contacts',
+  'https://www.googleapis.com/auth/contacts.readonly',
+  
+  // User Info and Profile
+  'https://www.googleapis.com/auth/userinfo.email',
+  
+  // Google Sites (legacy scope)
+  'https://sites.google.com/feeds',
+  
+  // Email Settings (legacy scope)
+  'https://apps-apis.google.com/a/feeds/emailsettings/2.0/',
+  
+  // Google Chat API - Complete chat and messaging
+  'https://www.googleapis.com/auth/chat.bot',
+  'https://www.googleapis.com/auth/chat.spaces',
+  'https://www.googleapis.com/auth/chat.spaces.create',
+  'https://www.googleapis.com/auth/chat.spaces.readonly',
+  'https://www.googleapis.com/auth/chat.memberships',
+  'https://www.googleapis.com/auth/chat.memberships.app',
+  'https://www.googleapis.com/auth/chat.memberships.readonly',
+  'https://www.googleapis.com/auth/chat.messages',
+  'https://www.googleapis.com/auth/chat.messages.create',
+  'https://www.googleapis.com/auth/chat.messages.reactions',
+  'https://www.googleapis.com/auth/chat.messages.reactions.create',
+  'https://www.googleapis.com/auth/chat.messages.reactions.readonly',
+  'https://www.googleapis.com/auth/chat.messages.readonly',
+  'https://www.googleapis.com/auth/chat.users.readstate',
+  'https://www.googleapis.com/auth/chat.users.readstate.readonly',
+  'https://www.googleapis.com/auth/chat.admin.spaces.readonly',
+  'https://www.googleapis.com/auth/chat.admin.spaces',
+  'https://www.googleapis.com/auth/chat.admin.memberships.readonly',
+  'https://www.googleapis.com/auth/chat.admin.memberships',
+  'https://www.googleapis.com/auth/chat.app.spaces',
+  'https://www.googleapis.com/auth/chat.app.spaces.create',
+  'https://www.googleapis.com/auth/chat.app.memberships',
+  'https://www.googleapis.com/auth/chat.customemojis',
+  'https://www.googleapis.com/auth/chat.customemojis.readonly',
+  'https://www.googleapis.com/auth/chat.users.spacesettings',
+  'https://www.googleapis.com/auth/chat.import',
+  
+  // Google Photos API - Complete photo library management
+  'https://www.googleapis.com/auth/photoslibrary',
+  'https://www.googleapis.com/auth/photoslibrary.readonly',
+  'https://www.googleapis.com/auth/photoslibrary.sharing',
+  'https://www.googleapis.com/auth/photoslibrary.appendonly',
+  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
+  'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+  
+  // Google Slides API - Presentation management
+  'https://www.googleapis.com/auth/presentations.readonly',
+  'https://www.googleapis.com/auth/presentations',
+  
+  // Google Forms API - Forms management
+  'https://www.googleapis.com/auth/forms.body.readonly',
+  'https://www.googleapis.com/auth/forms.responses.readonly',
+  
+  // Google Apps Script API - Script management
+  'https://www.googleapis.com/auth/script.projects.readonly',
+  'https://www.googleapis.com/auth/script.webapp.deploy.readonly',
+  
+  // Cloud Identity API - Advanced identity management
+  'https://www.googleapis.com/auth/cloud-identity.groups.readonly',
+  'https://www.googleapis.com/auth/cloud-identity.orgunits.readonly'
 ]
 
 export async function POST(request: NextRequest) {
