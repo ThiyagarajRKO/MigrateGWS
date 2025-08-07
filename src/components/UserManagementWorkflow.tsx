@@ -49,6 +49,10 @@ interface User {
   // Additional properties for merged users
   sourceUsers?: User[];
   mergedFromDomains?: string[];
+  // Clone detection properties
+  isCloned?: boolean;
+  clonedTargetEmails?: string[];
+  clonedInDomains?: string[];
 }
 
 interface UserMapping {
@@ -144,6 +148,10 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [isCheckingExistingUsers, setIsCheckingExistingUsers] = useState(false);
+  
+  // Target domain users state
+  const [targetDomainUsers, setTargetDomainUsers] = useState<{[domain: string]: User[]}>({});
+  const [targetDiscoveryProgress, setTargetDiscoveryProgress] = useState<{[domain: string]: {loading: boolean, users: User[], error?: string}}>({});
   const [existingUserStatus, setExistingUserStatus] = useState<{[userEmail: string]: {exists: boolean, targetDomain: string, error?: string}}>({});
   
   // Creation state
@@ -1028,6 +1036,13 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   );
 
   const toggleUserSelection = (userId: string) => {
+    // Find the user to check if it's cloned
+    const user = discoveredUsers.find(u => u.id === userId);
+    if (user && isUserCloned(user)) {
+      console.log(`Cannot select user ${user.primaryEmail} - user is cloned in target domain(s):`, user.clonedInDomains);
+      return; // Don't allow selection of cloned users
+    }
+    
     setSelectedUsers(prev => {
       const newSet = new Set(prev);
       if (newSet.has(userId)) {
@@ -1040,7 +1055,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const selectAllFiltered = () => {
-    setSelectedUsers(new Set(filteredUsers.map(u => u.id)));
+    // Only select non-cloned users
+    const selectableUsers = filteredUsers.filter(u => !isUserCloned(u));
+    setSelectedUsers(new Set(selectableUsers.map(u => u.id)));
   };
 
   const clearSelection = () => {
@@ -1131,7 +1148,45 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
     console.log('Final existing user status:', existingStatus);
     setExistingUserStatus(existingStatus);
+    
+    // Update discovered users with clone information
+    setDiscoveredUsers(prev => prev.map(user => {
+      const userMappingsForUser = mappingsToCheck.filter(m => m.user.id === user.id);
+      const clonedTargetEmails: string[] = [];
+      const clonedInDomains: string[] = [];
+      
+      userMappingsForUser.forEach(mapping => {
+        if (existingStatus[mapping.targetEmail]?.exists) {
+          clonedTargetEmails.push(mapping.targetEmail);
+          clonedInDomains.push(mapping.targetDomain);
+        }
+      });
+      
+      const isCloned = clonedTargetEmails.length > 0;
+      
+      return {
+        ...user,
+        isCloned,
+        clonedTargetEmails: isCloned ? clonedTargetEmails : undefined,
+        clonedInDomains: isCloned ? clonedInDomains : undefined
+      };
+    }));
+    
     setIsCheckingExistingUsers(false);
+  };
+
+  // Helper function to check if a user is cloned
+  const isUserCloned = (user: User): boolean => {
+    return user.isCloned === true;
+  };
+
+  // Helper function to get clone status details
+  const getCloneStatusForUser = (user: User): { isCloned: boolean, clonedInDomains: string[], clonedTargetEmails: string[] } => {
+    return {
+      isCloned: user.isCloned || false,
+      clonedInDomains: user.clonedInDomains || [],
+      clonedTargetEmails: user.clonedTargetEmails || []
+    };
   };
 
   // Statistics
@@ -1139,7 +1194,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     total: userMappings.length,
     created: creationResults.filter(r => r.success).length,
     failed: creationResults.filter(r => !r.success).length,
-    pending: userMappings.filter(m => m.status === 'pending').length
+    pending: userMappings.filter(m => m.status === 'pending').length,
+    cloned: discoveredUsers.filter(u => isUserCloned(u)).length,
+    selectable: discoveredUsers.filter(u => !isUserCloned(u)).length
   };
 
   useEffect(() => {
@@ -1528,6 +1585,11 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                     <CheckCircle className="h-5 w-5 text-green-600" />
                     <span className="font-medium text-green-900">
                       Discovery Complete: {discoveredUsers.length} users found
+                      {stats.cloned > 0 && (
+                        <span className="ml-2 text-sm text-orange-700">
+                          ({stats.cloned} already exist in target, {stats.selectable} available for creation)
+                        </span>
+                      )}
                       {mappingType === 'many-to-one' && (
                         <span className="ml-2 text-sm text-blue-700">
                           ({getUsersWithMultiDomainAccounts(discoveredUsers).length} users can be {
@@ -1556,10 +1618,13 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                       <span>{isCheckingExistingUsers ? 'Checking...' : 'Recheck Targets'}</span>
                     </button>
                     <button
-                      onClick={() => setSelectedUsers(new Set(discoveredUsers.map(u => u.id)))}
+                      onClick={() => {
+                        const selectableUsers = discoveredUsers.filter(u => !isUserCloned(u));
+                        setSelectedUsers(new Set(selectableUsers.map(u => u.id)));
+                      }}
                       className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
                     >
-                      Select All
+                      Select All Available ({stats.selectable})
                     </button>
                     <button
                       onClick={() => setSelectedUsers(new Set())}
@@ -2081,7 +2146,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
           {/* Selection Summary */}
           <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Users selected:</span>
                 <span className="font-medium">{selectedUsers.size}</span>
@@ -2093,10 +2158,38 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               </div>
               
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Strategy:</span>
+                <span className="text-gray-600">Already cloned:</span>
+                <span className="font-medium text-orange-600">{stats.cloned}</span>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">Available for selection:</span>
+                <span className="font-medium text-green-600">{stats.selectable}</span>
+              </div>
+            </div>
+            
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Migration strategy:</span>
                 <span className="font-medium">{mappingType?.replace(/-/g, ' TO ').toUpperCase() || 'Not specified'}</span>
               </div>
             </div>
+            
+            {/* Show clone information banner */}
+            {stats.cloned > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="p-3 bg-orange-100 border border-orange-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-orange-800">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="font-medium">Clone Detection Results:</span>
+                  </div>
+                  <div className="mt-1 text-sm text-orange-700">
+                    {stats.cloned} user(s) already exist in target domain(s) and cannot be selected to prevent duplicate creation.
+                    These users are marked with an "Already Exists" badge and have disabled checkboxes.
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* Show single super admin info */}
             {migrationScenario === 'single-super-admin' && sourceAdminEmail && (
@@ -2133,24 +2226,43 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               if (!user) return null;
               
               const userMappingsForThisUser = userMappings.filter(m => m.user.id === userId);
+              const cloneStatus = getCloneStatusForUser(user);
+              const isCloned = cloneStatus.isCloned;
               
               return (
-                <div key={userId} className="border border-gray-200 rounded-lg p-3">
+                <div key={userId} className={`border rounded-lg p-3 ${
+                  isCloned 
+                    ? 'border-orange-200 bg-orange-50' 
+                    : 'border-gray-200'
+                }`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <input
                         type="checkbox"
                         checked={selectedUsers.has(userId)}
                         onChange={() => toggleUserSelection(userId)}
-                        className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                        disabled={isCloned}
+                        className={`h-4 w-4 border-gray-300 rounded focus:ring-purple-500 ${
+                          isCloned 
+                            ? 'text-gray-400 cursor-not-allowed opacity-50' 
+                            : 'text-purple-600'
+                        }`}
                       />
                       <div>
                         <div className="flex items-center space-x-2">
-                          <h4 className="font-medium text-gray-900">{user.name.fullName}</h4>
+                          <h4 className={`font-medium ${
+                            isCloned ? 'text-gray-500' : 'text-gray-900'
+                          }`}>{user.name.fullName}</h4>
                           {user.isAdmin && (
                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                               <Shield className="h-3 w-3 mr-1" />
                               Admin
+                            </span>
+                          )}
+                          {isCloned && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                              <AlertCircle className="h-3 w-3 mr-1" />
+                              Already Exists
                             </span>
                           )}
                           {user.sourceUsers && user.sourceUsers.length > 1 && (
@@ -2162,14 +2274,34 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                         
                         {/* Show merged user information or regular email */}
                         {user.sourceUsers && user.sourceUsers.length > 1 ? (
-                          <div className="text-sm text-gray-600">
+                          <div className={`text-sm ${isCloned ? 'text-gray-500' : 'text-gray-600'}`}>
                             <div>Primary: {user.sourceUsers[0]?.primaryEmail}</div>
                             <div className="text-xs text-gray-500">
                               Also from: {user.sourceUsers.slice(1).map(u => `${u.primaryEmail} (${u.sourceDomain})`).join(', ')}
                             </div>
                           </div>
                         ) : (
-                          <div className="text-sm text-gray-600">{user.primaryEmail}</div>
+                          <div className={`text-sm ${isCloned ? 'text-gray-500' : 'text-gray-600'}`}>
+                            {user.primaryEmail}
+                          </div>
+                        )}
+                        
+                        {/* Show clone information */}
+                        {isCloned && (
+                          <div className="mt-2 p-2 bg-orange-100 border border-orange-200 rounded text-xs">
+                            <div className="font-medium text-orange-800 mb-1">User already exists in target domain(s):</div>
+                            <div className="space-y-1">
+                              {cloneStatus.clonedTargetEmails.map((email, idx) => (
+                                <div key={idx} className="text-orange-700">
+                                  <Mail className="h-3 w-3 inline mr-1" />
+                                  {email} in {cloneStatus.clonedInDomains[idx]}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-1 text-orange-600 italic">
+                              Selection disabled to prevent duplicate creation
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>

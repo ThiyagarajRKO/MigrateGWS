@@ -237,13 +237,13 @@ const chunkScopes = (scopes: string[], chunkSize: number): string[][] => {
   return chunks
 }
 
-// Admin verification interfaces
-interface AdminVerificationState {
+// Source account verification interfaces
+interface SourceAccountVerificationState {
   isVerifying: boolean
   isVerified: boolean
-  verificationMethod: 'crypto' | 'jwt' | 'both'
+  verificationMethod: 'oauth' | 'delegation' | 'both'
   challenge?: any
-  jwtToken?: string
+  accessToken?: string
   verificationResult?: any
   error?: string
 }
@@ -297,8 +297,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
-  // Admin verification state
-  const [adminVerification, setAdminVerification] = useState<AdminVerificationState>({
+  // Source account verification state
+  const [sourceAccountVerification, setSourceAccountVerification] = useState<SourceAccountVerificationState>({
     isVerifying: false,
     isVerified: false,
     verificationMethod: 'both'
@@ -567,17 +567,18 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     destAccounts, sourceAccounts, migrationScenario, persistedVerifications, getVerificationKey
   ])
 
-  // Admin verification functions
-  const initiateAdminVerification = useCallback(async (verificationMethod: 'crypto' | 'jwt' | 'both' = 'both') => {
-    if (!finalAdminEmail || !adminDomain) {
-      setAdminVerification(prev => ({
+  // Source account verification functions
+  const initiateSourceAccountVerification = useCallback(async (verificationMethod: 'oauth' | 'delegation' | 'both' = 'both') => {
+    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
+    if (!effectiveSourceAccount) {
+      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
         ...prev,
-        error: 'Admin email not available from OAuth authentication'
+        error: 'Source account email not available'
       }))
       return
     }
 
-    setAdminVerification(prev => ({
+    setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
       ...prev,
       isVerifying: true,
       error: undefined,
@@ -585,8 +586,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     }))
 
     try {
-      // Step 1: Generate challenge or JWT token
-      const response = await fetch(`/api/v1/admin/verify?adminEmail=${encodeURIComponent(finalAdminEmail)}&domain=${encodeURIComponent(adminDomain)}&method=${verificationMethod}`)
+      // Step 1: Generate OAuth challenge or delegation token
+      const response = await fetch(`/api/v1/source-account/verify?sourceEmail=${encodeURIComponent(effectiveSourceAccount)}&method=${verificationMethod}`)
       
       if (!response.ok) {
         throw new Error(`Failed to generate verification challenge: ${response.statusText}`)
@@ -598,31 +599,32 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         throw new Error(data.error || 'Failed to generate verification challenge')
       }
 
-      // Store challenge or JWT token for verification
-      setAdminVerification(prev => ({
+      // Store challenge or OAuth token for verification
+      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
         ...prev,
         challenge: data.challenge,
-        jwtToken: data.jwtToken,
+        accessToken: data.accessToken,
         isVerifying: false
       }))
 
       return data
     } catch (error) {
-      setAdminVerification(prev => ({
+      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
         ...prev,
         isVerifying: false,
         error: error instanceof Error ? error.message : 'Unknown verification error'
       }))
       throw error
     }
-  }, [finalAdminEmail, adminDomain])
+  }, [sourceAccount, inputsourceAdminEmail])
 
-  const performAdminVerification = useCallback(async (signature?: string) => {
-    if (!finalAdminEmail || !adminDomain) {
-      throw new Error('Admin email not available')
+  const performSourceAccountVerification = useCallback(async (authCode?: string) => {
+    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
+    if (!effectiveSourceAccount) {
+      throw new Error('Source account email not available')
     }
 
-    setAdminVerification(prev => ({
+    setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
       ...prev,
       isVerifying: true,
       error: undefined
@@ -630,24 +632,23 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
     try {
       const requestBody = {
-        adminEmail: finalAdminEmail,
-        domain: adminDomain,
-        migrationScenario: migrationScenario || 'single-super-admin',
-        verificationMethod: adminVerification.verificationMethod,
-        challenge: adminVerification.challenge?.challenge,
-        jwtToken: adminVerification.jwtToken
+        sourceEmail: effectiveSourceAccount,
+        migrationScenario: migrationScenario || 'cross-tenant',
+        verificationMethod: sourceAccountVerification.verificationMethod,
+        challenge: sourceAccountVerification.challenge?.challenge,
+        accessToken: sourceAccountVerification.accessToken
       }
 
       const headers: HeadersInit = {
         'Content-Type': 'application/json'
       }
 
-      // Add signature to headers if provided (for crypto verification)
-      if (signature && adminVerification.verificationMethod !== 'jwt') {
-        headers['x-challenge-signature'] = signature
+      // Add auth code to headers if provided (for OAuth verification)
+      if (authCode && sourceAccountVerification.verificationMethod !== 'delegation') {
+        headers['x-auth-code'] = authCode
       }
 
-      const response = await fetch('/api/v1/admin/verify', {
+      const response = await fetch('/api/v1/source-account/verify', {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody)
@@ -661,11 +662,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       
       if (!result.success) {
         // Handle cases where additional steps are required
-        if (result.requiresChallenge || result.requiresJWT) {
-          setAdminVerification(prev => ({
+        if (result.requiresOAuth || result.requiresDelegation) {
+          setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
             ...prev,
             challenge: result.challenge,
-            jwtToken: result.jwtToken,
+            accessToken: result.accessToken,
             isVerifying: false
           }))
           return result
@@ -674,7 +675,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       }
 
       // Verification successful
-      setAdminVerification(prev => ({
+      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
         ...prev,
         isVerified: result.verified,
         verificationResult: result.result,
@@ -684,53 +685,53 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       // Save verification status
       if (result.verified) {
         saveVerificationStatus(
-          finalAdminEmail,
+          '',
+          effectiveSourceAccount,
           undefined,
-          undefined,
-          migrationScenario || 'single-super-admin',
+          migrationScenario || 'cross-tenant',
           true
         )
       }
 
       return result
     } catch (error) {
-      setAdminVerification(prev => ({
+      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
         ...prev,
         isVerifying: false,
         error: error instanceof Error ? error.message : 'Unknown verification error'
       }))
       throw error
     }
-  }, [finalAdminEmail, adminDomain, migrationScenario, adminVerification.verificationMethod, adminVerification.challenge, adminVerification.jwtToken, saveVerificationStatus])
+  }, [sourceAccount, inputsourceAdminEmail, migrationScenario, sourceAccountVerification.verificationMethod, sourceAccountVerification.challenge, sourceAccountVerification.accessToken, saveVerificationStatus])
 
-  // Load cached verification status when admin email is available
+  // Load cached verification status when source account email is available
   useEffect(() => {
-    if (finalAdminEmail && adminDomain) {
+    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
+    if (effectiveSourceAccount) {
       // Check if already verified in cache
-      const verificationKey = getVerificationKey(finalAdminEmail, undefined, undefined, migrationScenario || 'single-super-admin')
+      const verificationKey = getVerificationKey('', effectiveSourceAccount, undefined, migrationScenario || 'cross-tenant')
       const cachedVerification = persistedVerifications[verificationKey]
       
       if (cachedVerification?.verified) {
-        console.log('[DomainWideDelegationSetup] Found cached verification for:', finalAdminEmail)
-        setAdminVerification(prev => ({
+        console.log('[DomainWideDelegationSetup] Found cached verification for source account:', effectiveSourceAccount)
+        setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
           ...prev,
           isVerified: true,
           verificationResult: {
-            email: finalAdminEmail,
-            domain: adminDomain,
+            email: effectiveSourceAccount,
             verified: true,
             lastVerified: new Date(cachedVerification.timestamp).toISOString(),
             permissions: {
               canManageUsers: true,
               canAccessDirectory: true,
               canConfigureDelegation: true,
-              adminLevel: 'super'
+              adminLevel: 'source'
             }
           }
         }))
       }
     }
-  }, [finalAdminEmail, adminDomain, migrationScenario, getVerificationKey, persistedVerifications])
+  }, [sourceAccount, inputsourceAdminEmail, migrationScenario, getVerificationKey, persistedVerifications])
 
   // Helper function to check if verification is successful
   const isVerificationSuccessful = useCallback((): boolean => {
@@ -1916,30 +1917,30 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           );
         })()}
 
-        {/* Admin Email Verification Section */}
-        {finalAdminEmail && (
+        {/* Source Account Verification Section */}
+        {(sourceAccount || inputsourceAdminEmail) && (
           <div className="mb-6 p-5 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-300/60 rounded-xl shadow-sm">
             <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
               <Shield className="h-5 w-5 text-green-600" />
-              Admin Email Verification
+              Source Account Verification
               <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium">
-                OAuth Authenticated
+                Cross-Tenant Migration
               </span>
             </h3>
             
             <div className="space-y-4">
-              {/* Admin Email Display */}
+              {/* Source Account Display */}
               <div className="p-4 bg-white/70 border border-green-200/60 rounded-lg shadow-sm">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Authenticated Admin Email:</span>
+                  <span className="text-sm font-medium text-gray-700">Source Account Email:</span>
                   <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
-                    {finalAdminEmail}
+                    {sourceAccount || inputsourceAdminEmail}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700">Domain:</span>
                   <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
-                    {adminDomain}
+                    {(sourceAccount || inputsourceAdminEmail)?.split('@')[1] || 'N/A'}
                   </span>
                 </div>
               </div>
@@ -1949,12 +1950,12 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">Verification Status:</span>
                   <div className="flex items-center gap-2">
-                    {adminVerification.isVerified ? (
+                    {sourceAccountVerification.isVerified ? (
                       <>
                         <CheckCircle className="h-4 w-4 text-green-600" />
                         <span className="text-sm font-medium text-green-700">Verified</span>
                       </>
-                    ) : adminVerification.isVerifying ? (
+                    ) : sourceAccountVerification.isVerifying ? (
                       <>
                         <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
                         <span className="text-sm font-medium text-blue-700">Verifying...</span>
@@ -1972,38 +1973,38 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">Method:</span>
                   <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium">
-                    {adminVerification.verificationMethod.toUpperCase()}
+                    {sourceAccountVerification.verificationMethod.toUpperCase()}
                   </span>
                 </div>
 
                 {/* Verification Error */}
-                {adminVerification.error && (
+                {sourceAccountVerification.error && (
                   <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                    <strong>Error:</strong> {adminVerification.error}
+                    <strong>Error:</strong> {sourceAccountVerification.error}
                   </div>
                 )}
 
                 {/* Verification Result Details */}
-                {adminVerification.verificationResult && (
+                {sourceAccountVerification.verificationResult && (
                   <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                     <h5 className="font-medium text-green-800 mb-2">Verification Details:</h5>
                     <div className="space-y-1 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-700">Admin Level:</span>
+                        <span className="text-gray-700">Account Level:</span>
                         <span className="font-medium text-green-800 capitalize">
-                          {adminVerification.verificationResult.permissions?.adminLevel}
+                          {sourceAccountVerification.verificationResult.permissions?.adminLevel}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-700">Can Manage Users:</span>
-                        <span className={`font-medium ${adminVerification.verificationResult.permissions?.canManageUsers ? 'text-green-800' : 'text-red-800'}`}>
-                          {adminVerification.verificationResult.permissions?.canManageUsers ? 'Yes' : 'No'}
+                        <span className={`font-medium ${sourceAccountVerification.verificationResult.permissions?.canManageUsers ? 'text-green-800' : 'text-red-800'}`}>
+                          {sourceAccountVerification.verificationResult.permissions?.canManageUsers ? 'Yes' : 'No'}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-700">Last Verified:</span>
                         <span className="font-medium text-gray-800">
-                          {new Date(adminVerification.verificationResult.lastVerified).toLocaleString()}
+                          {new Date(sourceAccountVerification.verificationResult.lastVerified).toLocaleString()}
                         </span>
                       </div>
                     </div>
@@ -2013,13 +2014,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
               {/* Verification Actions */}
               <div className="flex gap-3">
-                {!adminVerification.isVerified && (
+                {!sourceAccountVerification.isVerified && (
                   <button
-                    onClick={() => initiateAdminVerification('both')}
-                    disabled={adminVerification.isVerifying}
+                    onClick={() => initiateSourceAccountVerification('both')}
+                    disabled={sourceAccountVerification.isVerifying}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {adminVerification.isVerifying ? (
+                    {sourceAccountVerification.isVerifying ? (
                       <>
                         <RefreshCw className="h-4 w-4 animate-spin" />
                         Verifying...
@@ -2033,13 +2034,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   </button>
                 )}
 
-                {(adminVerification.challenge || adminVerification.jwtToken) && !adminVerification.isVerified && (
+                {(sourceAccountVerification.challenge || sourceAccountVerification.accessToken) && !sourceAccountVerification.isVerified && (
                   <button
-                    onClick={() => performAdminVerification()}
-                    disabled={adminVerification.isVerifying}
+                    onClick={() => performSourceAccountVerification()}
+                    disabled={sourceAccountVerification.isVerifying}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {adminVerification.isVerifying ? (
+                    {sourceAccountVerification.isVerifying ? (
                       <>
                         <RefreshCw className="h-4 w-4 animate-spin" />
                         Processing...
@@ -2053,9 +2054,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   </button>
                 )}
 
-                {adminVerification.isVerified && (
+                {sourceAccountVerification.isVerified && (
                   <button
-                    onClick={() => setAdminVerification({
+                    onClick={() => setSourceAccountVerification({
                       isVerifying: false,
                       isVerified: false,
                       verificationMethod: 'both'
@@ -2068,27 +2069,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 )}
               </div>
 
-              {/* Challenge or JWT Token Display */}
-              {adminVerification.challenge && (
+              {/* Challenge or Access Token Display */}
+              {sourceAccountVerification.challenge && (
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <h5 className="font-medium text-yellow-800 mb-2">Cryptographic Challenge:</h5>
+                  <h5 className="font-medium text-yellow-800 mb-2">OAuth Challenge:</h5>
                   <div className="font-mono text-xs bg-white p-2 rounded border break-all">
-                    {adminVerification.challenge.challenge}
+                    {sourceAccountVerification.challenge.challenge}
                   </div>
                   <p className="text-sm text-yellow-700 mt-2">
-                    Sign this challenge with your admin private key and provide the signature.
+                    Complete the OAuth flow with your source account credentials.
                   </p>
                 </div>
               )}
 
-              {adminVerification.jwtToken && (
+              {sourceAccountVerification.accessToken && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h5 className="font-medium text-blue-800 mb-2">JWT Token:</h5>
+                  <h5 className="font-medium text-blue-800 mb-2">Access Token:</h5>
                   <div className="font-mono text-xs bg-white p-2 rounded border break-all">
-                    {adminVerification.jwtToken}
+                    {sourceAccountVerification.accessToken.substring(0, 50)}...
                   </div>
                   <p className="text-sm text-blue-700 mt-2">
-                    Verify this JWT token and return it for final validation.
+                    Token received. Click Complete Verification to finalize the process.
                   </p>
                 </div>
               )}
