@@ -204,30 +204,44 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Store popup reference for potential manual closing
       setCurrentPopup(popup);
 
-      // Monitor popup for completion with more frequent checks
+      // Monitor popup for completion with more frequent checks and better COOP handling
       const checkClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkClosed);
-          setIsLoading(false);
-          setCurrentAuthType(null);
-          setCurrentPopup(null);
+        try {
+          // Try to check popup status, but don't rely on it exclusively
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            setIsLoading(false);
+            setCurrentAuthType(null);
+            setCurrentPopup(null);
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          // Don't log this error as it's expected with COOP
+          // Instead, rely on postMessage communication and timeout
         }
       }, 500); // Check every 500ms instead of 1000ms
 
-      // Also add a safety timeout to prevent infinite loading
-      const safetyTimeout = setTimeout(() => {
-        if (!popup.closed) {
-          popup.close();
-        }
+      // Enhanced timeout-based cleanup for COOP scenarios
+      const enhancedTimeout = setTimeout(() => {
         clearInterval(checkClosed);
+        // Clean up state regardless of popup status
         setIsLoading(false);
         setCurrentAuthType(null);
-      }, 60000); // 60 second timeout
+        // Try to close popup if still accessible
+        try {
+          if (popup && !popup.closed) {
+            popup.close();
+          }
+        } catch (error) {
+          // COOP policy prevents popup access, which is fine
+        }
+        setCurrentPopup(null);
+      }, 30000); // 30 second timeout for better UX
 
       // Clean up on unmount
       return () => {
         clearInterval(checkClosed);
-        clearTimeout(safetyTimeout);
+        clearTimeout(enhancedTimeout);
       };
 
     } catch (error) {
@@ -398,6 +412,19 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Clean up URL parameters
       const cleanUrl = window.location.origin + window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
+      
+      // Clean up popup and loading state when OAuth succeeds
+      setIsLoading(false);
+      setCurrentAuthType(null);
+      // Try to close popup if accessible (COOP-safe)
+      if (currentPopup) {
+        try {
+          currentPopup.close();
+        } catch (error) {
+          // COOP policy may prevent closing, which is fine
+        }
+        setCurrentPopup(null);
+      }
     };
 
     window.addEventListener('message', handleMessage);
@@ -513,12 +540,26 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     if (selectedScenario === 'cross-tenant' && 
         sourceAuthStatus.authenticated && 
         targetAuthStatus.authenticated &&
-        currentPopup && !currentPopup.closed) {
+        currentPopup) {
       // Both authentications complete - close the popup
       setTimeout(() => {
-        if (currentPopup && !currentPopup.closed) {
-          currentPopup.close();
-          setCurrentPopup(null);
+        try {
+          if (currentPopup && !currentPopup.closed) {
+            currentPopup.close();
+            setCurrentPopup(null);
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          console.log('Cannot check popup.closed due to COOP policy in cross-tenant cleanup');
+          try {
+            if (currentPopup) {
+              currentPopup.close();
+              setCurrentPopup(null);
+            }
+          } catch (closeError) {
+            console.log('Cannot close popup due to COOP policy');
+            setCurrentPopup(null);
+          }
         }
       }, 1000); // Small delay to show success message
     }
@@ -571,22 +612,35 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         throw new Error('Popup blocked. Please allow popups for this site.');
       }
 
-      // Monitor popup for completion with more frequent checks
+      // Monitor popup for completion with enhanced COOP handling
       const checkClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkClosed);
-          setIsLoading(false);
+        try {
+          // Try to check popup status, but don't rely on it exclusively
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            setIsLoading(false);
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          // Don't log this error as it's expected with COOP
+          // Instead, rely on postMessage communication and timeout
         }
       }, 500); // Check every 500ms instead of 1000ms
 
-      // Also add a safety timeout to prevent infinite loading
-      const safetyTimeout = setTimeout(() => {
-        if (!popup.closed) {
-          popup.close();
-        }
+      // Enhanced timeout-based cleanup for COOP scenarios
+      const enhancedTimeout = setTimeout(() => {
         clearInterval(checkClosed);
+        // Clean up state regardless of popup status
         setIsLoading(false);
-      }, 60000); // 60 second timeout
+        // Try to close popup if still accessible
+        try {
+          if (popup && !popup.closed) {
+            popup.close();
+          }
+        } catch (error) {
+          // COOP policy prevents popup access, which is fine
+        }
+      }, 30000); // 30 second timeout for better UX
 
     } catch (error) {
       console.error('OAuth initiation error:', error);
