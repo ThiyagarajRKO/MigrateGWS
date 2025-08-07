@@ -319,6 +319,26 @@ export default function NewMigration() {
     handleOAuthCallback();
   }, [oauthSessionId]);
 
+  // Handle OAuth popup close messages from cross-origin popup
+  useEffect(() => {
+    const handlePopupClose = (event: MessageEvent) => {
+      // Only handle messages from our own origin
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data?.type === 'close_oauth_popup') {
+        console.log('Received close popup message from OAuth callback');
+        // Find any open popup windows and close them
+        // This is a fallback in case the popup can't close itself due to COOP
+      }
+    };
+
+    window.addEventListener('message', handlePopupClose);
+    
+    return () => {
+      window.removeEventListener('message', handlePopupClose);
+    };
+  }, []);
+
   // Preload next components based on current step
   useEffect(() => {
     const preloadNext = () => {
@@ -856,10 +876,18 @@ export default function NewMigration() {
       
       // Listen for OAuth completion
       const checkClosed = setInterval(() => {
-        if (popup?.closed) {
+        try {
+          if (popup?.closed) {
+            clearInterval(checkClosed);
+            setOauthInProgress(null);
+            // Check if authentication was successful and discover domains
+            checkOAuthStatusAndDiscoverDomains();
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          console.log('Cannot check popup.closed due to COOP policy, checking auth status anyway');
           clearInterval(checkClosed);
           setOauthInProgress(null);
-          // Check if authentication was successful and discover domains
           checkOAuthStatusAndDiscoverDomains();
         }
       }, 1000);
@@ -906,7 +934,15 @@ export default function NewMigration() {
       const popup = window.open(authUrl, 'oauth_additional', 'width=600,height=600,scrollbars=yes,resizable=yes');
       
       const checkClosed = setInterval(() => {
-        if (popup?.closed) {
+        try {
+          if (popup?.closed) {
+            clearInterval(checkClosed);
+            setOauthInProgress(null);
+            checkAdditionalOAuthStatus();
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          console.log('Cannot check popup.closed due to COOP policy, checking auth status anyway');
           clearInterval(checkClosed);
           setOauthInProgress(null);
           checkAdditionalOAuthStatus();
@@ -976,6 +1012,16 @@ export default function NewMigration() {
 
   // Check if all required admin emails are provided
   const areAllAdminEmailsProvided = (): boolean => {
+    // Check if service account is configured (if so, admin emails are optional)
+    const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+    
+    // If service account is configured, admin emails are not required
+    if (serviceAccountEmail) {
+      console.log('[Migration Page] Service account configured, admin emails not required:', serviceAccountEmail ? '***@' + serviceAccountEmail.split('@')[1] : 'NOT_SET');
+      return true;
+    }
+    
+    // Fallback to original logic if service account is not configured
     if (selectedScenario === 'single-super-admin') {
       // For single super admin, check admin email OR authenticated user email
       return !!(adminEmail || user?.email);
@@ -2542,7 +2588,7 @@ export default function NewMigration() {
                               {!isOAuthCompleteForDomainDiscovery() && 'Authentication must be completed first. '}
                               {!domainMapping && 'Domain configuration required. '}
                               {!dwdSetupComplete && 'Domain-wide delegation setup required. '}
-                              {!areAllAdminEmailsProvided() && 'Admin emails required. '}
+                              {!areAllAdminEmailsProvided() && 'Admin emails or service account configuration required. '}
                               {!dwdVerificationStatus && 'Delegation verification required. '}
                             </div>
                           ) : currentStep === 'configuration' ? (
@@ -2590,3 +2636,4 @@ export default function NewMigration() {
     </ProtectedRoute>
   );
 }
+ 

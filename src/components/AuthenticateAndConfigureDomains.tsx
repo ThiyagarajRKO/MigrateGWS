@@ -207,7 +207,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Monitor popup for completion with more frequent checks and better COOP handling
       const checkClosed = setInterval(() => {
         try {
-          // Try to check popup status, but don't rely on it exclusively
+          // Try to check popup status
           if (popup.closed) {
             clearInterval(checkClosed);
             setIsLoading(false);
@@ -1182,7 +1182,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           </div>
         </div>
       ) : (
-        /* Authentication Required State - More Compact */
+        /* Authentication Required State*/
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
           <div className="text-center">
             <User className="h-8 w-8 text-gray-400 mx-auto mb-3" />
