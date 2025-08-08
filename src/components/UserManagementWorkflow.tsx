@@ -26,7 +26,8 @@ import {
   Clock,
   TrendingUp,
   Database,
-  Zap
+  Zap,
+  Copy
 } from 'lucide-react';
 
 interface User {
@@ -250,7 +251,14 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     // For single-super-admin scenario, use the same source admin email for all target domains
     if (migrationScenario === 'single-super-admin' && sourceAdminEmail) {
       const effectiveEmails: {[domain: string]: string} = {};
-      targetDomains.forEach(domain => {
+      
+      // Get all unique target domains from current mappings
+      const actualTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
+      
+      // If no mappings yet, fall back to provided target domains
+      const domainsToConfig = actualTargetDomains.length > 0 ? actualTargetDomains : targetDomains;
+      
+      domainsToConfig.forEach(domain => {
         effectiveEmails[domain] = sourceAdminEmail;
       });
       
@@ -258,6 +266,8 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         migrationScenario,
         sourceAdminEmail,
         targetDomains,
+        actualTargetDomains,
+        domainsToConfig,
         effectiveEmails
       });
       
@@ -332,6 +342,32 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     return {
       isValid: missingDomains.length === 0,
       missingDomains
+    };
+  };
+
+  const getTargetDomainConfigurationStatus = (): { isValid: boolean, missingDomains: string[], message?: string } => {
+    // Get all target domains that will be used in mappings
+    const allTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
+    
+    if (allTargetDomains.length === 0) {
+      return { isValid: true, missingDomains: [] };
+    }
+
+    const effectiveTargetAdminEmails = getEffectiveTargetAdminEmails();
+    const missingDomains = allTargetDomains.filter(domain => !effectiveTargetAdminEmails[domain]);
+    
+    if (missingDomains.length === 0) {
+      return { isValid: true, missingDomains: [] };
+    }
+
+    const message = migrationScenario === 'single-super-admin'
+      ? `Single Super Admin scenario detected, but source admin email is not configured for target domains: ${missingDomains.join(', ')}. Please ensure your source admin email has domain-wide delegation rights for these target domains.`
+      : `Target domain admin configuration required for: ${missingDomains.join(', ')}. Please configure admin emails for these domains in the delegation setup.`;
+
+    return {
+      isValid: false,
+      missingDomains,
+      message
     };
   };
 
@@ -924,8 +960,23 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
     if (missingAdminEmails.length > 0) {
       const errorMessage = migrationScenario === 'single-super-admin' 
-        ? `Single Super Admin scenario requires source admin email to be configured. Missing configuration for target domains: ${missingAdminEmails.join(', ')}.`
-        : `Missing admin email configuration for target domains: ${missingAdminEmails.join(', ')}. Please configure these in the delegation setup before proceeding.`;
+        ? `Single Super Admin scenario detected, but source admin email is not configured. Please ensure you have:
+1. Set up a single source admin email in the delegation setup
+2. This admin email has domain-wide delegation rights for all target domains: ${missingAdminEmails.join(', ')}
+3. Completed the domain-wide delegation setup for target domains
+
+Missing configuration for target domains: ${missingAdminEmails.join(', ')}.`
+        : `Target Domain Admin Configuration Required
+Admin emails are missing for the following target domains:
+
+${missingAdminEmails.map(domain => `• ${domain}`).join('\n')}
+
+Please configure admin emails for these domains in the delegation setup step before proceeding with user creation.
+
+For cross-tenant migration, each target domain requires its own admin email with domain-wide delegation permissions.`;
+      
+      // Show user-friendly alert
+      alert(errorMessage);
       
       // Update all mappings to failed status with error message
       setUserMappings(prev => prev.map(mapping => 
@@ -2101,6 +2152,253 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                   })()}
                 </div>
               </div>
+
+              {/* Comprehensive User Listings */}
+              <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Source Users List */}
+              <div className="bg-white border border-gray-200 rounded-lg">
+                <div className="p-4 border-b border-gray-200 bg-blue-50">
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-5 w-5 text-blue-600" />
+                    <h4 className="font-medium text-blue-900">Source Users</h4>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                      {discoveredUsers.length}
+                    </span>
+                  </div>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Users discovered in source domains
+                  </p>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {discoveredUsers.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No source users found
+                    </div>
+                  ) : (
+                    discoveredUsers.map((user, index) => (
+                      <div key={user.id} className={`p-3 border-b border-gray-100 last:border-b-0 ${
+                        isUserCloned(user) ? 'bg-yellow-50' : ''
+                      }`}>
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                              user.isAdmin ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {user.name.fullName.charAt(0).toUpperCase()}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {user.name.fullName}
+                              </p>
+                              {user.isAdmin && (
+                                <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                                  Admin
+                                </span>
+                              )}
+                              {isUserCloned(user) && (
+                                <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                                  Cloned
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{user.primaryEmail}</p>
+                            <p className="text-xs text-gray-500">{user.sourceDomain}</p>
+                            {user.orgUnitPath && user.orgUnitPath !== '/' && (
+                              <p className="text-xs text-gray-500">OU: {user.orgUnitPath}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Target Users List */}
+              <div className="bg-white border border-gray-200 rounded-lg">
+                <div className="p-4 border-b border-gray-200 bg-green-50">
+                  <div className="flex items-center space-x-2">
+                    <Target className="h-5 w-5 text-green-600" />
+                    <h4 className="font-medium text-green-900">Target Users</h4>
+                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                      {userMappings.length}
+                    </span>
+                  </div>
+                  <p className="text-sm text-green-700 mt-1">
+                    Mapped target user accounts to be created
+                  </p>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {userMappings.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No target mappings configured
+                    </div>
+                  ) : (
+                    userMappings.map((mapping, index) => {
+                      const existingStatus = existingUserStatus[mapping.targetEmail];
+                      const isExisting = existingStatus?.exists;
+                      
+                      return (
+                        <div key={`${mapping.targetEmail}-${index}`} className={`p-3 border-b border-gray-100 last:border-b-0 ${
+                          isExisting ? 'bg-yellow-50' : ''
+                        }`}>
+                          <div className="flex items-start space-x-3">
+                            <div className="flex-shrink-0">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                                isExisting ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {mapping.targetEmail.charAt(0).toUpperCase()}
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {mapping.user.name.fullName}
+                                </p>
+                                {isExisting && (
+                                  <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                                    Exists
+                                  </span>
+                                )}
+                                {isCheckingExistingUsers && (
+                                  <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-600 truncate">{mapping.targetEmail}</p>
+                              <p className="text-xs text-gray-500">{mapping.targetDomain}</p>
+                              <div className="flex items-center space-x-1 mt-1">
+                                <span className="text-xs text-gray-400">Source:</span>
+                                <span className="text-xs text-gray-600">{mapping.user.primaryEmail}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Already Cloned Users */}
+              <div className="bg-white border border-gray-200 rounded-lg">
+                <div className="p-4 border-b border-gray-200 bg-yellow-50">
+                  <div className="flex items-center space-x-2">
+                    <Copy className="h-5 w-5 text-yellow-600" />
+                    <h4 className="font-medium text-yellow-900">Already Cloned</h4>
+                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+                      {stats.cloned}
+                    </span>
+                  </div>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    Users that exist in both source and target domains
+                  </p>
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {stats.cloned === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No cloned users detected
+                    </div>
+                  ) : (
+                    (() => {
+                      const clonedUsers = discoveredUsers.filter(user => isUserCloned(user));
+                      return clonedUsers.map((user, index) => {
+                        const cloneInfo = getCloneStatusForUser(user);
+                        
+                        return (
+                          <div key={user.id} className="p-3 border-b border-gray-100 last:border-b-0 bg-yellow-25">
+                            <div className="flex items-start space-x-3">
+                              <div className="flex-shrink-0">
+                                <div className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center text-xs font-medium">
+                                  {user.name.fullName.charAt(0).toUpperCase()}
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center space-x-2">
+                                  <p className="text-sm font-medium text-gray-900 truncate">
+                                    {user.name.fullName}
+                                  </p>
+                                  <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                                    Cloned
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 truncate">{user.primaryEmail}</p>
+                                <p className="text-xs text-gray-500">Source: {user.sourceDomain}</p>
+                                
+                                {/* Show target domains where this user already exists */}
+                                {cloneInfo.clonedTargetEmails.length > 0 && (
+                                  <div className="mt-1">
+                                    <p className="text-xs text-gray-500">Target accounts:</p>
+                                    {cloneInfo.clonedTargetEmails.slice(0, 3).map((email: string, idx: number) => (
+                                      <p key={idx} className="text-xs text-yellow-700 ml-2">
+                                        → {email}
+                                      </p>
+                                    ))}
+                                    {cloneInfo.clonedTargetEmails.length > 3 && (
+                                      <p className="text-xs text-yellow-600 ml-2">
+                                        ... and {cloneInfo.clonedTargetEmails.length - 3} more
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {cloneInfo.clonedInDomains.length > 0 && (
+                                  <div className="mt-1">
+                                    <p className="text-xs text-gray-500">
+                                      Found in: {cloneInfo.clonedInDomains.join(', ')}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Summary Statistics */}
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900">Total Discovered</span>
+                </div>
+                <p className="text-2xl font-bold text-blue-900 mt-1">{stats.total}</p>
+                <p className="text-xs text-blue-700">Source users found</p>
+              </div>
+              
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <Target className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-900">Target Mappings</span>
+                </div>
+                <p className="text-2xl font-bold text-green-900 mt-1">{userMappings.length}</p>
+                <p className="text-xs text-green-700">Accounts to create</p>
+              </div>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <Copy className="h-5 w-5 text-yellow-600" />
+                  <span className="text-sm font-medium text-yellow-900">Already Cloned</span>
+                </div>
+                <p className="text-2xl font-bold text-yellow-900 mt-1">{stats.cloned}</p>
+                <p className="text-xs text-yellow-700">Exist in both domains</p>
+              </div>
+              
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-purple-600" />
+                  <span className="text-sm font-medium text-purple-900">Available</span>
+                </div>
+                <p className="text-2xl font-bold text-purple-900 mt-1">{stats.selectable}</p>
+                <p className="text-xs text-purple-700">Ready for creation</p>
+              </div>
+            </div>
             </div>
           )}
         </div>
@@ -2122,6 +2420,44 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               </div>
             </div>
             
+            {/* Target Domain Configuration Validation */}
+            {(() => {
+              const configStatus = getTargetDomainConfigurationStatus();
+              if (!configStatus.isValid) {
+                return (
+                  <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                      <div>
+                        <h4 className="font-medium text-yellow-900">Target Domain Configuration Required</h4>
+                        <p className="text-sm text-yellow-800 mt-1">{configStatus.message}</p>
+                        <div className="mt-2">
+                          <p className="text-sm font-medium text-yellow-900">Missing admin configuration for:</p>
+                          <ul className="mt-1 list-disc list-inside text-sm text-yellow-800">
+                            {configStatus.missingDomains.map(domain => (
+                              <li key={domain}>{domain}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="mt-3 text-sm text-yellow-800">
+                          {migrationScenario === 'single-super-admin' ? (
+                            <p>
+                              <strong>For Single Super Admin scenario:</strong> Ensure your source admin email has domain-wide delegation rights for all target domains listed above.
+                            </p>
+                          ) : (
+                            <p>
+                              <strong>For Cross-Tenant scenario:</strong> Configure individual admin emails for each target domain in the delegation setup step.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            
             <div className="flex items-center space-x-3">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -2133,12 +2469,13 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               
               <button
                 onClick={() => setCurrentStep('creation')}
-                disabled={selectedUsers.size === 0}
+                disabled={selectedUsers.size === 0 || !getTargetDomainConfigurationStatus().isValid}
                 className={`px-4 py-2 rounded-lg transition-colors ${
-                  selectedUsers.size > 0
+                  selectedUsers.size > 0 && getTargetDomainConfigurationStatus().isValid
                     ? 'bg-purple-600 text-white hover:bg-purple-700'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
+                title={!getTargetDomainConfigurationStatus().isValid ? 'Please configure target domain admin emails first' : ''}
               >
                 Create {selectedUsers.size} Users
               </button>
