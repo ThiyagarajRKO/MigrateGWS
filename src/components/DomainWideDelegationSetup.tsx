@@ -23,7 +23,8 @@ import {
   X,
   Info,
   ArrowRight,
-  AlertTriangle
+  AlertTriangle,
+  Target
 } from 'lucide-react'
 
 interface DomainWideDelegationSetupProps {
@@ -1730,51 +1731,50 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   }
 
   return (
-    <div className={`bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-blue-200/60 shadow-lg shadow-blue-200/50 ${className}`} style={style}>
+    <div className={`bg-white rounded-lg border border-blue-300 shadow-md ${className}`} style={style}>
       {/* Header */}
-      <div className="p-6 border-b border-blue-200/60 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/25">
-            <Shield className="w-6 h-6 text-white" />
+      <div className="p-4 border-b border-blue-200 bg-blue-50">
+        <div className="flex items-center gap-2">
+          <div className="p-2 bg-blue-600 rounded-lg">
+            <Shield className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-bold text-gray-800">
+              <h2 className="text-xl font-bold text-black">
                 Domain-wide Delegation Setup
               </h2>
               <div className="relative">
                 <Info 
-                  className="w-5 h-5 text-slate-400 hover:text-gray-600 cursor-help transition-colors duration-200" 
+                  className="w-4 h-4 text-blue-600 hover:text-black cursor-help transition-colors" 
                   onMouseEnter={() => setShowOverviewTooltip(true)}
                   onMouseLeave={() => setShowOverviewTooltip(false)}
                 />
                 
                 {/* Overview Tooltip */}
                 {showOverviewTooltip && (
-                  <div className="absolute left-0 top-6 z-50 w-96 p-4 bg-white/95 backdrop-blur-sm border border-blue-200 rounded-xl shadow-xl shadow-blue-900/10">
-                    <div className="space-y-4 text-base">
+                  <div className="absolute left-0 top-6 z-50 w-80 p-3 bg-white border border-blue-300 rounded-lg shadow-lg">
+                    <div className="space-y-3 text-sm">
                       <div>
-                        <h4 className="font-bold text-slate-900 mb-3 text-lg">🔐 What is Domain-wide Delegation?</h4>
-                        <p className="text-slate-700 leading-relaxed">
-                          Domain-wide Delegation allows a service account to access Google Workspace data on behalf of users across your entire domain without requiring individual user consent.
+                        <h4 className="font-bold text-black mb-2">Domain-wide Delegation</h4>
+                        <p className="text-black">
+                          Allows service account access to Google Workspace data across your domain without individual user consent.
                         </p>
                       </div>
                       
                       <div>
-                        <h4 className="font-bold text-slate-900 mb-3 text-lg">📋 Why do we need it for migration?</h4>
-                        <ul className="text-slate-700 space-y-2 leading-relaxed">
-                          <li>• Automated access to all user data (Gmail, Drive, Calendar, Contacts, Photos, Chat, etc.)</li>
+                        <h4 className="font-bold text-black mb-2">Migration Benefits</h4>
+                        <ul className="text-black space-y-1">
+                          <li>• Automated access to all user data</li>
                           <li>• No individual user authentication required</li>
-                          <li>• Comprehensive data migration capabilities</li>
                           <li>• Secure, auditable access control</li>
                         </ul>
                       </div>
                       
                       {getDomainMappingContext && (
                         <div>
-                          <h4 className="font-semibold text-gray-900 mb-2">🗺️ Your Migration Scenario:</h4>
-                          <div className="text-gray-600 space-y-3">
-                            <div className="font-medium text-lg text-gray-800">{getDomainMappingContext.description}</div>
+                          <h4 className="font-bold text-black mb-1">Migration Scenario</h4>
+                          <div className="text-black">
+                            <div className="font-medium">{getDomainMappingContext.description}</div>
                             
                             {/* Debug logging for domain display */}
                             {(() => {
@@ -1789,76 +1789,56 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             })()}
                             
                             {/* Enhanced domain mapping visualization */}
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-                              <div className="text-sm font-semibold text-gray-700 mb-2">📋 Domain Mapping Details:</div>
+                            <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                              <div className="text-xs font-bold text-black mb-2">Domain Mapping:</div>
                               
                               {/* Source Domains */}
-                              <div className="flex items-start space-x-2">
-                                <span className="text-xs font-medium text-blue-700 min-w-[60px]">Source{getDomainMappingContext.sourceDomains.length > 1 ? 's' : ''}:</span>
+                              <div className="flex items-start space-x-2 mb-2">
+                                <span className="text-xs font-medium text-black min-w-[50px]">Source:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {getDomainMappingContext.sourceDomains.map((domain, index) => (
-                                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
                                       {domain}
                                     </span>
                                   ))}
                                 </div>
-                              </div>
-                              
-                              {/* Arrow separator */}
-                              <div className="flex justify-center">
-                                <span className="text-gray-400 font-bold text-lg">↓</span>
                               </div>
                               
                               {/* Target Domains */}
                               <div className="flex items-start space-x-2">
-                                <span className="text-xs font-medium text-green-700 min-w-[60px]">Target{getDomainMappingContext.targetDomains.length > 1 ? 's' : ''}:</span>
+                                <span className="text-xs font-medium text-black min-w-[50px]">Target:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {getDomainMappingContext.targetDomains.map((domain, index) => (
-                                    <span key={index} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                                    <span key={index} className="px-2 py-1 bg-blue-200 text-blue-900 rounded text-xs">
                                       {domain}
                                     </span>
                                   ))}
                                 </div>
                               </div>
-                            </div>
-                            
-                            {/* Complexity and stats */}
-                            <div className="text-sm text-slate-600 font-medium bg-slate-50 px-3 py-2 rounded">
-                              <span className="text-purple-700">Complexity: {getDomainMappingContext.complexity}</span> | 
-                              <span className="text-blue-700 ml-1">Sources: {getDomainCount().source}</span> | 
-                              <span className="text-green-700 ml-1">Targets: {getDomainCount().target}</span>
-                            </div>
-                            
-                            {getDomainMappingContext.isCrossTenant && (
-                              <div className="text-orange-700 text-sm font-medium bg-orange-50 border border-orange-200 rounded p-2">
-                                ⚠️ Cross-tenant migration requires separate domain setups
+                              
+                              <div className="text-xs text-blue-800 mt-2">
+                                Complexity: {getDomainMappingContext.complexity}
                               </div>
-                            )}
+                            </div>
                           </div>
                         </div>
                       )}
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-2"> 🔧 Setup Requirements:</h4>
-                        <ul className="text-gray-600 space-y-1">
+                        <h4 className="font-bold text-black mb-1">Setup Requirements</h4>
+                        <ul className="text-black space-y-1 text-xs">
                           <li>• Super Admin access to {getDomainMappingContext?.isCrossTenant ? 'source and target domains' : 'your domain'}</li>
                           <li>• Google Cloud Project with enabled APIs</li>
-                          <li>• Service Account with Domain-wide Delegation configured</li>
-                          {getDomainMappingContext?.isMultiTarget && <li>• Admin access to all target domains</li>}
-                          {getDomainMappingContext?.isMultiSource && <li>• Admin access to all source domains</li>}
+                          <li>• Service Account with Domain-wide Delegation</li>
                         </ul>
                       </div>
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-2">⚠️ Security Considerations:</h4>
-                        <ul className="text-gray-600 space-y-1">
+                        <h4 className="font-bold text-black mb-1">Security Notes</h4>
+                        <ul className="text-black space-y-1 text-xs">
                           <li>• Only authorize trusted applications</li>
-                          <li>• Regularly review delegated access</li>
-                          <li>• Can be revoked at any time from Admin Console</li>
                           <li>• All API calls are logged and auditable</li>
-                          {getDomainMappingContext?.complexity === 'Very High' && (
-                            <li className="text-orange-600">• Consider testing with subset of users first</li>
-                          )}
+                          <li>• Can be revoked anytime from Admin Console</li>
                         </ul>
                       </div>
                     </div>
@@ -1866,75 +1846,70 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 )}
               </div>
             </div>
-            <p className="text-slate-700 mt-2 font-medium text-base">
+            <p className="text-black mt-1 font-medium text-sm">
               Configure secure cross-domain access for Google Workspace migration
             </p>
           </div>
           <div className="text-right">
-            <div className="text-sm text-slate-600 font-semibold">Progress</div>
-            <div className="text-xl font-bold text-gray-800">
+            <div className="text-xs text-blue-600 font-bold">Progress</div>
+            <div className="text-lg font-bold text-black">
               {completedCount}/{totalSteps}
             </div>
           </div>
         </div>
         
         {/* Progress Bar */}
-        <div className="mt-4">
-          <div className="w-full bg-slate-200 rounded-full h-2.5 shadow-inner">
+        <div className="mt-2">
+          <div className="w-full bg-blue-100 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-500 shadow-sm"
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
               style={{ width: `${(completedCount / totalSteps) * 100}%` }}
             />
           </div>
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-4">
         {/* Account Information & Domain Mapping */}
         {(() => {
           const effectiveAdminInfo = getEffectiveAdminInfo();
           const hasAnyAdminInfo = effectiveAdminInfo.hasPropsData || effectiveAdminInfo.cachedInfo;
           
           return (hasAnyAdminInfo || domainMapping) && (
-            <div className="mb-6 p-5 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-300/60 rounded-xl shadow-sm">
-              <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-600" />
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <h3 className="font-merriweather font-bold text-black mb-2 flex items-center gap-2">
+                <Users className="h-4 w-4 text-blue-600" />
                 Migration Configuration
                 {effectiveAdminInfo.cachedInfo && (
-                  <span className="ml-2 px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
-                    From Cache
+                  <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded font-medium">
+                    Cached
                   </span>
                 )}
               </h3>
               
               {/* Domain Mapping Information */}
               {domainMapping && getDomainMappingContext && (
-                <div className="mb-4 p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/60 rounded-lg shadow-sm">
+                <div className="mb-3 p-3 bg-white border border-blue-200 rounded">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-800 text-sm">Domain Mapping Strategy</h4>
-                    <span className={`px-3 py-1.5 text-xs rounded-full font-semibold shadow-sm ${
-                      getDomainMappingContext.complexity === 'Very High' ? 'bg-gradient-to-r from-red-500 to-red-600 text-white' :
-                      getDomainMappingContext.complexity === 'High' ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white' :
-                      getDomainMappingContext.complexity === 'Medium' ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white' :
-                      'bg-gradient-to-r from-blue-500 to-blue-600 text-white'
-                    }`}>
-                      {getDomainMappingContext.complexity} Complexity
+                    <h4 className="font-merriweather font-bold text-black text-sm">Domain Mapping Strategy</h4>
+                    <span className="px-2 py-1 text-xs rounded bg-blue-600 text-white font-bold">
+                      {getDomainMappingContext.complexity}
                     </span>
                   </div>
-                  <p className="text-gray-700 text-sm mb-3">{getDomainMappingContext.description}</p>
+                  <p className="text-black text-sm mb-2">{getDomainMappingContext.description}</p>
                   
                   {/* Source and Target Domain Lists */}
-                  <div className="space-y-3 text-sm">
+                  <div className="space-y-2 text-sm">
                     {/* Source Domains */}
                     <div>
-                      <span className="text-gray-700 font-semibold block mb-1">
-                        Source Domain{getDomainMappingContext.sourceDomains.length > 1 ? 's' : ''} ({getDomainMappingContext.sourceDomains.length}):
+                      <span className="text-black font-bold block mb-1">
+                        Source ({getDomainMappingContext.sourceDomains.length}):
                       </span>
                       <div className="flex flex-wrap gap-1">
                         {getDomainMappingContext.sourceDomains.map((domain, index) => (
                           <span 
                             key={index}
-                            className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-md font-medium border border-blue-200"
+                            className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200"
                           >
                             {domain}
                           </span>
@@ -1944,14 +1919,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     
                     {/* Target Domains */}
                     <div>
-                      <span className="text-gray-700 font-semibold block mb-1">
-                        Target Domain{getDomainMappingContext.targetDomains.length > 1 ? 's' : ''} ({getDomainMappingContext.targetDomains.length}):
+                      <span className="text-black font-bold block mb-1">
+                        Target ({getDomainMappingContext.targetDomains.length}):
                       </span>
                       <div className="flex flex-wrap gap-1">
                         {getDomainMappingContext.targetDomains.map((domain, index) => (
                           <span 
                             key={index}
-                            className="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded-md font-medium border border-green-200"
+                            className="inline-block px-2 py-1 bg-blue-200 text-blue-900 text-xs rounded border border-blue-300"
                           >
                             {domain}
                           </span>
@@ -1959,62 +1934,52 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       </div>
                     </div>
                   </div>
-                  
-                  {getDomainMappingContext.isCrossTenant && (
-                    <div className="mt-2 flex items-center gap-1 text-sm text-gray-700 font-medium">
-                      <AlertCircle className="h-3 w-3" />
-                      <span>Cross-tenant migration requires domain-wide delegation setup for both source and destination domains</span>
-                    </div>
-                  )}
                 </div>
               )}
               
-              <div className="space-y-4 text-sm">
-                {/* Single Super Admin scenario - only show when single super admin */}
+              <div className="space-y-2 text-sm">
+                {/* Single Super Admin scenario */}
                 {migrationScenario === 'single-super-admin' && effectiveAdminInfo.adminEmail && (
                   <div>
-                    <div className="text-gray-700 font-medium">
+                    <div className="text-black font-bold">
                       Super Admin
                       {effectiveAdminInfo.cachedInfo && (
-                        <span className="ml-2 text-xs text-green-600 font-medium">
+                        <span className="ml-2 text-xs text-blue-600">
                           (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                         </span>
                       )}
                     </div>
-                    <div className="text-gray-800">{effectiveAdminInfo.adminEmail}</div>
-                    <div className="text-gray-700 text-sm mt-1 font-medium">
-                      Single super admin migration scenario - full domain access
-                    </div>
+                    <div className="text-black">{effectiveAdminInfo.adminEmail}</div>
                   </div>
                 )}
 
-                {/* Cross-tenant scenario - only show when cross-tenant */}
+                {/* Cross-tenant scenario */}
                 {migrationScenario === 'cross-tenant' && (
                   <>
                     {/* Single source domain */}
                     {effectiveAdminInfo.sourceAccount && Object.keys(effectiveAdminInfo.sourceAccounts || {}).length === 0 && (
                       <div>
-                        <div className="text-gray-700 font-medium">
+                        <div className="text-black font-bold">
                           Source Domain Admin
                           {effectiveAdminInfo.cachedInfo && (
-                            <span className="ml-2 text-xs text-green-600 font-medium">
+                            <span className="ml-2 text-xs text-blue-600">
                               (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                             </span>
                           )}
                         </div>
-                        <div className="text-gray-800">{effectiveAdminInfo.sourceAccount}</div>
+                        <div className="text-black">{effectiveAdminInfo.sourceAccount}</div>
                       </div>
                     )}
                     
                     {/* Multiple source domains */}
                     {Object.keys(effectiveAdminInfo.sourceAccounts || {}).length > 0 && (
                       <div>
-                        <div className="text-blue-700 font-semibold mb-2">Source Domain Admins</div>
-                        <div className="space-y-2">
+                        <div className="text-black font-bold mb-2">Source Domain Admins</div>
+                        <div className="space-y-1">
                           {Object.entries(effectiveAdminInfo.sourceAccounts).map(([domain, email]) => (
-                            <div key={domain} className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-200/60 rounded-lg shadow-sm">
-                              <span className="text-blue-700 font-mono text-sm font-bold">{domain}</span>
-                              <span className="text-blue-800 text-sm font-medium">{email}</span>
+                            <div key={domain} className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded">
+                              <span className="text-blue-800 text-sm font-bold">{domain}</span>
+                              <span className="text-black text-sm">{email}</span>
                             </div>
                           ))}
                         </div>
@@ -2024,27 +1989,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     {/* Single destination domain */}
                     {effectiveAdminInfo.destAccount && Object.keys(effectiveAdminInfo.destAccounts || {}).length === 0 && (
                       <div>
-                        <div className="text-blue-700 font-semibold">
+                        <div className="text-black font-bold">
                           Destination Domain Admin
                           {effectiveAdminInfo.cachedInfo && (
-                            <span className="ml-2 text-xs text-green-600 font-medium">
+                            <span className="ml-2 text-xs text-blue-600">
                               (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                             </span>
                           )}
                         </div>
-                        <div className="text-blue-800 font-medium">{effectiveAdminInfo.destAccount}</div>
+                        <div className="text-black">{effectiveAdminInfo.destAccount}</div>
                       </div>
                     )}
                     
                     {/* Multiple destination domains */}
                     {Object.keys(effectiveAdminInfo.destAccounts || {}).length > 0 && (
                       <div>
-                        <div className="text-blue-700 font-semibold mb-2">Destination Domain Admins</div>
-                        <div className="space-y-2">
+                        <div className="text-black font-bold mb-2">Destination Domain Admins</div>
+                        <div className="space-y-1">
                           {Object.entries(effectiveAdminInfo.destAccounts).map(([domain, email]) => (
-                            <div key={domain} className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-300/60 rounded-lg shadow-sm">
-                              <span className="text-blue-700 font-mono text-sm font-bold">{domain}</span>
-                              <span className="text-blue-800 text-sm font-medium">{email}</span>
+                            <div key={domain} className="flex items-center justify-between p-2 bg-blue-100 border border-blue-200 rounded">
+                              <span className="text-blue-900 text-sm font-bold">{domain}</span>
+                              <span className="text-black text-sm">{email}</span>
                             </div>
                           ))}
                         </div>
@@ -2060,30 +2025,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         {/* Source Account Verification Section - REMOVED */}
 
         {/* Unified Setup Section - Always Available */}
-        <div className="mb-6 p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/60 rounded-xl shadow-lg shadow-blue-100/50">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/25">
-              <Settings className="h-5 w-5 text-white" />
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 bg-blue-600 rounded-lg">
+              <Settings className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-800">
+              <h3 className="heading-primary text-lg text-black">
                 Domain-wide Delegation Setup
               </h3>
-              <p className="text-base text-gray-700 leading-relaxed font-medium">
+              <p className="text-sm text-black">
                 {getDomainMappingContext ? (
                   <>
-                    Configure domain-wide delegation for your <strong>{getMigrationScenarioDisplayText()}</strong> migration.
+                    Configure delegation for your <strong>{getMigrationScenarioDisplayText()}</strong> migration.
                     {getDomainMappingContext.isCrossTenant ? 
-                      ' Automated setup will generate service accounts and instructions for both domains.' :
-                      ' Automated setup will generate service account and instructions for your domain.'
+                      ' Setup for both domains.' :
+                      ' Setup for your domain.'
                     }
-                    {getDomainMappingContext.complexity === 'Very High' && (
-                      <> This complex migration requires careful configuration.</>
-                    )}
                   </>
                 ) : (
                   <>
-                    Configure domain-wide delegation for your Google Workspace migration.
+                    Configure domain-wide delegation for migration.
                     <span className="text-orange-600 font-semibold"> Manual domain mapping required</span> - 
                     please configure your domain mappings first before proceeding with delegation setup.
                   </>
@@ -2094,16 +2056,16 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           
           {/* Admin Email Input Section - Show based on initial props state */}
           {shouldShowInputSection && (
-            <div className="mb-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200/60 rounded-lg shadow-sm">
+            <div className="mb-3 p-3 bg-white border border-blue-200 rounded-lg">
               {/* Cache Status Banner */}
               {hasCachedVerification() && (
-                <div className="mb-4 p-3 bg-gradient-to-r from-green-100 to-emerald-100 border border-green-300/60 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <h5 className="font-bold text-green-800">Using Cached Configuration</h5>
+                <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle className="h-4 w-4 text-blue-600" />
+                    <h5 className="heading-secondary font-bold text-black">Using Cached Configuration</h5>
                   </div>
-                  <p className="text-sm text-green-700 font-medium">
-                    Previously verified admin emails have been loaded. You can review and modify them below if needed.
+                  <p className="text-sm text-black">
+                    Previously verified admin emails loaded. Review and modify if needed.
                   </p>
                   <button
                     onClick={() => {
@@ -2128,7 +2090,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 </div>
               )}
               
-              <h4 className="font-bold text-gray-800 mb-4 text-lg">Domain Administrator Configuration</h4>
+              <h4 className="heading-secondary font-bold text-gray-800 mb-4 text-lg">Domain Administrator Configuration</h4>
               <p className="text-base text-gray-700 mb-4 leading-relaxed">
                 {getDomainMappingContext ? (
                   <>
@@ -2410,577 +2372,32 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             )}
           </div>
 
-        {/* Generated Setup Instructions */}
-        {delegationSetupData && (
-          <div className="mb-6 p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-amber-100 rounded-lg">
-                <Key className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-amber-900">
-                  Generated Setup Instructions
-                </h3>
-                <p className="text-base text-amber-800 leading-relaxed font-medium">
-                  Follow these step-by-step instructions to configure domain-wide delegation
-                </p>
-              </div>
-            </div>
-
-            {/* Step-by-Step Instructions with Embedded Configuration */}
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h4 className="font-bold text-gray-800 mb-3 text-lg flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Step-by-Step Setup Process
-              </h4>
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">1</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-base break-words">Go to Google Admin Console</p>
-                    <p className="text-gray-700 text-sm font-medium mb-2 break-words">
-                      Navigate to{' '}
-                      {delegationSetupData.setupInstructions?.domain?.adminConsoleUrl ? (
-                        <a 
-                          href={delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || '#'} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 underline font-semibold"
-                        >
-                          your admin console
-                        </a>
-                      ) : (
-                        <a 
-                          href="https://admin.google.com" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 underline font-semibold"
-                        >
-                          https://admin.google.com
-                        </a>
-                      )}
-                    </p>
-                    {delegationSetupData.setupInstructions?.domain?.adminConsoleUrl && (
-                      <div className="mt-2 p-2 bg-blue-100 rounded border">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-blue-800">🔗 Direct Link:</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || '', 'admin-url')}
-                            className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors"
-                          >
-                            {copiedItem === 'admin-url' ? (
-                              <>
-                                Copied!
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3 w-3" />
-                                Copy URL
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        <code className="text-xs font-mono text-blue-800 break-all block mt-1">
-                          {delegationSetupData.setupInstructions?.domain?.adminConsoleUrl || ''}
-                        </code>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">2</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-base break-words">Navigate to API Controls</p>
-                    <p className="text-gray-700 text-sm font-medium break-words">
-                      Go to <strong>Security → API Controls → Domain-wide Delegation</strong>
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">3</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-base break-words">Add New Client</p>
-                    <p className="text-gray-700 text-sm font-medium break-words">
-                      Click <strong>"Add new"</strong> to create a new domain-wide delegation entry
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">4</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-base break-words">Enter Client ID</p>
-                    <p className="text-gray-700 text-sm font-medium mb-2 break-words">
-                      Copy and paste this <strong>Client ID</strong> into the Client ID field:
-                    </p>
-                    <div className="p-3 bg-white rounded border-2 border-blue-300">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-bold text-gray-800">📋 Client ID:</span>
-                        <button
-                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'step4-client-id')}
-                          className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-semibold"
-                        >
-                          {copiedItem === 'step4-client-id' ? (
-                            <>
-                              Copied!
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-4 w-4" />
-                              Copy
-                            </>
-                          )}
-                        </button>
-                      </div>
-                      <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-2 rounded">
-                        {delegationSetupData.setupInstructions?.domain?.clientId || 'Client ID not available'}
-                      </code>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">5</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-base break-words">Add OAuth Scopes</p>
-                    <p className="text-gray-700 text-sm font-medium mb-2 break-words">
-                      Copy and paste these <strong>OAuth Scopes</strong> into the OAuth scopes field:
-                    </p>
-                    
-                    {/* Scope Chunks in Steps */}
-                    <div className="space-y-2 mb-3">
-                      <div className="p-2 bg-blue-50 rounded border border-blue-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-bold text-blue-800"> All Scopes (Recommended):</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'step5-all-scopes')}
-                            className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-semibold"
-                          >
-                            {copiedItem === 'step5-all-scopes' ? (
-                              <>
-                                Copied!
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-4 w-4" />
-                                Copy All
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        <code className="text-xs font-mono text-blue-800 break-all block bg-white p-2 rounded border max-h-20 overflow-y-auto">
-                          {delegationSetupData.scopes.join(',')}
-                        </code>
-                        <p className="text-xs text-blue-700 mt-1 font-medium">
-                           Copy this complete list for full migration functionality
-                        </p>
-                      </div>
-                      
-                      {/* Individual Chunks for Alternative */}
-                      <div className="border border-gray-200 rounded p-2 bg-gray-50">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-gray-700">🔀 Alternative: Individual Chunks</span>
-                          <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">
-                            {(delegationSetupData.scopeChunks || []).length} chunks
-                          </span>
-                        </div>
-                        <div className="space-y-1 max-h-32 overflow-y-auto">
-                          {(delegationSetupData.scopeChunks || []).map((chunk, index) => (
-                            <div key={index} className="flex items-center justify-between p-1 bg-white rounded text-xs">
-                              <span className="font-medium text-gray-600 truncate flex-1">
-                                Chunk {index + 1}: {chunk.slice(0, 2).join(', ')}...
-                              </span>
-                              <button
-                                onClick={() => copyToClipboard(chunk.join(','), `step5-chunk-${index}`)}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors ml-2"
-                              >
-                                {copiedItem === `step5-chunk-${index}` ? (
-                                  <>
-                                    ✓
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-3 w-3" />
-                                    Copy
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-xs text-gray-600 mt-1">
-                          Use chunks if your system has scope input limitations
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">6</div>
-                  <div>
-                    <p className="font-semibold text-blue-900 text-base">Authorize & Verify</p>
-                    <p className="text-blue-800 text-sm font-medium">
-                      Click <strong>"Authorize"</strong> to save the configuration, then use the <strong>"Verify Configuration"</strong> button above to test your setup
-                    </p>
-                    <div className="mt-2 p-2 bg-blue-100 rounded border border-blue-200">
-                      <div className="flex items-center gap-2 text-blue-800 text-xs">
-                        <span className="font-semibold">✅ Next Step:</span>
-                        <span>Click "Verify Configuration" button above once you've completed the setup</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Quick Reference Summary */}
-            <div className="mb-6">
-              <h4 className="font-bold text-amber-900 mb-4 text-lg flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                Quick Reference Summary
-              </h4>
-              <p className="text-amber-800 text-sm font-medium mb-4">
-                All configuration values are included in the step-by-step instructions above. Use this section for quick reference only:
-              </p>
-              
-            {/* Single Domain Quick Reference */}
-            {delegationSetupData.migrationScenario === 'single-super-admin' && delegationSetupData.setupInstructions?.domain && (
-              <div className="space-y-3">
-                    <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-bold text-gray-800"> Client ID Reference</span>
-                        <button
-                          onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'ref-client-id')}
-                          className="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
-                        >
-                          {copiedItem === 'ref-client-id' ? (
-                            <>
-                              <Check className="h-3 w-3" />
-                              Copied!
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              Copy
-                            </>
-                          )}
-                        </button>
-                      </div>
-                      <code className="text-xs font-mono text-gray-700 break-all block bg-gray-50 p-2 rounded">
-                        {delegationSetupData.setupInstructions?.domain?.clientId || 'Client ID not available'}
-                      </code>
-                    </div>
-                  
-                  <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-bold text-gray-800"> OAuth Scopes Reference</span>
-                      <button
-                        onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'ref-scopes')}
-                        className="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
-                      >
-                        {copiedItem === 'ref-scopes' ? (
-                          <>
-                            <Check className="h-3 w-3" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-3 w-3" />
-                            Copy All
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <code className="text-xs font-mono text-gray-700 break-all block bg-gray-50 p-2 rounded max-h-16 overflow-y-auto">
-                      {delegationSetupData.scopes.join(',')}
-                    </code>
-                    <p className="text-xs text-gray-600 mt-1">
-                       {delegationSetupData.scopes.length} total scopes • Use Step 5 above for detailed options
-                    </p>
-                  </div>
-
-                  <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ExternalLink className="h-4 w-4 text-blue-600" />
-                        <span className="font-bold text-blue-900 text-sm">Admin Console Link</span>
-                      </div>
-                      <a
-                        href={delegationSetupData.setupInstructions.domain.adminConsoleUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors font-semibold"
-                      >
-                        Open Console
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Cross-Tenant Instructions */}
-            {delegationSetupData.migrationScenario === 'cross-tenant' && (
+        {/* Domain-Wide Delegation Verification Button */}
+        <div className="mb-6">
+          <button
+            onClick={verifyDomainWideDelegation}
+            disabled={delegationVerifyLoading}
+            className={`
+              flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all
+              ${isVerified
+                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }
+            `}
+          >
+            {delegationVerifyLoading ? (
               <>
-                {/* Source Domain Instructions */}
-                {delegationSetupData.setupInstructions?.source && (
-                  <div className="mb-6">
-                    <h4 className="font-medium text-amber-800 mb-3">
-                      {delegationSetupData.setupInstructions.source.title}
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-base font-semibold text-gray-800">Client ID</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.source?.clientId || '', 'source-client-id')}
-                            className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                          >
-                            {copiedItem === 'source-client-id' ? 'Copied!' : 'Copy'}
-                          </button>
-                        </div>
-                        <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.setupInstructions?.source?.clientId || 'Client ID not available'}
-                        </code>
-                      </div>
-                      
-                      <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-base font-semibold text-gray-800">OAuth Scopes</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'source-scopes')}
-                            className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                          >
-                            {copiedItem === 'source-scopes' ? 'Copied All!' : 'Copy All'}
-                          </button>
-                        </div>
-
-                        {/* Individual Scope Chunks for Source */}
-                        <div className="space-y-2 mb-3">
-                          {(delegationSetupData.scopeChunks || []).map((chunk, index) => (
-                            <div key={index} className="border border-gray-200 rounded p-2 bg-gray-50">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-semibold text-gray-600">
-                                  Chunk {index + 1}/{delegationSetupData.scopeChunks?.length || 0}
-                                </span>
-                                <button
-                                  onClick={() => copyToClipboard(chunk.join(','), `source-chunk-${index}`)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 transition-colors"
-                                >
-                                  {copiedItem === `source-chunk-${index}` ? (
-                                    <>
-                                      <Check className="h-3 w-3" />
-                                      Copied!
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3" />
-                                      Copy
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              <code className="text-xs font-mono text-gray-700 break-all block bg-white p-2 rounded">
-                                {chunk.join(',')}
-                              </code>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <a
-                        href={delegationSetupData.setupInstructions.source.adminConsoleUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Open Admin Console
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                {/* Destination Domain Instructions */}
-                {delegationSetupData.setupInstructions?.destination && (
-                  <div>
-                    <h4 className="font-medium text-amber-800 mb-3">
-                      {delegationSetupData.setupInstructions.destination.title}
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-base font-semibold text-gray-800">Client ID</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.clientId || '', 'dest-client-id')}
-                            className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                          >
-                            {copiedItem === 'dest-client-id' ? 'Copied!' : 'Copy'}
-                          </button>
-                        </div>
-                        <code className="text-sm font-mono text-gray-800 break-all block bg-gray-50 p-3 rounded border">
-                          {delegationSetupData.setupInstructions?.destination?.clientId || 'Client ID not available'}
-                        </code>
-                      </div>
-                      
-                      <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-base font-semibold text-gray-800">OAuth Scopes</span>
-                          <button
-                            onClick={() => copyToClipboard(delegationSetupData.scopes.join(','), 'dest-scopes')}
-                            className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                          >
-                            {copiedItem === 'dest-scopes' ? 'Copied All!' : 'Copy All'}
-                          </button>
-                        </div>
-
-                        {/* Individual Scope Chunks for Destination */}
-                        <div className="space-y-2 mb-3">
-                          {(delegationSetupData.scopeChunks || []).map((chunk, index) => (
-                            <div key={index} className="border border-gray-200 rounded p-2 bg-gray-50">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-semibold text-gray-600">
-                                  Chunk {index + 1}/{delegationSetupData.scopeChunks?.length || 0}
-                                </span>
-                                <button
-                                  onClick={() => copyToClipboard(chunk.join(','), `dest-chunk-${index}`)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 transition-colors"
-                                >
-                                  {copiedItem === `dest-chunk-${index}` ? (
-                                    <>
-                                      <Check className="h-3 w-3" />
-                                      Copied!
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3" />
-                                      Copy
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              <code className="text-xs font-mono text-gray-700 break-all block bg-white p-2 rounded">
-                                {chunk.join(',')}
-                              </code>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <a
-                        href={delegationSetupData.setupInstructions.destination.adminConsoleUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Open Admin Console
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </div>
-                  </div>
-                )}
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                Verifying Delegation...
+              </>
+            ) : (
+              <>
+                <Shield className="w-4 h-4" />
+                {isVerified ? 'Verify Domain-Wide Delegation' : 'Complete Setup First'}
               </>
             )}
-          </div>
-        )}
-
-        {/* Domain-Wide Delegation Verification Section */}
-        {delegationSetupData && (
-          <div className="mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-green-900">
-                  Verify Domain-Wide Delegation
-                </h3>
-                <p className="text-base text-green-800 font-medium leading-relaxed">
-                  {delegationSetupData.migrationScenario === 'single-super-admin'
-                    ? 'Test the domain-wide delegation configuration for your domain.'
-                    : 'Test the domain-wide delegation configuration for both source and destination domains.'
-                  }
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-3 mb-4">
-              <button
-                onClick={verifyDomainWideDelegation}
-                disabled={delegationVerifyLoading}
-                className={`flex items-center gap-2 px-6 py-3 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md font-medium ${
-                  isCurrentConfigurationVerified() 
-                    ? 'bg-amber-600 hover:bg-amber-700' 
-                    : 'bg-green-600 hover:bg-green-700'
-                }`}
-              >
-                {delegationVerifyLoading ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : isCurrentConfigurationVerified() ? (
-                  <RefreshCw className="h-4 w-4" />
-                ) : (
-                  <CheckCircle className="h-4 w-4" />
-                )}
-                {isCurrentConfigurationVerified() 
-                  ? `Re-verify ${delegationSetupData.migrationScenario === 'single-super-admin' ? 'Domain' : 'Cross-Tenant'} Configuration`
-                  : delegationSetupData.migrationScenario === 'single-super-admin'
-                    ? 'Verify Domain Configuration'
-                    : 'Verify Cross-Tenant Configuration'
-                }
-              </button>
-
-              {(delegationStatus || isCurrentConfigurationVerified()) && (
-                <button
-                  onClick={() => {
-                    setDelegationStatus(null)
-                    if (isCurrentConfigurationVerified()) {
-                      clearCurrentVerificationStatus()
-                    }
-                  }}
-                  className="flex items-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 font-medium"
-                >
-                  <X className="h-4 w-4" />
-                  {isCurrentConfigurationVerified() ? 'Clear Cached Verification' : 'Clear Results'}
-                </button>
-              )}
-            </div>
-
-            {/* Verification Results */}
-            {delegationStatus && (
-              <div className="mt-4">
-                <h4 className="font-medium text-green-800 mb-3 flex items-center gap-2">
-                  <Globe className="h-4 w-4" />
-                  Verification Results
-                </h4>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {renderDomainStatus('source', 'Source Domain')}
-                  {renderDomainStatus('dest', 'Destination Domain')}
-                </div>
-              </div>
-            )}
-
-            {/* Verification Tips */}
-            <div className="mt-4 p-4 bg-white border border-green-200 rounded-lg">
-              <h5 className="font-bold text-green-800 mb-3 flex items-center gap-2 text-lg">
-                <Info className="h-5 w-5" />
-                Verification Tips
-              </h5>
-              <ul className="text-base text-green-700 space-y-2 leading-relaxed font-medium">
-                <li>• Ensure you have completed all setup steps before verification</li>
-                <li>• Domain-wide delegation changes may take a few minutes to propagate</li>
-                <li>• If verification fails, double-check the Client ID and OAuth scopes</li>
-                {delegationSetupData.migrationScenario === 'cross-tenant' && (
-                  <li>• Both source and destination domains must be properly configured</li>
-                )}
-                <li>• Contact your Google Workspace administrator if you encounter persistent issues</li>
-              </ul>
-            </div>
-          </div>
-        )}
+          </button>
+        </div>
 
         {/* Completion */}
         {allStepsCompleted && (
@@ -2988,27 +2405,12 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             <div className="flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-blue-600" />
               <div>
-                <h4 className="font-bold text-blue-800 text-xl">
+                <h4 className="heading-primary font-bold text-blue-800 text-xl">
                   Domain-wide Delegation Setup Complete!
                 </h4>
                 <p className="text-blue-700 text-base mt-2 font-medium leading-relaxed">
-                  {getDomainMappingContext ? (
-                    <>
-                      Your <strong>{getMigrationScenarioDisplayText()}</strong> migration configuration is complete.
-                      {getDomainMappingContext.isCrossTenant ? 
-                        ' Both source and destination domains should now be configured for secure cross-domain migration.' :
-                        ` All ${getDomainCount().source === 1 ? 'domain is' : 'domains are'} now configured for secure migration.`
-                      }
-                      {getDomainMappingContext.complexity === 'Very High' && (
-                        <> Consider running a test migration with a small subset of users first.</>
-                      )}
-                    </>
-                  ) : (
-                    'Both domains should now be configured for secure cross-domain migration.'
-                  )}
+                  Your configuration is complete and ready for migration.
                 </p>
-                
-                {/* Remove this button - the first Continue to Migration Setup button */}
               </div>
             </div>
           </div>

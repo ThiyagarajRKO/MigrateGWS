@@ -204,32 +204,66 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Store popup reference for potential manual closing
       setCurrentPopup(popup);
 
-      // Monitor popup for completion with more frequent checks and better COOP handling
-      const checkClosed = setInterval(() => {
-        try {
-          // Try to check popup status
-          if (popup.closed) {
-            clearInterval(checkClosed);
-            setIsLoading(false);
-            setCurrentAuthType(null);
-            setCurrentPopup(null);
+      // Monitor popup for completion with COOP-safe methods
+      // Avoid frequent popup.closed checks to minimize COOP errors
+      let hasReceivedMessage = false;
+      let isPopupClosed = false;
+      
+      // Use focus/blur events as primary detection method (COOP-safe)
+      const handleWindowFocus = () => {
+        // When parent window regains focus, popup might be closed
+        setTimeout(() => {
+          if (!hasReceivedMessage && !isPopupClosed) {
+            // Avoid popup.closed check due to COOP policy - rely on postMessage or timeout
+            console.log('Timeout check - popup should have sent postMessage if still open');
           }
-        } catch (error) {
-          // Handle case where we can't access popup.closed due to COOP policy
-          // Don't log this error as it's expected with COOP
-          // Instead, rely on postMessage communication and timeout
+        }, 100); // Small delay to ensure popup has time to close
+      };
+      
+      // Add focus listener for COOP-safe popup monitoring
+      window.addEventListener('focus', handleWindowFocus);
+      
+      // Fallback: Single timeout check (COOP-safe)
+      const fallbackCheck = setTimeout(() => {
+        if (!hasReceivedMessage && !isPopupClosed) {
+          // Avoid popup.closed check due to COOP policy
+          // If we haven't received a postMessage by now, likely popup closed without auth
+          console.log('Fallback timeout - no postMessage received, assuming popup closed');
+          isPopupClosed = true;
+          setIsLoading(false);
+          setCurrentAuthType(null);
+          setCurrentPopup(null);
         }
-      }, 500); // Check every 500ms instead of 1000ms
+      }, 10000); // Single check after 10 seconds
+      
+      // Mark that we received message communication
+      const originalHandleMessage = (event: MessageEvent) => {
+        if (event.origin === window.location.origin && event.data.sessionId === `${sessionId}_${authType}`) {
+          hasReceivedMessage = true;
+        }
+      };
+      
+      // Temporarily add message listener for this specific popup
+      window.addEventListener('message', originalHandleMessage);
+      
+      // Clean up all listeners
+      const cleanupListeners = () => {
+        window.removeEventListener('focus', handleWindowFocus);
+        window.removeEventListener('message', originalHandleMessage);
+        clearTimeout(fallbackCheck);
+      };
 
       // Enhanced timeout-based cleanup for COOP scenarios
       const enhancedTimeout = setTimeout(() => {
-        clearInterval(checkClosed);
+        hasReceivedMessage = true; // Stop any remaining checks
+        isPopupClosed = true;
+        cleanupListeners();
         // Clean up state regardless of popup status
         setIsLoading(false);
         setCurrentAuthType(null);
         // Try to close popup if still accessible
         try {
-          if (popup && !popup.closed) {
+          if (popup) {
             popup.close();
           }
         } catch (error) {
@@ -240,8 +274,10 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
 
       // Clean up on unmount
       return () => {
-        clearInterval(checkClosed);
+        hasReceivedMessage = true; // Stop any remaining checks
+        isPopupClosed = true;
         clearTimeout(enhancedTimeout);
+        cleanupListeners();
       };
 
     } catch (error) {
@@ -666,22 +702,14 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Both authentications complete - close the popup
       setTimeout(() => {
         try {
-          if (currentPopup && !currentPopup.closed) {
+          if (currentPopup) {
             currentPopup.close();
             setCurrentPopup(null);
           }
         } catch (error) {
-          // Handle case where we can't access popup.closed due to COOP policy
-          console.log('Cannot check popup.closed due to COOP policy in cross-tenant cleanup');
-          try {
-            if (currentPopup) {
-              currentPopup.close();
-              setCurrentPopup(null);
-            }
-          } catch (closeError) {
-            console.log('Cannot close popup due to COOP policy');
-            setCurrentPopup(null);
-          }
+          // Handle case where we can't access popup due to COOP policy
+          console.log('Cannot close popup due to COOP policy in cross-tenant cleanup');
+          setCurrentPopup(null);
         }
       }, 1000); // Small delay to show success message
     }
@@ -737,30 +765,44 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       // Store popup reference for potential manual closing
       setCurrentPopup(popup);
 
-      // Monitor popup for completion with enhanced COOP handling
-      const checkClosed = setInterval(() => {
-        try {
-          // Try to check popup status, but don't rely on it exclusively
-          if (popup.closed) {
-            clearInterval(checkClosed);
-            setIsLoading(false);
-            setCurrentPopup(null);
+      // Monitor popup for completion with COOP-safe methods
+      let isPopupClosedDomain = false;
+      
+      // Use focus/blur events for COOP-safe popup monitoring
+      const handleDomainWindowFocus = () => {
+        setTimeout(() => {
+          if (!isPopupClosedDomain) {
+            // Avoid popup.closed check due to COOP policy
+            // Focus events indicate user interaction, but we can't check popup state
+            console.log('Window focus detected during domain discovery');
           }
-        } catch (error) {
-          // Handle case where we can't access popup.closed due to COOP policy
-          // Don't log this error as it's expected with COOP
-          // Instead, rely on postMessage communication and timeout
+        }, 100);
+      };
+      
+      window.addEventListener('focus', handleDomainWindowFocus);
+      
+      // Single fallback check
+      const domainFallbackCheck = setTimeout(() => {
+        if (!isPopupClosedDomain) {
+          // Avoid popup.closed check due to COOP policy
+          // If we haven't received callback by now, likely popup closed
+          console.log('Domain discovery fallback timeout - assuming popup closed');
+          isPopupClosedDomain = true;
+          setIsLoading(false);
+          setCurrentPopup(null);
         }
-      }, 500); // Check every 500ms instead of 1000ms
+      }, 10000);
 
       // Enhanced timeout-based cleanup for COOP scenarios
       const enhancedTimeout = setTimeout(() => {
-        clearInterval(checkClosed);
+        isPopupClosedDomain = true;
+        window.removeEventListener('focus', handleDomainWindowFocus);
+        clearTimeout(domainFallbackCheck);
         // Clean up state regardless of popup status
         setIsLoading(false);
         // Try to close popup if still accessible
         try {
-          if (popup && !popup.closed) {
+          if (popup) {
             popup.close();
           }
         } catch (error) {
@@ -771,7 +813,9 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
 
       // Clean up on unmount
       return () => {
-        clearInterval(checkClosed);
+        isPopupClosedDomain = true;
+        window.removeEventListener('focus', handleDomainWindowFocus);
+        clearTimeout(domainFallbackCheck);
         clearTimeout(enhancedTimeout);
       };
 

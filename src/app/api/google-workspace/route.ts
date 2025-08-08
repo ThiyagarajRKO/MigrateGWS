@@ -80,8 +80,8 @@ export async function GET(request: NextRequest) {
       const clientId = getServiceAccountClientId()
       return NextResponse.json({ 
         clientId, 
-        email: process.env.SERVICE_ACCOUNT_EMAIL,
-        available: !!process.env.SERVICE_ACCOUNT_EMAIL 
+        email: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL,
+        available: !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL)
       }, { 
         headers: { 
           'Cache-Control': 'public, max-age=300, s-maxage=300',
@@ -97,15 +97,42 @@ export async function GET(request: NextRequest) {
     // Try service account authentication first, fallback to OAuth
     let gwsService
     
-    if (adminEmail && process.env.SERVICE_ACCOUNT_EMAIL) {
+    // Use service account if it's configured (with or without admin email)
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL) {
       try {
-        gwsService = createServiceAccountService(adminEmail)
-        console.log('Using service account authentication for admin:', adminEmail)
-      } catch (serviceAccountError) {
+        // For service account with domain-wide delegation, we need an admin email to impersonate
+        // If no admin email provided, try to derive one from the domain
+        let impersonateEmail = adminEmail
+        if (!impersonateEmail && domain) {
+          // Try common admin patterns if no admin email provided
+          const commonAdminPatterns = [
+            `admin@${domain}`,
+            `administrator@${domain}`,
+            `support@${domain}`
+          ]
+          // For now, we'll use the first pattern, but this should be configurable
+          impersonateEmail = commonAdminPatterns[0]
+          console.log(`No admin email provided, trying to impersonate: ${impersonateEmail}`)
+        }
+        
+        if (impersonateEmail) {
+          gwsService = createServiceAccountService(impersonateEmail)
+          console.log('Using service account authentication for admin:', impersonateEmail)
+        } else {
+          throw new Error('Admin email required for service account domain-wide delegation')
+        }
+      } catch (serviceAccountError: any) {
         console.warn('Service account authentication failed, falling back to OAuth:', serviceAccountError)
         if (!session?.accessToken) {
           return NextResponse.json({ 
-            error: 'Authentication required. Please provide adminEmail for service account auth or sign in with OAuth.' 
+            error: 'Authentication required', 
+            message: 'Service account authentication failed and no OAuth session available',
+            details: [
+              'Service account authentication failed: ' + (serviceAccountError?.message || 'Unknown error'),
+              'Please provide a valid adminEmail parameter for service account authentication',
+              'Or sign in with OAuth to use your personal credentials'
+            ],
+            actionRequired: 'Provide adminEmail parameter or sign in with OAuth'
           }, { status: 401 })
         }
         gwsService = createGoogleWorkspaceService({
@@ -113,9 +140,10 @@ export async function GET(request: NextRequest) {
         })
       }
     } else {
+      // No service account configured, must use OAuth
       if (!session?.accessToken) {
         return NextResponse.json({ 
-          error: 'Not authenticated. Please sign in or provide adminEmail parameter for service account authentication.' 
+          error: 'Not authenticated. Please sign in with OAuth or configure service account authentication.' 
         }, { status: 401 })
       }
       gwsService = createGoogleWorkspaceService({
@@ -230,7 +258,7 @@ export async function GET(request: NextRequest) {
       case 'test-connection':
         try {
           // Use enhanced manual verification for better error diagnostics
-          if (adminEmail && domain && process.env.SERVICE_ACCOUNT_EMAIL) {
+          if (adminEmail && domain && (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL)) {
             console.log(`Testing service account delegation for ${adminEmail} on domain ${domain}`)
             
             const delegationTest = await testServiceAccountDelegation(adminEmail, domain)
@@ -257,7 +285,7 @@ export async function GET(request: NextRequest) {
                 details: [
                   delegationTest.details || 'Unknown verification error',
                   'Please check domain-wide delegation configuration in Google Admin Console',
-                  `Ensure service account ${process.env.SERVICE_ACCOUNT_EMAIL} is authorized`,
+                  `Ensure service account ${process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL} is authorized`,
                   `Verify admin email ${adminEmail} has Super Admin privileges for ${domain}`
                 ],
                 diagnostics: delegationTest.diagnostics,
@@ -319,10 +347,10 @@ export async function GET(request: NextRequest) {
             }, { status: 400 })
           }
 
-          if (!process.env.SERVICE_ACCOUNT_EMAIL) {
+          if (!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL)) {
             return NextResponse.json({
               error: 'Service account not configured',
-              message: 'SERVICE_ACCOUNT_EMAIL environment variable is required for cross-tenant verification'
+              message: 'GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL environment variable is required for cross-tenant verification'
             }, { status: 500 })
           }
 

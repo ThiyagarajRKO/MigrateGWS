@@ -15,6 +15,7 @@ const loadServiceAccount = () => {
   }
 
   try {
+    // First try to load from service account file
     const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
     const serviceAccountData = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
     
@@ -22,10 +23,49 @@ const loadServiceAccount = () => {
     serviceAccountCache = serviceAccountData
     cacheTimestamp = Date.now()
     
+    console.log('[Setup API] Loaded service account from file:', {
+      client_id: serviceAccountData.client_id?.substring(0, 10) + '...',
+      client_email: serviceAccountData.client_email,
+      project_id: serviceAccountData.project_id
+    })
+    
     return serviceAccountData
   } catch (error) {
-    console.error('Failed to load service account:', error)
-    // Fallback to mock data if file is not found
+    console.log('[Setup API] Service account file not found, checking environment variables:', error instanceof Error ? error.message : String(error))
+    
+    // Try to get from environment variables
+    const envClientId = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || 
+                       process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID ||
+                       process.env.GOOGLE_CLIENT_ID
+    const envClientEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 
+                          process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL
+    const envProjectId = process.env.NEXT_PUBLIC_GOOGLE_PROJECT_ID || 
+                        process.env.GOOGLE_PROJECT_ID ||
+                        process.env.GCLOUD_PROJECT
+    
+    if (envClientId && envClientEmail && envProjectId) {
+      console.log('[Setup API] Using service account from environment variables:', {
+        client_id: envClientId.substring(0, 10) + '...',
+        client_email: envClientEmail,
+        project_id: envProjectId
+      })
+      
+      const envData = {
+        client_id: envClientId,
+        client_email: envClientEmail,
+        project_id: envProjectId,
+        type: 'service_account'
+      }
+      
+      // Cache the environment data
+      serviceAccountCache = envData
+      cacheTimestamp = Date.now()
+      
+      return envData
+    }
+    
+    console.log('[Setup API] No environment variables found, using fallback data')
+    // Fallback to mock data if neither file nor env vars are available
     const fallbackData = {
       client_id: '114333598950671892438',
       client_email: 'gws-permission@gws-migration-463208.iam.gserviceaccount.com',
@@ -45,12 +85,30 @@ const loadServiceAccount = () => {
 const generateServiceAccount = (domain: string) => {
   const serviceAccount = loadServiceAccount()
   
-  return {
+  console.log('[Setup API] generateServiceAccount called:', {
+    domain,
+    serviceAccount: {
+      client_id: serviceAccount.client_id?.substring(0, 10) + '...',
+      client_email: serviceAccount.client_email,
+      project_id: serviceAccount.project_id
+    }
+  })
+  
+  const result = {
     clientId: serviceAccount.client_id,
     email: serviceAccount.client_email,
     projectId: serviceAccount.project_id,
     domain: domain
   }
+  
+  console.log('[Setup API] generateServiceAccount result:', {
+    clientId: result.clientId?.substring(0, 10) + '...',
+    email: result.email,
+    projectId: result.projectId,
+    domain: result.domain
+  })
+  
+  return result
 }
 
 // Required OAuth scopes for Google Workspace migration - COMPREHENSIVE LIST
@@ -217,6 +275,13 @@ export async function POST(request: NextRequest) {
 
       const serviceAccount = generateServiceAccount(domain)
 
+      console.log('[Setup API] Service account generated for single super admin:', {
+        domain,
+        clientId: serviceAccount.clientId?.substring(0, 10) + '...',
+        email: serviceAccount.email,
+        projectId: serviceAccount.projectId
+      })
+
       // Prepare response for single domain scenario
       const response = {
         success: true,
@@ -248,6 +313,21 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+
+      console.log('[Setup API] Final response for single super admin:', {
+        success: response.success,
+        migrationScenario: response.migrationScenario,
+        domain: {
+          ...response.domain,
+          clientId: response.domain.clientId?.substring(0, 10) + '...'
+        },
+        setupInstructions: {
+          domain: {
+            ...response.setupInstructions.domain,
+            clientId: response.setupInstructions.domain.clientId?.substring(0, 10) + '...'
+          }
+        }
+      })
 
       return NextResponse.json(response, {
         headers: {

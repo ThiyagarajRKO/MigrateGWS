@@ -2663,12 +2663,12 @@ export default function NewMigration() {
                       
                       {/* Step Info */}
                       <div className="mt-4 text-center max-w-36 px-2">
-                        <div className={`text-sm font-clash text-heading mb-1 ${
+                        <div className={`text-sm font-sansation text-heading mb-1 ${
                           isActive ? 'text-blue-600' : isCompleted ? 'text-gray-900' : 'text-gray-500'
                         }`}>
                           {config.title}
                         </div>
-                        <div className={`text-xs font-clash text-subheading leading-relaxed ${
+                        <div className={`text-xs font-sansation text-subheading leading-relaxed ${
                           isActive ? 'text-blue-500' : 'text-gray-400'
                         }`}>
                           {config.description}

@@ -4,7 +4,18 @@ import { DomainMapping, DomainMappingBuilder, DomainMappingUIState, validateDoma
 export class DomainMappingAdapter {
   private mapping: DomainMapping = {};
 
-  constructor(input?: DomainMapping | DomainMappingUIState | string) {
+  // Type guard for DomainMappingUIState
+  private static isUIState(input: any): input is DomainMappingUIState {
+    return (
+      typeof input === 'object' &&
+      input !== null &&
+      typeof input.strategy === 'string' &&
+      typeof input.sourceDomain === 'string' &&
+      Array.isArray(input.targetDomains)
+    );
+  }
+
+  constructor(input?: any) {
     if (!input) {
       this.mapping = {};
     } else if (typeof input === 'string') {
