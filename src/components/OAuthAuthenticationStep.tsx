@@ -236,11 +236,11 @@ export const OAuthAuthenticationStep = memo(function OAuthAuthenticationStep({
 
   const getRequiredPermissions = () => {
     return [
-      'Admin Directory (Domain & User Read)',
-      'Gmail Read Access',
-      'Google Drive Read Access', 
-      'Calendar Read Access',
-      'Contacts Read Access'
+      'Directory & User Access',
+      'Gmail Access',
+      'Drive Access', 
+      'Calendar Access',
+      'Contacts Access'
     ];
   };
 
@@ -385,20 +385,20 @@ export const OAuthAuthenticationStep = memo(function OAuthAuthenticationStep({
       )}
 
       {/* Required Permissions Info */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start space-x-3">
-          <Info className="h-6 w-6 text-blue-600 mt-1" />
+          <Info className="h-5 w-5 text-blue-600 mt-1" />
           <div className="flex-1">
-            <h3 className="text-lg font-medium text-blue-900 mb-2">
+            <h3 className="text-base font-medium text-blue-900 mb-2">
               Required Permissions
             </h3>
-            <p className="text-blue-700 mb-4">
-              This migration tool requires the following Google Workspace permissions:
+            <p className="text-sm text-gray-600 mb-3">
+              This tool requires read access to Google Workspace data for migration.
             </p>
-            <ul className="space-y-2">
+            <ul className="space-y-1">
               {getRequiredPermissions().map((permission) => (
-                <li key={permission} className="flex items-center space-x-2 text-blue-700">
-                  <CheckCircle className="h-4 w-4 text-blue-600" />
+                <li key={permission} className="flex items-center space-x-2 text-sm text-gray-600">
+                  <CheckCircle className="h-3 w-3 text-blue-600" />
                   <span>{permission}</span>
                 </li>
               ))}

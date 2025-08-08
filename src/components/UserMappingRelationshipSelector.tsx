@@ -68,7 +68,7 @@ export function UserMappingRelationshipSelector({
   selectedScenario 
 }: UserMappingRelationshipSelectorProps) {
   const [selectedRelationship, setSelectedRelationship] = useState<UserMappingRelationship | null>(null);
-  const [mappingStrategy, setMappingStrategy] = useState<'automatic' | 'manual' | 'hybrid'>('automatic');
+  const [mappingStrategy, setMappingStrategy] = useState<'automatic' | 'manual' | 'hybrid'>('manual');
   const [conflictResolution, setConflictResolution] = useState<'skip' | 'rename' | 'overwrite' | 'manual'>('rename');
   const [preserveUsernames, setPreserveUsernames] = useState(true);
   const [usernameSuffix, setUsernameSuffix] = useState('');

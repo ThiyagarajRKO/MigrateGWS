@@ -83,6 +83,7 @@ interface UserManagementWorkflowProps {
   domainMapping?: DomainMappingConfig;
   userMappingStrategy?: UserMappingRelationship;
   userMappingConfig?: UserMappingConfig;
+  verificationToken?: string; // Add verification token prop
   onComplete?: (results: {
     discoveredUsers: User[];
     createdUsers: CreationResult[];
@@ -123,6 +124,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   domainMapping,
   userMappingStrategy,
   userMappingConfig,
+  verificationToken, // Extract verification token prop
   onComplete
 }: UserManagementWorkflowProps) {
   // Core state
@@ -227,7 +229,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     };
     
     const firstName = cleanName(user.name.givenName);
-    const lastName = cleanName(user.name.familyName);
+    // Preserve period in family name if it was the original value
+    const originalFamilyName = user.name.familyName?.trim() || '';
+    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
     
     if (firstName && lastName) {
       return `${firstName}.${lastName}`;
@@ -270,13 +274,15 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const generateTargetEmail = (user: User, targetDomain: string): string => {
-    // Clean and validate name components
+    // Clean and validate name components, but preserve period in family name if it was the original value
     const cleanName = (name: string): string => {
       return name?.toLowerCase().trim().replace(/[^a-z0-9]/g, '') || '';
     };
     
     const firstName = cleanName(user.name.givenName);
-    const lastName = cleanName(user.name.familyName);
+    // Preserve period in family name if it was the original value
+    const originalFamilyName = user.name.familyName?.trim() || '';
+    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
     
     let emailBase = '';
     
@@ -293,8 +299,10 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       emailBase = cleanName(fallbackBase) || 'user';
     }
     
-    // Ensure emailBase is not empty and doesn't start/end with dots
-    emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
+    // Ensure emailBase is not empty and doesn't start/end with dots (unless the lastname is intentionally a period)
+    if (originalFamilyName !== '.') {
+      emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
+    }
     
     switch (mappingType) {
       case 'one-to-many':
@@ -328,6 +336,12 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const hasValidAdminEmails = (): boolean => {
+    // For single-super-admin scenario, we only need one admin email for all domains
+    if (migrationScenario === 'single-super-admin') {
+      return !!(sourceAdminEmail && sourceAdminEmail.trim() !== '');
+    }
+    
+    // For cross-tenant scenario, each domain needs its own admin email
     return sourceDomains.every(domain => {
       const adminEmail = sourceAdminEmails?.[domain] || sourceAdminEmail;
       return adminEmail && adminEmail.trim() !== '';
@@ -601,16 +615,22 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
         // First, verify delegation is properly configured using service account
         console.log(`Verifying delegation for ${domain} with admin email: ${adminEmail}`);
-        const verificationParams = new URLSearchParams({
-          action: 'test-connection',
-          domain,
-          adminEmail
-        });
-
-        const verificationResponse = await fetch(`/api/google-workspace?${verificationParams}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include'
+        
+        // Use the proper delegation verification endpoint
+        const verificationResponse = await fetch('/api/v1/delegation/verify', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            // Include verification token if available (from sessionStorage or props)
+            ...(verificationToken && { 'X-Verification-Token': verificationToken })
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            domain,
+            adminEmail,
+            migrationScenario: 'single-super-admin',
+            ...(verificationToken && { verificationToken })
+          })
         });
 
         const verificationData = await verificationResponse.json();
@@ -619,7 +639,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
           data: verificationData 
         });
 
-        if (!verificationResponse.ok) {
+        if (!verificationResponse.ok || !verificationData.success) {
           throw new Error(`Delegation not verified for ${domain}: ${verificationData.error || verificationData.message || 'Domain-wide delegation not configured'}`); 
         }
 
@@ -742,16 +762,18 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       };
       
       const givenName = cleanName(mapping.user.name.givenName);
-      const familyName = cleanName(mapping.user.name.familyName);
+      // Preserve period in family name if it was the original value
+      const originalFamilyName = mapping.user.name.familyName?.trim() || '';
+      const familyName = originalFamilyName === '.' ? '.' : cleanName(mapping.user.name.familyName);
       
       if (!givenName && !familyName) {
         console.warn(`User ${mapping.user.primaryEmail} has no valid name components, using email-based username`);
       }
       
-      // Use email username as fallback if both names are missing
+      // Use email username as fallback if both names are missing, but preserve period if it was the original family name
       const emailUsername = mapping.user.primaryEmail.split('@')[0];
       const finalGivenName = givenName || emailUsername;
-      const finalFamilyName = familyName || 'User';
+      const finalFamilyName = familyName || (originalFamilyName === '.' ? '.' : 'User');
 
       // Validate the target email before proceeding
       if (!validateEmail(mapping.targetEmail)) {
@@ -1524,17 +1546,29 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                 <span className="font-medium text-yellow-900">Admin Email Configuration Required</span>
               </div>
               <div className="mt-2 text-sm text-yellow-800">
-                <p>Please configure admin emails for the following domains in the delegation setup step:</p>
-                <ul className="mt-1 list-disc list-inside">
-                  {sourceDomains.map(domain => {
-                    const adminEmail = sourceAdminEmails?.[domain] || sourceAdminEmail;
-                    return (
-                      <li key={domain}>
-                        {domain}: {adminEmail || 'Not configured'}
-                      </li>
-                    );
-                  })}
-                </ul>
+                {migrationScenario === 'single-super-admin' ? (
+                  <div>
+                    <p>Please configure the super admin email in the delegation setup step:</p>
+                    <ul className="mt-1 list-disc list-inside">
+                      <li>Super Admin Email: {sourceAdminEmail || 'Not configured'}</li>
+                      <li>Manages all domains: {sourceDomains.join(', ')}</li>
+                    </ul>
+                  </div>
+                ) : (
+                  <div>
+                    <p>Please configure admin emails for the following domains in the delegation setup step:</p>
+                    <ul className="mt-1 list-disc list-inside">
+                      {sourceDomains.map(domain => {
+                        const adminEmail = sourceAdminEmails?.[domain] || sourceAdminEmail;
+                        return (
+                          <li key={domain}>
+                            {domain}: {adminEmail || 'Not configured'}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}
