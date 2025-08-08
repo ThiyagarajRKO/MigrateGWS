@@ -9,9 +9,11 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Clash Grotesk', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'sans-serif'],
-        clash: ['Clash Grotesk', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Sansation', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'sans-serif'],
+        sansation: ['Sansation', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         manrope: ['Manrope', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        merriweather: ['Merriweather', 'serif'],
+        heading: ['Merriweather', 'serif'],
       },
       fontWeight: {
         'extralight': '200',
