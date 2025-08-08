@@ -13,6 +13,7 @@ import {
   CROSS_TENANT_STEPS,
   DomainMappingConfig
 } from '@/types/migration-scenarios';
+import { DomainMapping } from '@/types/config';
 import { UserMappingConfig } from '@/types';
 import { 
   ArrowLeft, 
@@ -152,22 +153,16 @@ export default function NewMigration() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<WizardStep>('scenario');
   const [selectedScenario, setSelectedScenario] = useState<MigrationScenario | null>(null);
-  const [domainMapping, setDomainMapping] = useState<DomainMappingConfig | null>(null);
+  const [domainMapping, setDomainMapping] = useState<DomainMapping | null>(null);
   const [userMappingConfig, setUserMappingConfig] = useState<UserMappingConfig | null>(null);
 
   // Helper functions for domain handling
-  const getTargetDomainsFromMapping = (mapping: DomainMappingConfig) => {
-    if (mapping.type === 'one-to-many') {
-      if (mapping.multiTargetConfig && mapping.multiTargetConfig.length > 0) {
-        return mapping.multiTargetConfig.map(config => config.domain);
-      } else if (mapping.targetDomains && mapping.targetDomains.length > 0) {
-        return mapping.targetDomains.filter(domain => domain.trim() !== '');
-      }
-    }
-    return mapping.targetDomain ? [mapping.targetDomain] : [];
+  const getTargetDomainsFromMapping = (mapping: DomainMapping) => {
+    // DomainMapping is Record<string, string[]> - get all target domains
+    return Object.values(mapping).flat().filter(Boolean);
   };
 
-  const formatTargetDomains = (mapping: DomainMappingConfig) => {
+  const formatTargetDomains = (mapping: DomainMapping) => {
     const targets = getTargetDomainsFromMapping(mapping);
     if (targets.length === 1) {
       return targets[0];
@@ -189,6 +184,32 @@ export default function NewMigration() {
       maintainPermissions: true,
     }
   });
+
+  // Debug migration config changes to track auto-population
+  useEffect(() => {
+    const stack = new Error().stack;
+    console.log('[Migration Wizard] migrationConfig.sourceDomain changed:', {
+      sourceDomain: migrationConfig.sourceDomain,
+      targetDomain: migrationConfig.targetDomain,
+      timestamp: new Date().toISOString(),
+      stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
+    });
+    
+    // Prevent auto-population of specific domains
+    if (migrationConfig.sourceDomain === 'rrgokuldham.com' || migrationConfig.targetDomain === 'arakutourism.net') {
+      console.warn('[Migration Wizard] Detected auto-population of domains! Clearing them:', {
+        sourceDomain: migrationConfig.sourceDomain,
+        targetDomain: migrationConfig.targetDomain
+      });
+      
+      // Clear the auto-populated domains
+      setMigrationConfig(prev => ({
+        ...prev,
+        sourceDomain: '',
+        targetDomain: ''
+      }));
+    }
+  }, [migrationConfig.sourceDomain, migrationConfig.targetDomain]);
 
   // Domain-wide Delegation state
   const [dwdSetupComplete, setDwdSetupComplete] = useState(false);
@@ -219,6 +240,15 @@ export default function NewMigration() {
   // Component lifecycle tracking
   useEffect(() => {
     console.log('[Migration Wizard] Component mounted at:', new Date().toISOString());
+    
+    // Clear any potential auto-population on mount
+    console.log('[Migration Wizard] Clearing potential auto-populated domain values on mount');
+    setMigrationConfig(prev => ({
+      ...prev,
+      sourceDomain: '',
+      targetDomain: ''
+    }));
+    
     return () => {
       console.log('[Migration Wizard] Component unmounting at:', new Date().toISOString());
     };
@@ -227,18 +257,26 @@ export default function NewMigration() {
   // Cross-tenant authentication for auto-populating admin emails
   const { sourceAdminEmail: authSourceAdminEmail, targetAdminEmail: authTargetAdminEmail } = useCrossTenantTokens();
 
-  // Auto-populate source admin email from cross-tenant auth
+  // Cross-tenant authentication for auto-populating admin emails
   useEffect(() => {
     if (authSourceAdminEmail && !sourceAdminEmail) {
-      console.log('[Migration Wizard] Auto-populating source admin email:', authSourceAdminEmail);
+      console.log('[Migration Wizard] Auto-populating source admin email (NOT DOMAIN):', authSourceAdminEmail);
       setSourceAdminEmail(authSourceAdminEmail);
+      
+      // DISABLED: Domain derivation from admin email - manual domain selection required
+      // const sourceDomain = authSourceAdminEmail.split('@')[1];
+      // console.log('[Migration Wizard] NOT deriving source domain from admin email:', sourceDomain);
     }
   }, [authSourceAdminEmail, sourceAdminEmail]);
 
   useEffect(() => {
     if (authTargetAdminEmail && !targetAdminEmail) {
-      console.log('[Migration Wizard] Auto-populating target admin email:', authTargetAdminEmail);
+      console.log('[Migration Wizard] Auto-populating target admin email (NOT DOMAIN):', authTargetAdminEmail);
       setTargetAdminEmail(authTargetAdminEmail);
+      
+      // DISABLED: Domain derivation from admin email - manual domain selection required
+      // const targetDomain = authTargetAdminEmail.split('@')[1];
+      // console.log('[Migration Wizard] NOT deriving target domain from admin email:', targetDomain);
     }
   }, [authTargetAdminEmail, targetAdminEmail]);
 
@@ -530,56 +568,90 @@ export default function NewMigration() {
 
     // Set up domain mapping from the configuration
     if (config.domainMappings && config.domainMappings.length > 0) {
-      const mapping: DomainMappingConfig = {
-        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
-        sourceDomains: config.sourceDomains,
-        targetDomain: config.targetDomains[0],
-        targetDomains: config.targetDomains,
-        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${config.sourceDomains.join(', ')} -> ${config.targetDomains.join(', ')}`
-      };
-      setDomainMapping(mapping);
+      // Convert domain mappings from AuthenticateAndConfigureDomains format to DomainMapping format
+      // AuthenticateAndConfigureDomains returns: [{ source: string|string[], target: string|string[] }]
+      // DomainWideDelegationSetup expects: Record<string, string[]> (DomainMapping)
+      
+      const domainMapping: Record<string, string[]> = {};
+      
+      config.domainMappings.forEach((mapping: any) => {
+        const sources = Array.isArray(mapping.source) ? mapping.source : [mapping.source];
+        const targets = Array.isArray(mapping.target) ? mapping.target : [mapping.target];
+        
+        sources.forEach((source: string) => {
+          if (source) {
+            if (!domainMapping[source]) {
+              domainMapping[source] = [];
+            }
+            targets.forEach((target: string) => {
+              if (target && !domainMapping[source].includes(target)) {
+                domainMapping[source].push(target);
+              }
+            });
+          }
+        });
+      });
+      
+      console.log('[Migration Wizard] Converted domain mappings:', {
+        original: config.domainMappings,
+        converted: domainMapping
+      });
+      
+      setDomainMapping(domainMapping);
     } else {
-      // Fallback: create a default domain mapping even if domainMappings is empty
-      console.log('[Migration Wizard] No domain mappings provided, creating default mapping');
-      const mapping: DomainMappingConfig = {
-        type: selectedScenario === 'single-super-admin' ? 'cross-tenant-single' : 'one-to-one',
-        sourceDomains: config.sourceDomains,
-        targetDomain: config.targetDomains[0],
-        targetDomains: config.targetDomains,
-        description: `${selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'} Migration: ${config.sourceDomains.join(', ')} -> ${config.targetDomains.join(', ')}`
-      };
-      setDomainMapping(mapping);
+      // DISABLED: Fallback automatic domain mapping creation - manual mapping required
+      console.log('[Migration Wizard] No domain mappings provided - manual domain mapping configuration required');
+      // Users must explicitly configure domain mappings through the UI
+      // setDomainMapping(mapping);
     }
     
-    // Auto-populate migration config
-    setMigrationConfig(prev => ({
-      ...prev,
-      sourceDomain: config.sourceDomains[0] || '',
-      targetDomain: config.targetDomains[0] || '',
-      targetDomains: config.targetDomains
-    }));
+    // DISABLED: Auto-populate migration config - require manual domain selection
+    // Domain configuration must be manually set, no automatic selection
+    const finalMapping = config.domainMappings?.[0];
+    if (finalMapping) {
+      // Use domains from the domain mapping but without auto-selection
+      const sourceDomains = finalMapping.sourceDomains || [];
+      const targetDomains = finalMapping.type === 'one-to-many' && finalMapping.multiTargetConfig 
+        ? finalMapping.multiTargetConfig.map((c: any) => c.domain).filter(Boolean)
+        : finalMapping.targetDomains || [];
+      
+      setMigrationConfig(prev => ({
+        ...prev,
+        sourceDomain: '', // No auto-selection - manual selection required
+        targetDomain: '', // No auto-selection - manual selection required
+        targetDomains: targetDomains
+      }));
+    } else {
+      // No fallback auto-selection - manual domain selection required
+      setMigrationConfig(prev => ({
+        ...prev,
+        sourceDomain: '', // No auto-selection - manual selection required
+        targetDomain: '', // No auto-selection - manual selection required
+        targetDomains: config.targetDomains
+      }));
+    }
 
     // Move to next step
     setCurrentStep('delegation');
   };
 
-  const handleDomainMappingSelect = (mapping: DomainMappingConfig) => {
+  const handleDomainMappingSelect = (mapping: DomainMapping) => {
     setDomainMapping(mapping);
     
-    // Use helper function to get target domains
-    const targetDomains = getTargetDomainsFromMapping(mapping);
-    const targetDomain = targetDomains[0] || '';
+    // Extract target domains from the mapping
+    const targetDomains = Object.values(mapping).flat();
     
-    // Auto-populate source and target domains from mapping
+    // DISABLED: Auto-populate source and target domains - require manual selection
+    // Domain mapping selection should not automatically populate migration config
     setMigrationConfig(prev => ({
       ...prev,
-      sourceDomain: mapping.sourceDomains[0] || '',
-      targetDomain: targetDomain || '',
+      sourceDomain: '', // No auto-selection - manual selection required
+      targetDomain: '', // No auto-selection - manual selection required
       targetDomains: targetDomains
     }));
     
     // Initialize source admin emails for multiple source domains (cross-tenant only)
-    if (selectedScenario === 'cross-tenant' && mapping.sourceDomains.length > 1) {
+    if (selectedScenario === 'cross-tenant' && mapping.sourceDomains && mapping.sourceDomains.length > 1) {
       const newSourceAdminEmails: {[domain: string]: string} = {};
       mapping.sourceDomains.forEach(domain => {
         newSourceAdminEmails[domain] = sourceAdminEmails[domain] || '';
@@ -807,6 +879,94 @@ export default function NewMigration() {
     setTargetAdminEmails(emails);
   };
 
+  // Handle user discovery trigger from DomainWideDelegationSetup
+  const handleUserDiscoveryReady = (data: {
+    sourceDomains: string[];
+    targetDomains: string[];
+    adminEmails: {[domain: string]: string};
+    scenario: 'single-super-admin' | 'cross-tenant';
+    verificationToken?: string;
+  }) => {
+    console.log('[Migration Wizard] User discovery ready with data:', {
+      ...data,
+      adminEmails: Object.keys(data.adminEmails).reduce((acc, domain) => {
+        acc[domain] = data.adminEmails[domain] ? '***@' + data.adminEmails[domain].split('@')[1] : 'NO_EMAIL'
+        return acc
+      }, {} as {[domain: string]: string}),
+      verificationToken: data.verificationToken ? `${data.verificationToken.substring(0, 20)}...` : 'NOT_PROVIDED'
+    });
+
+    // Update migration config with the validated domains and admin emails
+    // DISABLED: Auto-selection of first domains - require manual selection
+    setMigrationConfig(prev => ({
+      ...prev,
+      sourceDomain: '', // No auto-selection - manual selection required
+      targetDomain: '', // No auto-selection - manual selection required
+      targetDomains: data.targetDomains || []
+    }));
+
+    // Store the admin emails for user discovery
+    if (data.scenario === 'single-super-admin') {
+      // DISABLED: Auto-selection of primary source domain - require manual selection
+      // For single super admin, admin email must be manually configured
+      // const primarySourceDomain = (data.sourceDomains && data.sourceDomains.length > 0) ? data.sourceDomains[0] : null;
+      // if (primarySourceDomain && data.adminEmails && data.adminEmails[primarySourceDomain]) {
+      //   setAdminEmail(data.adminEmails[primarySourceDomain]);
+      // }
+    } else if (data.scenario === 'cross-tenant') {
+      // For cross-tenant, separate source and target admin emails
+      const sourceEmails: {[domain: string]: string} = {};
+      const targetEmails: {[domain: string]: string} = {};
+      
+      (data.sourceDomains || []).forEach(domain => {
+        if (data.adminEmails && data.adminEmails[domain]) {
+          sourceEmails[domain] = data.adminEmails[domain];
+        }
+      });
+      
+      (data.targetDomains || []).forEach(domain => {
+        if (data.adminEmails && data.adminEmails[domain]) {
+          targetEmails[domain] = data.adminEmails[domain];
+        }
+      });
+      
+      // Update state with separated admin emails
+      if (Object.keys(sourceEmails).length === 1) {
+        setSourceAdminEmail(Object.values(sourceEmails)[0]);
+      } else if (Object.keys(sourceEmails).length > 1) {
+        setSourceAdminEmails(sourceEmails);
+      }
+      
+      if (Object.keys(targetEmails).length === 1) {
+        setTargetAdminEmail(Object.values(targetEmails)[0]);
+      } else if (Object.keys(targetEmails).length > 1) {
+        setTargetAdminEmails(targetEmails);
+      }
+    }
+
+    // Store verification token for authenticated user discovery operations
+    if (data.verificationToken) {
+      try {
+        // Store the token in sessionStorage for this session's user discovery operations
+        sessionStorage.setItem('dwd_verification_token', data.verificationToken);
+        
+        // Also decode and log verification details (for debugging)
+        const verificationData = JSON.parse(atob(data.verificationToken));
+        console.log('[Migration Wizard] Verification token stored:', {
+          verificationId: verificationData.verificationId,
+          timestamp: verificationData.timestamp,
+          verifiedDomains: verificationData.verifiedDomains?.length || 0,
+          serviceAccountEmail: verificationData.serviceAccountEmail ? '***@' + verificationData.serviceAccountEmail.split('@')[1] : 'NOT_SET',
+          delegationVerified: verificationData.delegationStatus?.sourceVerified && verificationData.delegationStatus?.destVerified
+        });
+      } catch (error) {
+        console.error('[Migration Wizard] Error processing verification token:', error);
+      }
+    }
+
+    console.log('[Migration Wizard] User discovery configuration ready - admin emails updated for user discovery');
+  };
+
   // Get target domains for multi-target scenarios
   const getTargetDomains = (): string[] => {
     // First check if we have target domains array in migration config
@@ -814,26 +974,21 @@ export default function NewMigration() {
       return migrationConfig.targetDomains.filter((domain): domain is string => Boolean(domain));
     }
     
-    // Fallback to domain mapping configuration
+    // Fallback to domain mapping configuration (Record<string, string[]>)
     if (!domainMapping) return [migrationConfig.targetDomain].filter((domain): domain is string => Boolean(domain));
     
-    if (domainMapping.type === 'one-to-many') {
-      if (domainMapping.multiTargetConfig) {
-        return domainMapping.multiTargetConfig.map(config => config.domain).filter((domain): domain is string => Boolean(domain));
-      }
-      if (domainMapping.targetDomains) {
-        return domainMapping.targetDomains.filter((domain): domain is string => Boolean(domain));
-      }
-    }
-    
-    return [domainMapping.targetDomain].filter((domain): domain is string => Boolean(domain));
+    // Extract target domains from the mapping
+    const targets = Object.values(domainMapping).flat().filter((domain): domain is string => Boolean(domain));
+    return targets.length > 0 ? targets : [migrationConfig.targetDomain].filter((domain): domain is string => Boolean(domain));
   };
 
   // Get source domains for multi-source scenarios
   const getSourceDomains = (): string[] => {
     if (!domainMapping) return [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
     
-    return domainMapping.sourceDomains.filter((domain): domain is string => Boolean(domain));
+    // Extract source domains from the mapping keys
+    const sources = Object.keys(domainMapping).filter((domain): domain is string => Boolean(domain));
+    return sources.length > 0 ? sources : [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
   };
 
   // OAuth Authentication Functions for Domain Discovery
@@ -1272,7 +1427,18 @@ export default function NewMigration() {
                     </div>
                     <div>
                       <span className="font-medium text-blue-900">Domains:</span>
-                      <span className="text-blue-800 ml-2">{domainMapping?.sourceDomains.join(', ')} → {domainMapping?.targetDomain}</span>
+                      <span className="text-blue-800 ml-2">
+                        {domainMapping?.sourceDomains && domainMapping.sourceDomains.length > 0 
+                          ? domainMapping.sourceDomains.join(', ') 
+                          : getSourceDomains().join(', ')
+                        } → {
+                          domainMapping?.targetDomain || 
+                          (domainMapping?.targetDomains && domainMapping.targetDomains.length > 0 
+                            ? domainMapping.targetDomains.join(', ')
+                            : getTargetDomains().join(', ')
+                          )
+                        }
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1409,6 +1575,7 @@ export default function NewMigration() {
                   ondestAdminEmailChange={handledestAdminEmailChange}
                   onsourceAdminEmailsChange={handlesourceAdminEmailsChange}
                   ondestAdminEmailsChange={handledestAdminEmailsChange}
+                  onUserDiscoveryReady={handleUserDiscoveryReady}
                   className="bg-white"
                   // Disable the component if authentication is not complete
                   style={!isOAuthCompleteForDomainDiscovery() ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
@@ -1500,7 +1667,7 @@ export default function NewMigration() {
                     Domain Configuration
                   </h3>
                   <p className="text-green-800 text-sm">
-                    {domainMapping.description}
+                    Domain mapping configured: {Object.keys(domainMapping).length} source domain(s) to {Object.values(domainMapping).flat().length} target domain(s)
                   </p>
                 </div>
               )}
@@ -1516,9 +1683,10 @@ export default function NewMigration() {
                   sourceAdminEmail={selectedScenario === 'single-super-admin' ? adminEmail : (getSourceDomains().length <= 1 ? sourceAdminEmail : undefined)}
                   targetAdminEmails={targetAdminEmails}
                   migrationScenario={selectedScenario || undefined}
-                  domainMapping={domainMapping || undefined}
+                  domainMapping={undefined} // TODO: Convert DomainMapping to DomainMappingConfig format if needed
                   userMappingStrategy={userMappingConfig?.relationship}
                   userMappingConfig={userMappingConfig || undefined}
+                  verificationToken={typeof window !== 'undefined' ? sessionStorage.getItem('dwd_verification_token') || undefined : undefined}
                   mappingType={
                     userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
                     userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
@@ -1810,6 +1978,7 @@ export default function NewMigration() {
                         value={migrationConfig.sourceDomain}
                         onChange={(e) => setMigrationConfig(prev => ({ ...prev, sourceDomain: e.target.value }))}
                         placeholder="e.g., oldcompany.com"
+                        autoComplete="off"
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
@@ -1853,6 +2022,7 @@ export default function NewMigration() {
                         value={migrationConfig.targetDomain}
                         onChange={(e) => setMigrationConfig(prev => ({ ...prev, targetDomain: e.target.value }))}
                         placeholder="e.g., newcompany.com"
+                        autoComplete="off"
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
@@ -2041,39 +2211,18 @@ export default function NewMigration() {
                   {domainMapping && (
                     <div className="p-4 bg-gray-50 rounded-lg">
                       <div className="font-mono text-sm">
-                        {domainMapping.type === 'one-to-many' ? (
-                          <div>
-                            <div className="text-gray-700 mb-2">Source Domains:</div>
-                            <div className="ml-4 space-y-1">
-                              {domainMapping.sourceDomains.map((domain, idx) => (
-                                <div key={idx} className="text-blue-600">• {domain}</div>
-                              ))}
+                        <div className="text-gray-700 mb-2">Domain Mapping:</div>
+                        <div className="space-y-2">
+                          {Object.entries(domainMapping).map(([source, targets], idx) => (
+                            <div key={idx} className="flex items-center space-x-4">
+                              <span className="text-blue-600 font-medium">{source}</span>
+                              <ArrowRight className="h-4 w-4 text-gray-400" />
+                              <span className="text-green-600 font-medium">
+                                {Array.isArray(targets) ? targets.join(', ') : targets}
+                              </span>
                             </div>
-                            <div className="text-gray-700 mt-3 mb-2">Target Domains:</div>
-                            <div className="ml-4 space-y-1">
-                              {getTargetDomainsFromMapping(domainMapping).map((target, idx) => (
-                                <div key={idx} className="text-green-600">-&gt; {target}</div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center space-x-4">
-                            <span className="text-blue-600 font-medium">
-                              {domainMapping.sourceDomains.join(', ')}
-                            </span>
-                            <ArrowRight className="h-4 w-4 text-gray-400" />
-                            <span className="text-green-600 font-medium">
-                              {domainMapping.targetDomain}
-                            </span>
-                          </div>
-                        )}
-                        {domainMapping.preserveSourceAsAlias && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <span className="text-xs text-blue-600 font-medium">
-                              ✓ Source domains will be preserved as aliases
-                            </span>
-                          </div>
-                        )}
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2085,12 +2234,12 @@ export default function NewMigration() {
                     </div>
                     <div>
                       <div className="text-sm text-gray-600 mb-1">
-                        Target Domain{migrationConfig.targetDomains.length > 1 ? 's' : ''}
+                        Target Domain{(migrationConfig.targetDomains && migrationConfig.targetDomains.length > 1) ? 's' : ''}
                       </div>
                       <div className="font-medium text-gray-900">
                         {domainMapping ? formatTargetDomains(domainMapping) : migrationConfig.targetDomain}
                       </div>
-                      {migrationConfig.targetDomains.length > 1 && (
+                      {migrationConfig.targetDomains && migrationConfig.targetDomains.length > 1 && (
                         <div className="text-xs text-gray-500 mt-1">
                           {migrationConfig.targetDomains.length} target domains configured
                         </div>

@@ -57,16 +57,101 @@ export async function GET(request: NextRequest) {
       createdAt: Date.now()
     }
 
-    // Redirect back to the migration setup with success
-    const redirectUrl = new URL('/migrations/new', request.url)
-    redirectUrl.searchParams.set('oauth_success', 'true')
-    redirectUrl.searchParams.set('domain', domain)
-    redirectUrl.searchParams.set('type', type)
-    
-    return NextResponse.redirect(redirectUrl)
+    // Create a response that will close the popup and notify parent window
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Complete</title>
+          <script>
+            // Send success message to parent window
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'oauth_success',
+                domain: '${domain}',
+                authType: '${type}',
+                success: true
+              }, window.location.origin);
+              
+              // Close popup after a short delay
+              setTimeout(() => {
+                window.close();
+              }, 1000);
+            } else {
+              // Fallback: redirect to main page
+              window.location.href = '/migrations/new?oauth_success=true&domain=${domain}&type=${type}';
+            }
+          </script>
+        </head>
+        <body>
+          <div style="text-align: center; padding: 20px; font-family: Arial, sans-serif;">
+            <h2>✅ Authentication Successful</h2>
+            <p>Authenticated as ${type} admin for domain: <strong>${domain}</strong></p>
+            <p>This window will close automatically...</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const response = new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html',
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none'
+      }
+    });
+
+    return response;
 
   } catch (error: any) {
     console.error('OAuth callback error:', error)
-    return NextResponse.redirect(new URL('/migrations/new?oauth_error=callback_failed', request.url))
+    
+    // Create an error response that will close the popup and notify parent window
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Error</title>
+          <script>
+            // Send error message to parent window
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'oauth_error',
+                error: 'callback_failed',
+                message: 'Authentication failed. Please try again.',
+                success: false
+              }, window.location.origin);
+              
+              // Close popup after a short delay
+              setTimeout(() => {
+                window.close();
+              }, 2000);
+            } else {
+              // Fallback: redirect to main page
+              window.location.href = '/migrations/new?oauth_error=callback_failed';
+            }
+          </script>
+        </head>
+        <body>
+          <div style="text-align: center; padding: 20px; font-family: Arial, sans-serif;">
+            <h2>❌ Authentication Failed</h2>
+            <p>There was an error during authentication. Please try again.</p>
+            <p>This window will close automatically...</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const response = new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html',
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none'
+      }
+    });
+
+    return response;
   }
 }

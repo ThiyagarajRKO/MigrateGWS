@@ -101,7 +101,15 @@ export const OAuthAuthenticationStep = memo(function OAuthAuthenticationStep({
 
       // Monitor popup for completion
       const checkClosed = setInterval(() => {
-        if (popup.closed) {
+        try {
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            onRefreshStatus();
+            setIsLoading(false);
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          console.log('Cannot check popup.closed due to COOP policy, refreshing status anyway');
           clearInterval(checkClosed);
           onRefreshStatus();
           setIsLoading(false);
@@ -153,9 +161,18 @@ export const OAuthAuthenticationStep = memo(function OAuthAuthenticationStep({
 
       // Monitor popup for completion
       const checkClosed = setInterval(() => {
-        if (popup.closed) {
+        try {
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            // Check authentication status for this specific auth type
+            checkCrossTenantAuthStatus(authType);
+            setIsLoading(false);
+            setCurrentAuthType(null);
+          }
+        } catch (error) {
+          // Handle case where we can't access popup.closed due to COOP policy
+          console.log('Cannot check popup.closed due to COOP policy, checking auth status anyway');
           clearInterval(checkClosed);
-          // Check authentication status for this specific auth type
           checkCrossTenantAuthStatus(authType);
           setIsLoading(false);
           setCurrentAuthType(null);

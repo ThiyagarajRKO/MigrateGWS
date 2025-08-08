@@ -4,6 +4,8 @@ import React, { useState, memo, useMemo, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { DomainMappingConfig } from '@/types/migration-scenarios'
+import { DomainMapping } from '@/types/config'
+import { validateMappings, getSourceDomains, getTargetDomains, isOneToMany, isManyToOne, isOneToOne, getMappingType, getMappingAnalysis } from '@/utils/domainMappingHelpers'
 import { 
   Copy, 
   CheckCircle, 
@@ -31,7 +33,7 @@ interface DomainWideDelegationSetupProps {
   destAccounts?: {[domain: string]: string} // For multiple target domains
   adminEmail?: string // For single super admin scenario
   migrationScenario?: 'single-super-admin' | 'cross-tenant'
-  domainMapping?: DomainMappingConfig // Domain mapping configuration
+  domainMapping?: DomainMapping | DomainMappingConfig | string // Support multiple formats: simple mapping, legacy config, or JSON string
   onComplete?: () => void
   onVerificationStatusChange?: (isVerified: boolean) => void // New callback for verification status
   onAdminEmailChange?: (email: string) => void // For single super admin scenario
@@ -39,6 +41,14 @@ interface DomainWideDelegationSetupProps {
   ondestAdminEmailChange?: (email: string) => void // For cross-tenant dest email
   onsourceAdminEmailsChange?: (emails: {[domain: string]: string}) => void // For multiple source domains
   ondestAdminEmailsChange?: (emails: {[domain: string]: string}) => void // For multiple dest domains
+  onUserDiscoveryReady?: (data: {
+    sourceDomains: string[];
+    targetDomains: string[];
+    adminEmails: {[domain: string]: string};
+    scenario: 'single-super-admin' | 'cross-tenant';
+    verificationToken?: string;
+    domainMapping: DomainMapping; // Include the processed domain mapping
+  }) => void // Callback for when user discovery should be triggered
   className?: string
   style?: React.CSSProperties // Add style prop support
 }
@@ -237,16 +247,7 @@ const chunkScopes = (scopes: string[], chunkSize: number): string[][] => {
   return chunks
 }
 
-// Source account verification interfaces
-interface SourceAccountVerificationState {
-  isVerifying: boolean
-  isVerified: boolean
-  verificationMethod: 'oauth' | 'delegation' | 'both'
-  challenge?: any
-  accessToken?: string
-  verificationResult?: any
-  error?: string
-}
+// Source account verification interfaces - REMOVED
 
 const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({ 
   sourceAccount, 
@@ -263,9 +264,69 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   ondestAdminEmailChange,
   onsourceAdminEmailsChange,
   ondestAdminEmailsChange,
+  onUserDiscoveryReady,
   className = '',
   style
 }: DomainWideDelegationSetupProps) {
+  
+  // Convert domain mapping to our standard format
+  const standardDomainMapping = useMemo((): DomainMapping => {
+    console.log('[DomainWideDelegationSetup] Processing domain mapping:', {
+      rawDomainMapping: domainMapping,
+      type: typeof domainMapping,
+      hasType: typeof domainMapping === 'object' && domainMapping && 'type' in domainMapping,
+      stringified: JSON.stringify(domainMapping, null, 2)
+    });
+
+    if (!domainMapping) return {};
+    
+    try {
+      // Handle JSON string
+      if (typeof domainMapping === 'string') {
+        const parsed = JSON.parse(domainMapping);
+        console.log('[DomainWideDelegationSetup] Parsed JSON string:', parsed);
+        return parsed;
+      }
+      
+      // Handle direct DomainMapping (Record<string, string[]>) - ONLY EXPLICIT MAPPING
+      if (typeof domainMapping === 'object' && !('type' in domainMapping)) {
+        console.log('[DomainWideDelegationSetup] Using direct domain mapping:', domainMapping);
+        return domainMapping as DomainMapping;
+      }
+      
+      // For DomainMappingConfig, don't auto-convert - require explicit mapping
+      console.log('[DomainWideDelegationSetup] DomainMappingConfig provided but automatic conversion disabled. Please provide explicit domain mapping.');
+      return {};
+      
+    } catch (error) {
+      console.error('[DomainWideDelegationSetup] Error processing domain mapping:', error);
+      return {};
+    }
+  }, [domainMapping]);
+
+  // Validate the standard domain mapping
+  const domainMappingValid = useMemo(() => {
+    try {
+      validateMappings(standardDomainMapping);
+      return true;
+    } catch (error) {
+      console.error('[DomainWideDelegationSetup] Domain mapping validation failed:', error);
+      return false;
+    }
+  }, [standardDomainMapping]);
+
+  console.log('[DomainWideDelegationSetup] Domain mapping processed:', {
+    originalType: typeof domainMapping,
+    originalHasType: typeof domainMapping === 'object' && domainMapping && 'type' in domainMapping,
+    originalDomainMapping: domainMapping,
+    standardMapping: standardDomainMapping,
+    isValid: domainMappingValid,
+    sourceDomains: getSourceDomains(standardDomainMapping),
+    targetDomains: getTargetDomains(standardDomainMapping),
+    mappingType: getMappingType(standardDomainMapping),
+    analysisResult: getMappingAnalysis(standardDomainMapping)
+  });
+
   const router = useRouter()
   const { user } = useAuth() // Get authenticated user
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
@@ -297,12 +358,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
-  // Source account verification state
-  const [sourceAccountVerification, setSourceAccountVerification] = useState<SourceAccountVerificationState>({
-    isVerifying: false,
-    isVerified: false,
-    verificationMethod: 'both'
-  })
+  // Source account verification state - REMOVED
   
   // Extract admin email from OAuth authentication
   const authenticatedAdminEmail = useMemo(() => {
@@ -327,6 +383,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   const [inputsourceAdminEmail, setInputsourceAdminEmail] = useState<string>('')
   const [inputdestAdminEmail, setInputdestAdminEmail] = useState<string>('')
   const [inputAdminEmail, setInputAdminEmail] = useState<string>('')
+  const [multiDomainAdminEmails, setMultiDomainAdminEmails] = useState<Record<string, string>>({})
 
   // Persistent verification status management
   const [persistedVerifications, setPersistedVerifications] = useState<{[key: string]: {
@@ -367,48 +424,12 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     }
   }, [])
 
-  // Load cached admin emails into input state when no props are provided
+  // DISABLED: Load cached admin emails into input state to prevent domain auto-population
   useEffect(() => {
-    // Only populate input state if no props are provided and inputs are empty
-    if (!adminEmail && !sourceAccount && !destAccount && 
-        Object.keys(sourceAccounts || {}).length === 0 && 
-        Object.keys(destAccounts || {}).length === 0 &&
-        !inputAdminEmail && !inputsourceAdminEmail && !inputdestAdminEmail) {
-      
-      // Extract admin emails from persistent verification cache
-      const verificationKeys = Object.keys(persistedVerifications);
-      if (verificationKeys.length > 0) {
-        console.log('[DomainWideDelegationSetup] Loading cached admin emails into input state from keys:', verificationKeys);
-
-        // Get the most recent verification
-        const mostRecentKey = verificationKeys.reduce((latest, current) => {
-          const latestTimestamp = persistedVerifications[latest]?.timestamp || 0;
-          const currentTimestamp = persistedVerifications[current]?.timestamp || 0;
-          return currentTimestamp > latestTimestamp ? current : latest;
-        });
-
-        const verification = persistedVerifications[mostRecentKey];
-        if (verification) {
-          console.log('[DomainWideDelegationSetup] Loading from most recent verification key:', mostRecentKey, 'data:', verification);
-
-          // Parse the verification key to extract email information
-          const [scenario, ...emailParts] = mostRecentKey.split('-');
-          
-          if (scenario === 'single-super-admin' && emailParts.length > 0) {
-            const adminEmailFromCache = emailParts[0];
-            console.log('[DomainWideDelegationSetup] Setting input admin email from cache:', adminEmailFromCache);
-            setInputAdminEmail(adminEmailFromCache);
-          } else if (scenario === 'cross-tenant' && emailParts.length >= 2) {
-            // For cross-tenant, we have source and dest emails (sorted)
-            const sourceAdminEmailFromCache = emailParts[0];
-            const destAdminEmailFromCache = emailParts[1];
-            console.log('[DomainWideDelegationSetup] Setting input emails from cache - source:', sourceAdminEmailFromCache, 'dest:', destAdminEmailFromCache);
-            setInputsourceAdminEmail(sourceAdminEmailFromCache);
-            setInputdestAdminEmail(destAdminEmailFromCache);
-          }
-        }
-      }
-    }
+    console.log('[DomainWideDelegationSetup] Auto-loading of cached admin emails disabled to prevent domain auto-population');
+    // DISABLED: Only populate input state if no props are provided and inputs are empty
+    // This was causing domain fields to auto-populate with test domains from cache
+    // Original logic disabled to prevent unwanted domain auto-population
   }, [persistedVerifications, adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, inputAdminEmail, inputsourceAdminEmail, inputdestAdminEmail])
 
   // Load admin email from authentication token for Single Super Admin scenario
@@ -437,6 +458,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     const emails = [adminEmail, sourceAdminEmail, destAdminEmail]
       .filter(email => email && email.trim() !== '') // Filter out empty strings and whitespace
       .sort()
+    // Use consistent '-' separator format
     return `${scenario || 'unknown'}-${emails.join('-')}`
   }, [])
 
@@ -501,15 +523,23 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       let hasChanges = false
       
       Object.entries(persistedVerifications).forEach(([key, value]) => {
-        // Check if key is well-formed
-        const keyParts = key.split('-')
-        const [scenario, ...emailParts] = keyParts
-        const validEmailParts = emailParts.filter(part => part && part.trim() !== '' && part.includes('@'))
+        // Check if key is well-formed - handle both old (|) and new (-) formats
+        const isOldFormat = key.includes('|');
+        const keyParts = isOldFormat ? key.split('|') : key.split('-');
+        const [scenario, ...emailParts] = keyParts;
+        const validEmailParts = emailParts.filter(part => part && part.trim() !== '' && part.includes('@'));
+        
+        console.log('[DomainWideDelegationSetup] Checking key validity:', {
+          key,
+          isOldFormat,
+          scenario,
+          validEmailParts: validEmailParts.length,
+          emailParts
+        });
         
         // Only keep keys that have valid structure
         if ((scenario === 'single-super-admin' && validEmailParts.length === 1) ||
-            (scenario === 'cross-tenant' && validEmailParts.length === 2) ||
-            (scenario !== 'single-super-admin' && scenario !== 'cross-tenant')) {
+            (scenario === 'cross-tenant' && validEmailParts.length === 2)) {
           cleanedVerifications[key] = value
         } else {
           console.log('[DomainWideDelegationSetup] Removing malformed key:', key)
@@ -567,171 +597,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     destAccounts, sourceAccounts, migrationScenario, persistedVerifications, getVerificationKey
   ])
 
-  // Source account verification functions
-  const initiateSourceAccountVerification = useCallback(async (verificationMethod: 'oauth' | 'delegation' | 'both' = 'both') => {
-    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
-    if (!effectiveSourceAccount) {
-      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-        ...prev,
-        error: 'Source account email not available'
-      }))
-      return
-    }
+  // Source account verification functions - REMOVED
 
-    setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-      ...prev,
-      isVerifying: true,
-      error: undefined,
-      verificationMethod
-    }))
-
-    try {
-      // Step 1: Generate OAuth challenge or delegation token
-      const response = await fetch(`/api/v1/source-account/verify?sourceEmail=${encodeURIComponent(effectiveSourceAccount)}&method=${verificationMethod}`)
-      
-      if (!response.ok) {
-        throw new Error(`Failed to generate verification challenge: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to generate verification challenge')
-      }
-
-      // Store challenge or OAuth token for verification
-      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-        ...prev,
-        challenge: data.challenge,
-        accessToken: data.accessToken,
-        isVerifying: false
-      }))
-
-      return data
-    } catch (error) {
-      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-        ...prev,
-        isVerifying: false,
-        error: error instanceof Error ? error.message : 'Unknown verification error'
-      }))
-      throw error
-    }
-  }, [sourceAccount, inputsourceAdminEmail])
-
-  const performSourceAccountVerification = useCallback(async (authCode?: string) => {
-    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
-    if (!effectiveSourceAccount) {
-      throw new Error('Source account email not available')
-    }
-
-    setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-      ...prev,
-      isVerifying: true,
-      error: undefined
-    }))
-
-    try {
-      const requestBody = {
-        sourceEmail: effectiveSourceAccount,
-        migrationScenario: migrationScenario || 'cross-tenant',
-        verificationMethod: sourceAccountVerification.verificationMethod,
-        challenge: sourceAccountVerification.challenge?.challenge,
-        accessToken: sourceAccountVerification.accessToken
-      }
-
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      }
-
-      // Add auth code to headers if provided (for OAuth verification)
-      if (authCode && sourceAccountVerification.verificationMethod !== 'delegation') {
-        headers['x-auth-code'] = authCode
-      }
-
-      const response = await fetch('/api/v1/source-account/verify', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody)
-      })
-
-      if (!response.ok) {
-        throw new Error(`Verification failed: ${response.statusText}`)
-      }
-
-      const result = await response.json()
-      
-      if (!result.success) {
-        // Handle cases where additional steps are required
-        if (result.requiresOAuth || result.requiresDelegation) {
-          setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-            ...prev,
-            challenge: result.challenge,
-            accessToken: result.accessToken,
-            isVerifying: false
-          }))
-          return result
-        }
-        throw new Error(result.error || 'Verification failed')
-      }
-
-      // Verification successful
-      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-        ...prev,
-        isVerified: result.verified,
-        verificationResult: result.result,
-        isVerifying: false
-      }))
-
-      // Save verification status
-      if (result.verified) {
-        saveVerificationStatus(
-          '',
-          effectiveSourceAccount,
-          undefined,
-          migrationScenario || 'cross-tenant',
-          true
-        )
-      }
-
-      return result
-    } catch (error) {
-      setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-        ...prev,
-        isVerifying: false,
-        error: error instanceof Error ? error.message : 'Unknown verification error'
-      }))
-      throw error
-    }
-  }, [sourceAccount, inputsourceAdminEmail, migrationScenario, sourceAccountVerification.verificationMethod, sourceAccountVerification.challenge, sourceAccountVerification.accessToken, saveVerificationStatus])
-
-  // Load cached verification status when source account email is available
-  useEffect(() => {
-    const effectiveSourceAccount = sourceAccount || inputsourceAdminEmail;
-    if (effectiveSourceAccount) {
-      // Check if already verified in cache
-      const verificationKey = getVerificationKey('', effectiveSourceAccount, undefined, migrationScenario || 'cross-tenant')
-      const cachedVerification = persistedVerifications[verificationKey]
-      
-      if (cachedVerification?.verified) {
-        console.log('[DomainWideDelegationSetup] Found cached verification for source account:', effectiveSourceAccount)
-        setSourceAccountVerification((prev: SourceAccountVerificationState) => ({
-          ...prev,
-          isVerified: true,
-          verificationResult: {
-            email: effectiveSourceAccount,
-            verified: true,
-            lastVerified: new Date(cachedVerification.timestamp).toISOString(),
-            permissions: {
-              canManageUsers: true,
-              canAccessDirectory: true,
-              canConfigureDelegation: true,
-              adminLevel: 'source'
-            }
-          }
-        }))
-      }
-    }
-  }, [sourceAccount, inputsourceAdminEmail, migrationScenario, getVerificationKey, persistedVerifications])
+  // Load cached verification status when source account email is available - REMOVED
 
   // Helper function to check if verification is successful
   const isVerificationSuccessful = useCallback((): boolean => {
@@ -798,12 +666,21 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     console.log('[DomainWideDelegationSetup] Most recent verification key:', mostRecentKey, 'data:', verification);
 
     // Parse the verification key to extract email information
-    // Format: "scenario-email1-email2-email3" (sorted)
-    const keyParts = mostRecentKey.split('-');
+    // Handle both old format "scenario|email1|email2" and new format "scenario-email1-email2"
+    const isOldFormat = mostRecentKey.includes('|');
+    const keyParts = isOldFormat ? mostRecentKey.split('|') : mostRecentKey.split('-');
     const [scenario, ...emailParts] = keyParts;
     
     // Filter out empty email parts that might have been created by malformed keys
     const validEmailParts = emailParts.filter(part => part && part.trim() !== '' && part.includes('@'));
+    
+    console.log('[DomainWideDelegationSetup] Parsing verification key:', {
+      key: mostRecentKey,
+      isOldFormat,
+      scenario,
+      emailParts,
+      validEmailParts
+    });
     
     if (scenario === 'single-super-admin' && validEmailParts.length > 0) {
       const adminInfo = {
@@ -946,29 +823,53 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     return cachedInfo !== null && cachedInfo !== undefined;
   }, [getCachedAdminInfo])
 
-  // Helper function to get display text for migration scenario
-  const getMigrationScenarioDisplayText = useCallback(() => {
-    if (migrationScenario === 'single-super-admin') {
-      return 'single super admin';
-    } else if (migrationScenario === 'cross-tenant') {
-      return 'cross-tenant';
-    } else if (domainMapping?.type) {
-      // Fallback to domain mapping type if scenario not specified
-      return domainMapping.type.replace('-', ' ');
-    }
-    return 'migration';
-  }, [migrationScenario, domainMapping?.type]);
-
   // Domain mapping context helpers
   const getDomainMappingContext = useMemo(() => {
-    if (!domainMapping || !domainMapping.type) return null
+    console.log('[getDomainMappingContext] Starting analysis with:', {
+      standardDomainMapping,
+      isEmpty: Object.keys(standardDomainMapping).length === 0,
+      entries: Object.entries(standardDomainMapping),
+      migrationScenario
+    });
 
-    const isMultiTarget = domainMapping.type === 'one-to-many' || domainMapping.type === 'cross-tenant-multi-target'
-    const isMultiSource = domainMapping.type === 'many-to-one' || domainMapping.type === 'cross-tenant-multi-source'
-    // Prioritize migrationScenario prop over domainMapping.type for cross-tenant detection
-    const isCrossTenant = migrationScenario === 'cross-tenant' || (migrationScenario !== 'single-super-admin' && domainMapping.type?.includes('cross-tenant'))
+    // DISABLED: No explicit domain mapping provided - manual mapping required
+    if (Object.keys(standardDomainMapping).length === 0) {
+      console.log('[getDomainMappingContext] No explicit domain mapping provided - manual domain mapping required');
+      
+      // DISABLED: Automatic domain derivation from admin emails
+      // This requires users to explicitly configure domain mappings instead of auto-generating them
+      return null;
+    }
+
+    const sourceDomains = getSourceDomains(standardDomainMapping);
+    const targetDomains = getTargetDomains(standardDomainMapping);
     
-    // Calculate complexity level within the useMemo
+    // Use the improved helper functions for accurate detection
+    const isMultiTarget = isOneToMany(standardDomainMapping);
+    const isMultiSource = isManyToOne(standardDomainMapping);
+    const isCrossTenant = migrationScenario === 'cross-tenant';
+    
+    // Debug logging
+    console.log('[DomainMappingContext] Domain analysis:', {
+      standardDomainMapping,
+      sourceDomains,
+      targetDomains,
+      sourceCount: sourceDomains.length,
+      targetCount: targetDomains.length,
+      isOneToOne: isOneToOne(standardDomainMapping),
+      isOneToMany: isOneToMany(standardDomainMapping),
+      isManyToOne: isManyToOne(standardDomainMapping),
+      mappingType: getMappingType(standardDomainMapping),
+      isMultiSource,
+      isMultiTarget,
+      isCrossTenant,
+      // Enhanced debug info
+      actualTargetDomains: targetDomains,
+      actualSourceDomains: sourceDomains,
+      rawMappingEntries: Object.entries(standardDomainMapping)
+    });
+    
+    // Calculate complexity level
     const getComplexityLevel = () => {
       if (isCrossTenant && (isMultiTarget || isMultiSource)) return 'Very High'
       if (isCrossTenant) return 'High'
@@ -976,18 +877,77 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       return 'Low'
     }
     
+    // Determine type based on structure using helper functions
+    let type: string = getMappingType(standardDomainMapping);
+    
+    if (isCrossTenant) {
+      type = `cross-tenant-${type}`;
+    }
+    
+    // Generate detailed description with domain lists for complex mappings
+    const generateDescription = () => {
+      const mappingType = getMappingType(standardDomainMapping);
+      
+      // Log for debugging
+      console.log('[DomainMappingContext] Generating description:', {
+        sourceDomains,
+        targetDomains,
+        mappingType,
+        sourceCount: sourceDomains.length,
+        targetCount: targetDomains.length,
+        standardDomainMapping,
+        detailedMapping: Object.entries(standardDomainMapping).map(([source, targets]) => ({
+          source,
+          targets,
+          targetCount: targets.length
+        }))
+      });
+
+      if (mappingType === 'many-to-one') {
+        // Many-to-one: List all source domains → single target
+        return `Many-to-One Migration: Multiple sources consolidating to single target`;
+      } else if (mappingType === 'one-to-many') {
+        // One-to-many: Single source → List all target domains
+        return `One-to-Many Migration: Single source splitting to multiple targets`;
+      } else if (mappingType === 'one-to-one') {
+        // True one-to-one: Single source → Single target
+        return `One-to-One Migration: Direct domain-to-domain transfer`;
+      } else if (mappingType === 'unsupported') {
+        // Unsupported mapping pattern
+        return `Unsupported Migration Pattern: Complex mapping not supported`;
+      } else if (mappingType === 'empty') {
+        return `No Domain Mapping: Please configure domain mapping first`;
+      } else {
+        // Fallback - shouldn't happen but just in case
+        return `Migration Setup: ${sourceDomains.length} source(s) → ${targetDomains.length} target(s)`;
+      }
+    };
+
     return {
-      type: domainMapping.type,
-      description: domainMapping.description || '',
-      sourceDomains: domainMapping.sourceDomains || [],
-      targetDomains: domainMapping.targetDomains || [],
-      multiTargetConfig: domainMapping.multiTargetConfig || [],
+      type,
+      description: generateDescription(),
+      sourceDomains,
+      targetDomains,
+      multiTargetConfig: [], // Not used in simple format
       isMultiTarget,
       isMultiSource,
       isCrossTenant,
       complexity: getComplexityLevel()
     }
-  }, [domainMapping, migrationScenario])
+  }, [standardDomainMapping, migrationScenario])
+
+  // Helper function to get display text for migration scenario
+  const getMigrationScenarioDisplayText = useCallback(() => {
+    if (migrationScenario === 'single-super-admin') {
+      return 'single super admin';
+    } else if (migrationScenario === 'cross-tenant') {
+      return 'cross-tenant';
+    } else if (getDomainMappingContext?.type) {
+      // Fallback to domain mapping type if scenario not specified
+      return getDomainMappingContext.type.replace('-', ' ');
+    }
+    return 'migration';
+  }, [migrationScenario, getDomainMappingContext?.type]);
 
   const getDomainCount = () => {
     const context = getDomainMappingContext
@@ -1021,28 +981,107 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       })
       onVerificationStatusChange(verificationStatus)
       
-      // If verification is successful and comes from cache, sync admin emails to parent
-      if (verificationStatus && isPersistent) {
-        const cachedInfo = getCachedAdminInfo()
-        if (cachedInfo) {
-          console.log('[DomainWideDelegationSetup] Syncing cached admin emails on verification status change:', cachedInfo)
-          
-          if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
-            if (onAdminEmailChange) {
-              onAdminEmailChange(cachedInfo.adminEmail)
-            }
-          } else if (cachedInfo.type === 'cross-tenant') {
-            if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
-              onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
-            }
-            if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
-              ondestAdminEmailChange(cachedInfo.destAdminEmail)
-            }
-          }
+      // DISABLED: Auto-sync cached admin emails to prevent domain auto-population
+      // if (verificationStatus && isPersistent) {
+      //   const cachedInfo = getCachedAdminInfo()
+      //   if (cachedInfo) {
+      //     console.log('[DomainWideDelegationSetup] Would sync cached admin emails, but auto-sync disabled to prevent domain auto-population:', cachedInfo)
+      //     
+      //     if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+      //       if (onAdminEmailChange) {
+      //         onAdminEmailChange(cachedInfo.adminEmail)
+      //       }
+      //     } else if (cachedInfo.type === 'cross-tenant') {
+      //       if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
+      //         onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
+      //       }
+      //       if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
+      //         ondestAdminEmailChange(cachedInfo.destAdminEmail)
+      //       }
+      //     }
+      //   }
+      // }
+    }
+  }, [isVerificationSuccessful, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onsourceAdminEmailChange, ondestAdminEmailChange])
+
+  // Trigger user discovery when domain mapping and verification are ready
+  const triggerUserDiscovery = useCallback(() => {
+    if (!onUserDiscoveryReady || !migrationScenario || !domainMappingValid) {
+      console.log('[DomainWideDelegationSetup] User discovery not ready:', {
+        hasCallback: !!onUserDiscoveryReady,
+        hasMigrationScenario: !!migrationScenario,
+        domainMappingValid,
+        standardMapping: standardDomainMapping
+      });
+      return;
+    }
+
+    const sourceDomains = getSourceDomains(standardDomainMapping);
+    const targetDomains = getTargetDomains(standardDomainMapping);
+    const adminEmails: {[domain: string]: string} = {};
+
+    // Build admin emails based on migration scenario
+    if (migrationScenario === 'single-super-admin') {
+      const effectiveAdminEmail = adminEmail || inputAdminEmail || user?.email;
+      if (effectiveAdminEmail) {
+        sourceDomains.forEach(domain => {
+          adminEmails[domain] = effectiveAdminEmail;
+        });
+      }
+    } else if (migrationScenario === 'cross-tenant') {
+      if (sourceAccount || inputsourceAdminEmail) {
+        const sourceEmail = sourceAccount || inputsourceAdminEmail;
+        const sourceDomain = sourceEmail.split('@')[1];
+        if (sourceDomains.includes(sourceDomain)) {
+          adminEmails[sourceDomain] = sourceEmail;
+        }
+      }
+      
+      if (destAccount || inputdestAdminEmail) {
+        const destEmail = destAccount || inputdestAdminEmail;
+        const destDomain = destEmail.split('@')[1];
+        if (targetDomains.includes(destDomain)) {
+          adminEmails[destDomain] = destEmail;
         }
       }
     }
-  }, [isVerificationSuccessful, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onsourceAdminEmailChange, ondestAdminEmailChange])
+
+    // Add multi-domain admin emails
+    Object.entries(multiDomainAdminEmails).forEach(([domain, email]) => {
+      if (email && (sourceDomains.includes(domain) || targetDomains.includes(domain))) {
+        adminEmails[domain] = email;
+      }
+    });
+
+    console.log('[DomainWideDelegationSetup] Triggering user discovery:', {
+      sourceDomains,
+      targetDomains,
+      adminEmails: Object.keys(adminEmails),
+      domainMapping: standardDomainMapping,
+      scenario: migrationScenario
+    });
+
+    onUserDiscoveryReady({
+      sourceDomains,
+      targetDomains,
+      adminEmails,
+      scenario: migrationScenario,
+      domainMapping: standardDomainMapping
+    });
+  }, [
+    onUserDiscoveryReady,
+    migrationScenario,
+    domainMappingValid,
+    standardDomainMapping,
+    adminEmail,
+    inputAdminEmail,
+    user?.email,
+    sourceAccount,
+    inputsourceAdminEmail,
+    destAccount,
+    inputdestAdminEmail,
+    multiDomainAdminEmails
+  ]);
 
   // Call onComplete when verification is successful
   useEffect(() => {
@@ -1050,57 +1089,78 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     if (onComplete && isVerified) {
       console.log('[DomainWideDelegationSetup] Calling onComplete - verification successful')
       onComplete()
+      
+      // Also trigger user discovery when verification is complete
+      if (domainMappingValid) {
+        triggerUserDiscovery();
+      }
     }
-  }, [isVerificationSuccessful, onComplete])
+  }, [isVerificationSuccessful, onComplete, domainMappingValid, triggerUserDiscovery])
 
-  // Notify parent component when admin emails change (including empty values)
+  // DISABLED: Notify parent component when admin emails change to prevent domain auto-population
   useEffect(() => {
-    if (onAdminEmailChange) {
-      onAdminEmailChange(inputAdminEmail || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of input admin email disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync input admin email to parent
+    // if (onAdminEmailChange) {
+    //   onAdminEmailChange(inputAdminEmail || '')
+    // }
   }, [inputAdminEmail, onAdminEmailChange])
 
   useEffect(() => {
-    if (onsourceAdminEmailChange) {
-      onsourceAdminEmailChange(inputsourceAdminEmail || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of input source email disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync input source email to parent
+    // if (onsourceAdminEmailChange) {
+    //   onsourceAdminEmailChange(inputsourceAdminEmail || '')
+    // }
   }, [inputsourceAdminEmail, onsourceAdminEmailChange])
 
   useEffect(() => {
-    if (ondestAdminEmailChange) {
-      ondestAdminEmailChange(inputdestAdminEmail || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of input dest email disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync input dest email to parent
+    // if (ondestAdminEmailChange) {
+    //   ondestAdminEmailChange(inputdestAdminEmail || '')
+    // }
   }, [inputdestAdminEmail, ondestAdminEmailChange])
 
-  // Initial sync of admin emails when component mounts or props change (including empty values)
+  // DISABLED: Initial sync of admin emails when component mounts or props change to prevent domain auto-population
   useEffect(() => {
-    if (onAdminEmailChange) {
-      onAdminEmailChange(adminEmail || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of prop admin email disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync prop admin email to parent
+    // if (onAdminEmailChange) {
+    //   onAdminEmailChange(adminEmail || '')
+    // }
   }, [adminEmail, onAdminEmailChange])
 
   useEffect(() => {
-    if (onsourceAdminEmailChange) {
-      onsourceAdminEmailChange(sourceAccount || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of prop source account disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync prop source account to parent
+    // if (onsourceAdminEmailChange) {
+    //   onsourceAdminEmailChange(sourceAccount || '')
+    // }
   }, [sourceAccount, onsourceAdminEmailChange])
 
   useEffect(() => {
-    if (ondestAdminEmailChange) {
-      ondestAdminEmailChange(destAccount || '')
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of prop dest account disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync prop dest account to parent
+    // if (ondestAdminEmailChange) {
+    //   ondestAdminEmailChange(destAccount || '')
+    // }
   }, [destAccount, ondestAdminEmailChange])
 
   useEffect(() => {
-    if (onsourceAdminEmailsChange) {
-      onsourceAdminEmailsChange(sourceAccounts || {})
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of prop source accounts disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync prop source accounts to parent
+    // if (onsourceAdminEmailsChange) {
+    //   onsourceAdminEmailsChange(sourceAccounts || {})
+    // }
   }, [sourceAccounts, onsourceAdminEmailsChange])
 
   useEffect(() => {
-    if (ondestAdminEmailsChange) {
-      ondestAdminEmailsChange(destAccounts || {})
-    }
+    console.log('[DomainWideDelegationSetup] Auto-sync of prop dest accounts disabled to prevent domain auto-population');
+    // DISABLED: Auto-sync prop dest accounts to parent
+    // if (ondestAdminEmailsChange) {
+    //   ondestAdminEmailsChange(destAccounts || {})
+    // }
   }, [destAccounts, ondestAdminEmailsChange])
 
   // Initial sync of persistent verification status with parent component
@@ -1115,43 +1175,45 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           console.log('[DomainWideDelegationSetup] Syncing persistent verification status with parent on mount')
           onVerificationStatusChange(true)
           
+          // DISABLED: Auto-sync cached admin emails to prevent domain auto-population
           // Also sync cached admin emails to parent if we have them
-          const cachedInfo = getCachedAdminInfo()
-          if (cachedInfo) {
-            console.log('[DomainWideDelegationSetup] Syncing cached admin emails to parent:', cachedInfo)
-            
-            if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
-              if (onAdminEmailChange) {
-                onAdminEmailChange(cachedInfo.adminEmail)
-              }
-            } else if (cachedInfo.type === 'cross-tenant') {
-              if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
-                onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
-              }
-              if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
-                ondestAdminEmailChange(cachedInfo.destAdminEmail)
-              }
-            }
-          }
+          // const cachedInfo = getCachedAdminInfo()
+          // if (cachedInfo) {
+          //   console.log('[DomainWideDelegationSetup] Auto-sync disabled - cached admin emails available but not syncing:', cachedInfo)
+          //   
+          //   if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+          //     if (onAdminEmailChange) {
+          //       onAdminEmailChange(cachedInfo.adminEmail)
+          //     }
+          //   } else if (cachedInfo.type === 'cross-tenant') {
+          //     if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
+          //       onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
+          //     }
+          //     if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
+          //       ondestAdminEmailChange(cachedInfo.destAdminEmail)
+          //     }
+          //   }
+          // }
         } else {
+          // DISABLED: Auto-sync cached admin emails to prevent domain auto-population
           // Even if not verified from cache, sync any cached admin emails for display
-          const cachedInfo = getCachedAdminInfo()
-          if (cachedInfo) {
-            console.log('[DomainWideDelegationSetup] No cached verification, but syncing cached admin emails for display:', cachedInfo)
-            
-            if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
-              if (onAdminEmailChange) {
-                onAdminEmailChange(cachedInfo.adminEmail)
-              }
-            } else if (cachedInfo.type === 'cross-tenant') {
-              if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
-                onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
-              }
-              if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
-                ondestAdminEmailChange(cachedInfo.destAdminEmail)
-              }
-            }
-          }
+          // const cachedInfo = getCachedAdminInfo()
+          // if (cachedInfo) {
+          //   console.log('[DomainWideDelegationSetup] Auto-sync disabled - cached admin emails available but not syncing for display:', cachedInfo)
+          //   
+          //   if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+          //     if (onAdminEmailChange) {
+          //       onAdminEmailChange(cachedInfo.adminEmail)
+          //     }
+          //   } else if (cachedInfo.type === 'cross-tenant') {
+          //     if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
+          //       onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
+          //     }
+          //     if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
+          //       ondestAdminEmailChange(cachedInfo.destAdminEmail)
+          //     }
+          //   }
+          // }
         }
       }
     }, 100) // Small delay to ensure state has been initialized
@@ -1175,29 +1237,30 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       }
     }
     
+    // DISABLED: Auto-sync cached admin emails to prevent domain auto-population
     // Sync cached admin emails
-    const cachedInfo = getCachedAdminInfo()
-    if (cachedInfo) {
-      console.log('[DomainWideDelegationSetup] Syncing cached admin emails after verification change:', cachedInfo)
-      
-      if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
-        console.log('[DomainWideDelegationSetup] Calling onAdminEmailChange with cached admin email:', cachedInfo.adminEmail)
-        if (onAdminEmailChange) {
-          onAdminEmailChange(cachedInfo.adminEmail)
-        }
-      } else if (cachedInfo.type === 'cross-tenant') {
-        if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
-          console.log('[DomainWideDelegationSetup] Calling onsourceAdminEmailChange with cached source email:', cachedInfo.sourceAdminEmail)
-          onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
-        }
-        if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
-          console.log('[DomainWideDelegationSetup] Calling ondestAdminEmailChange with cached dest email:', cachedInfo.destAdminEmail)
-          ondestAdminEmailChange(cachedInfo.destAdminEmail)
-        }
-      }
-    } else {
-      console.log('[DomainWideDelegationSetup] No cached admin info found when persistent verifications changed')
-    }
+    // const cachedInfo = getCachedAdminInfo()
+    // if (cachedInfo) {
+    //   console.log('[DomainWideDelegationSetup] Auto-sync disabled - cached admin emails available after verification change:', cachedInfo)
+    //   
+    //   if (cachedInfo.type === 'single-super-admin' && cachedInfo.adminEmail) {
+    //     console.log('[DomainWideDelegationSetup] Would call onAdminEmailChange with cached admin email:', cachedInfo.adminEmail)
+    //     if (onAdminEmailChange) {
+    //       onAdminEmailChange(cachedInfo.adminEmail)
+    //     }
+    //   } else if (cachedInfo.type === 'cross-tenant') {
+    //     if (cachedInfo.sourceAdminEmail && onsourceAdminEmailChange) {
+    //       console.log('[DomainWideDelegationSetup] Would call onsourceAdminEmailChange with cached source email:', cachedInfo.sourceAdminEmail)
+    //       onsourceAdminEmailChange(cachedInfo.sourceAdminEmail)
+    //     }
+    //     if (cachedInfo.destAdminEmail && ondestAdminEmailChange) {
+    //       console.log('[DomainWideDelegationSetup] Would call ondestAdminEmailChange with cached dest email:', cachedInfo.destAdminEmail)
+    //       ondestAdminEmailChange(cachedInfo.destAdminEmail)
+    //     }
+    //   }
+    // } else {
+    //   console.log('[DomainWideDelegationSetup] No cached admin info found when persistent verifications changed')
+    // }
   }, [persistedVerifications, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onsourceAdminEmailChange, ondestAdminEmailChange])
 
   const copyToClipboard = (text: string, itemId: string) => {
@@ -1709,16 +1772,67 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       
                       {getDomainMappingContext && (
                         <div>
-                          <h4 className="font-semibold text-gray-900 mb-2"> ️ Your Migration Scenario:</h4>
-                          <div className="text-gray-600 space-y-1">
-                            <div className="font-medium">{getDomainMappingContext.description}</div>
-                            <div className="text-sm text-slate-600 font-medium">
-                              Complexity: {getDomainMappingContext.complexity} | 
-                              Sources: {getDomainCount().source} | 
-                              Targets: {getDomainCount().target}
+                          <h4 className="font-semibold text-gray-900 mb-2">🗺️ Your Migration Scenario:</h4>
+                          <div className="text-gray-600 space-y-3">
+                            <div className="font-medium text-lg text-gray-800">{getDomainMappingContext.description}</div>
+                            
+                            {/* Debug logging for domain display */}
+                            {(() => {
+                              console.log('[DomainWideDelegationSetup] Rendering domain mapping:', {
+                                sourceDomains: getDomainMappingContext.sourceDomains,
+                                targetDomains: getDomainMappingContext.targetDomains,
+                                description: getDomainMappingContext.description,
+                                type: getDomainMappingContext.type,
+                                complexity: getDomainMappingContext.complexity
+                              });
+                              return null;
+                            })()}
+                            
+                            {/* Enhanced domain mapping visualization */}
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                              <div className="text-sm font-semibold text-gray-700 mb-2">📋 Domain Mapping Details:</div>
+                              
+                              {/* Source Domains */}
+                              <div className="flex items-start space-x-2">
+                                <span className="text-xs font-medium text-blue-700 min-w-[60px]">Source{getDomainMappingContext.sourceDomains.length > 1 ? 's' : ''}:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {getDomainMappingContext.sourceDomains.map((domain, index) => (
+                                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                      {domain}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              
+                              {/* Arrow separator */}
+                              <div className="flex justify-center">
+                                <span className="text-gray-400 font-bold text-lg">↓</span>
+                              </div>
+                              
+                              {/* Target Domains */}
+                              <div className="flex items-start space-x-2">
+                                <span className="text-xs font-medium text-green-700 min-w-[60px]">Target{getDomainMappingContext.targetDomains.length > 1 ? 's' : ''}:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {getDomainMappingContext.targetDomains.map((domain, index) => (
+                                    <span key={index} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                                      {domain}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
+                            
+                            {/* Complexity and stats */}
+                            <div className="text-sm text-slate-600 font-medium bg-slate-50 px-3 py-2 rounded">
+                              <span className="text-purple-700">Complexity: {getDomainMappingContext.complexity}</span> | 
+                              <span className="text-blue-700 ml-1">Sources: {getDomainCount().source}</span> | 
+                              <span className="text-green-700 ml-1">Targets: {getDomainCount().target}</span>
+                            </div>
+                            
                             {getDomainMappingContext.isCrossTenant && (
-                              <div className="text-orange-700 text-sm font-medium">⚠️ Cross-tenant migration requires separate domain setups</div>
+                              <div className="text-orange-700 text-sm font-medium bg-orange-50 border border-orange-200 rounded p-2">
+                                ⚠️ Cross-tenant migration requires separate domain setups
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1807,16 +1921,42 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       {getDomainMappingContext.complexity} Complexity
                     </span>
                   </div>
-                  <p className="text-gray-700 text-sm mb-2">{getDomainMappingContext.description}</p>
+                  <p className="text-gray-700 text-sm mb-3">{getDomainMappingContext.description}</p>
                   
-                  <div className="grid grid-cols-2 gap-4 text-sm font-medium">
+                  {/* Source and Target Domain Lists */}
+                  <div className="space-y-3 text-sm">
+                    {/* Source Domains */}
                     <div>
-                      <span className="text-gray-700 font-medium">Source Domains:</span>
-                      <span className="text-gray-700 ml-1">{getDomainCount().source}</span>
+                      <span className="text-gray-700 font-semibold block mb-1">
+                        Source Domain{getDomainMappingContext.sourceDomains.length > 1 ? 's' : ''} ({getDomainMappingContext.sourceDomains.length}):
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {getDomainMappingContext.sourceDomains.map((domain, index) => (
+                          <span 
+                            key={index}
+                            className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-md font-medium border border-blue-200"
+                          >
+                            {domain}
+                          </span>
+                        ))}
+                      </div>
                     </div>
+                    
+                    {/* Target Domains */}
                     <div>
-                      <span className="text-gray-700 font-medium">Target Domains:</span>
-                      <span className="text-gray-700 ml-1">{getDomainCount().target}</span>
+                      <span className="text-gray-700 font-semibold block mb-1">
+                        Target Domain{getDomainMappingContext.targetDomains.length > 1 ? 's' : ''} ({getDomainMappingContext.targetDomains.length}):
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {getDomainMappingContext.targetDomains.map((domain, index) => (
+                          <span 
+                            key={index}
+                            className="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded-md font-medium border border-green-200"
+                          >
+                            {domain}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   
@@ -1917,185 +2057,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           );
         })()}
 
-        {/* Source Account Verification Section */}
-        {(sourceAccount || inputsourceAdminEmail) && (
-          <div className="mb-6 p-5 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-300/60 rounded-xl shadow-sm">
-            <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <Shield className="h-5 w-5 text-green-600" />
-              Source Account Verification
-              <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium">
-                Cross-Tenant Migration
-              </span>
-            </h3>
-            
-            <div className="space-y-4">
-              {/* Source Account Display */}
-              <div className="p-4 bg-white/70 border border-green-200/60 rounded-lg shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Source Account Email:</span>
-                  <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
-                    {sourceAccount || inputsourceAdminEmail}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">Domain:</span>
-                  <span className="text-sm font-mono text-gray-800 bg-gray-100 px-2 py-1 rounded">
-                    {(sourceAccount || inputsourceAdminEmail)?.split('@')[1] || 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Verification Status */}
-              <div className="p-4 bg-white/70 border border-green-200/60 rounded-lg shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Verification Status:</span>
-                  <div className="flex items-center gap-2">
-                    {sourceAccountVerification.isVerified ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        <span className="text-sm font-medium text-green-700">Verified</span>
-                      </>
-                    ) : sourceAccountVerification.isVerifying ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
-                        <span className="text-sm font-medium text-blue-700">Verifying...</span>
-                      </>
-                    ) : (
-                      <>
-                        <X className="h-4 w-4 text-orange-600" />
-                        <span className="text-sm font-medium text-orange-700">Not Verified</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Verification Method */}
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Method:</span>
-                  <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium">
-                    {sourceAccountVerification.verificationMethod.toUpperCase()}
-                  </span>
-                </div>
-
-                {/* Verification Error */}
-                {sourceAccountVerification.error && (
-                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                    <strong>Error:</strong> {sourceAccountVerification.error}
-                  </div>
-                )}
-
-                {/* Verification Result Details */}
-                {sourceAccountVerification.verificationResult && (
-                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <h5 className="font-medium text-green-800 mb-2">Verification Details:</h5>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">Account Level:</span>
-                        <span className="font-medium text-green-800 capitalize">
-                          {sourceAccountVerification.verificationResult.permissions?.adminLevel}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">Can Manage Users:</span>
-                        <span className={`font-medium ${sourceAccountVerification.verificationResult.permissions?.canManageUsers ? 'text-green-800' : 'text-red-800'}`}>
-                          {sourceAccountVerification.verificationResult.permissions?.canManageUsers ? 'Yes' : 'No'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">Last Verified:</span>
-                        <span className="font-medium text-gray-800">
-                          {new Date(sourceAccountVerification.verificationResult.lastVerified).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Verification Actions */}
-              <div className="flex gap-3">
-                {!sourceAccountVerification.isVerified && (
-                  <button
-                    onClick={() => initiateSourceAccountVerification('both')}
-                    disabled={sourceAccountVerification.isVerifying}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {sourceAccountVerification.isVerifying ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        <Shield className="h-4 w-4" />
-                        Start Verification
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {(sourceAccountVerification.challenge || sourceAccountVerification.accessToken) && !sourceAccountVerification.isVerified && (
-                  <button
-                    onClick={() => performSourceAccountVerification()}
-                    disabled={sourceAccountVerification.isVerifying}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {sourceAccountVerification.isVerifying ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Check className="h-4 w-4" />
-                        Complete Verification
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {sourceAccountVerification.isVerified && (
-                  <button
-                    onClick={() => setSourceAccountVerification({
-                      isVerifying: false,
-                      isVerified: false,
-                      verificationMethod: 'both'
-                    })}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg hover:from-orange-700 hover:to-red-700 transition-all duration-200 font-medium"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Re-verify
-                  </button>
-                )}
-              </div>
-
-              {/* Challenge or Access Token Display */}
-              {sourceAccountVerification.challenge && (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <h5 className="font-medium text-yellow-800 mb-2">OAuth Challenge:</h5>
-                  <div className="font-mono text-xs bg-white p-2 rounded border break-all">
-                    {sourceAccountVerification.challenge.challenge}
-                  </div>
-                  <p className="text-sm text-yellow-700 mt-2">
-                    Complete the OAuth flow with your source account credentials.
-                  </p>
-                </div>
-              )}
-
-              {sourceAccountVerification.accessToken && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h5 className="font-medium text-blue-800 mb-2">Access Token:</h5>
-                  <div className="font-mono text-xs bg-white p-2 rounded border break-all">
-                    {sourceAccountVerification.accessToken.substring(0, 50)}...
-                  </div>
-                  <p className="text-sm text-blue-700 mt-2">
-                    Token received. Click Complete Verification to finalize the process.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Source Account Verification Section - REMOVED */}
 
         {/* Unified Setup Section - Always Available */}
         <div className="mb-6 p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/60 rounded-xl shadow-lg shadow-blue-100/50">
@@ -2120,13 +2082,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     )}
                   </>
                 ) : (
-                  adminEmail && !sourceAccount && !destAccount 
-                    ? 'Configure domain-wide delegation for your domain migration.'
-                    : (sourceAccount && destAccount)
-                      ? 'Configure domain-wide delegation for cross-tenant migration between both domains.'
-                      : (sourceAccount || destAccount)
-                        ? 'Configure domain-wide delegation for the specified domain.'
-                        : 'Configure domain-wide delegation for your Google Workspace migration with automated setup.'
+                  <>
+                    Configure domain-wide delegation for your Google Workspace migration.
+                    <span className="text-orange-600 font-semibold"> Manual domain mapping required</span> - 
+                    please configure your domain mappings first before proceeding with delegation setup.
+                  </>
                 )}
               </p>
             </div>
@@ -2212,7 +2172,42 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               {/* Domain mapping specific guidance */}
               {getDomainMappingContext && (
                 <div className="mb-4 p-4 bg-gradient-to-r from-gray-100 to-gray-100 border border-gray-300/60 rounded-lg text-sm text-gray-700 shadow-sm font-medium leading-relaxed">
-                  <strong>Migration Strategy:</strong> {getDomainMappingContext.description}
+                  <div className="mb-3">
+                    <strong>Migration Strategy:</strong> {getDomainMappingContext.description}
+                  </div>
+                  
+                  {/* Show domain lists for complex mappings */}
+                  {(getDomainMappingContext.isMultiTarget || getDomainMappingContext.isMultiSource) && (
+                    <div className="space-y-2 mb-3">
+                      {getDomainMappingContext.isMultiSource && (
+                        <div>
+                          <span className="font-semibold text-blue-700">Source Domains:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {getDomainMappingContext.sourceDomains.map((domain, index) => (
+                              <span key={index} className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200">
+                                {domain}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {getDomainMappingContext.isMultiTarget && (
+                        <div>
+                          <span className="font-semibold text-green-700">Target Domains:</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {getDomainMappingContext.targetDomains.map((domain, index) => (
+                              <span key={index} className="inline-block px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded border border-green-200">
+                                {domain}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Requirements based on domain mapping */}
                   {getDomainMappingContext.isMultiTarget && (
                     <div className="mt-1">• Multiple target domains require admin access to each destination domain</div>
                   )}

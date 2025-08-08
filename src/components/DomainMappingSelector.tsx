@@ -56,40 +56,42 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
   }, [refetchDomains]);
   
   const [selectedType, setSelectedType] = useState<DomainMappingType | null>(
-    selectedMapping?.type || null
+    null // DISABLED: selectedMapping?.type || null - Force manual type selection
   );
   const [sourceDomains, setSourceDomains] = useState<string[]>(
-    selectedMapping?.sourceDomains || ['']
+    [''] // DISABLED: selectedMapping?.sourceDomains || [''] - Force manual domain selection
   );
   const [targetDomain, setTargetDomain] = useState(
-    selectedMapping?.targetDomain || ''
+    '' // DISABLED: selectedMapping?.targetDomain || '' - Force manual target selection
   );
   const [targetDomains, setTargetDomains] = useState<string[]>(() => {
-    if (selectedMapping?.targetDomains && selectedMapping.targetDomains.length > 0) {
-      return selectedMapping.targetDomains;
-    }
-    if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
-      return selectedMapping.multiTargetConfig.map(config => config.domain);
-    }
-    return selectedMapping?.type === 'one-to-many' ? ['', ''] : [''];
+    // DISABLED: Auto-population from selectedMapping - Force manual selection
+    // if (selectedMapping?.targetDomains && selectedMapping.targetDomains.length > 0) {
+    //   return selectedMapping.targetDomains;
+    // }
+    // if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+    //   return selectedMapping.multiTargetConfig.map(config => config.domain);
+    // }
+    return [''] // Force empty for manual selection: selectedMapping?.type === 'one-to-many' ? ['', ''] : [''];
   });
   const [multiTargetConfig, setMultiTargetConfig] = useState<TargetDomainConfig[]>(() => {
-    if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
-      return selectedMapping.multiTargetConfig;
-    }
+    // DISABLED: Auto-population from selectedMapping - Force manual config
+    // if (selectedMapping?.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+    //   return selectedMapping.multiTargetConfig;
+    // }
     return [];
   });
   const [preserveAlias, setPreserveAlias] = useState(
-    selectedMapping?.preserveSourceAsAlias || false
+    false // DISABLED: selectedMapping?.preserveSourceAsAlias || false - Force manual configuration
   );
   const [conflictResolution, setConflictResolution] = useState<'prefix' | 'suffix' | 'manual'>(
-    selectedMapping?.conflictResolution || 'prefix'
+    'prefix' // DISABLED: selectedMapping?.conflictResolution || 'prefix' - Force manual configuration
   );
   const [hasAutoSelectedPrimary, setHasAutoSelectedPrimary] = useState(false);
 
-  // Auto-select primary domain as source when domains are loaded
+  // Auto-select primary domain as source when domains are loaded - DISABLED FOR MANUAL MAPPING
   useEffect(() => {
-    console.log('[DomainMappingSelector] Auto-select useEffect triggered:', {
+    console.log('[DomainMappingSelector] Auto-select disabled for manual mapping:', {
       domainsLength: domains.length,
       selectedMapping: !!selectedMapping,
       hasAutoSelectedPrimary,
@@ -97,46 +99,50 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       availableDomains: domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary }))
     });
     
-    if (domains.length > 0 && !selectedMapping && !hasAutoSelectedPrimary) {
-      const primaryDomain = domains.find(domain => domain.isPrimary);
-      if (primaryDomain) {
-        console.log('[DomainMappingSelector] Auto-selecting primary domain:', {
-          primaryDomainName: primaryDomain.domainName,
-          selectedType
-        });
-        
-        // Auto-select primary domain regardless of mapping type selection status
-        // This ensures the primary domain is selected as soon as domains are loaded
-        setSourceDomains([primaryDomain.domainName]);
-        console.log('[DomainMappingSelector] Auto-selected primary domain as source:', primaryDomain.domainName);
-        
-        setHasAutoSelectedPrimary(true);
-      } else {
-        console.log('[DomainMappingSelector] No primary domain found in domains:', domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary })));
-      }
-    }
+    // DISABLED: Manual domain mapping required - users must explicitly select domains
+    // if (domains.length > 0 && !selectedMapping && !hasAutoSelectedPrimary) {
+    //   const primaryDomain = domains.find(domain => domain.isPrimary);
+    //   if (primaryDomain) {
+    //     console.log('[DomainMappingSelector] Auto-selecting primary domain:', {
+    //       primaryDomainName: primaryDomain.domainName,
+    //       selectedType
+    //     });
+    //     
+    //     // Auto-select primary domain regardless of mapping type selection status
+    //     // This ensures the primary domain is selected as soon as domains are loaded
+    //     setSourceDomains([primaryDomain.domainName]);
+    //     console.log('[DomainMappingSelector] Auto-selected primary domain as source:', primaryDomain.domainName);
+    //     
+    //     setHasAutoSelectedPrimary(true);
+    //   } else {
+    //     console.log('[DomainMappingSelector] No primary domain found in domains:', domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary })));
+    //   }
+    // }
   }, [domains, selectedMapping, hasAutoSelectedPrimary]); // Removed selectedType dependency since we want this to work without type selection
 
-  // Sync state when selectedMapping prop changes
+  // Sync state when selectedMapping prop changes - DISABLED FOR MANUAL MAPPING
   useEffect(() => {
-    if (selectedMapping) {
-      setSelectedType(selectedMapping.type);
-      setSourceDomains(selectedMapping.sourceDomains);
-      setTargetDomain(selectedMapping.targetDomain || '');
-      
-      // Handle target domains array properly
-      if (selectedMapping.targetDomains && selectedMapping.targetDomains.length > 0) {
-        setTargetDomains(selectedMapping.targetDomains);
-      } else if (selectedMapping.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
-        setTargetDomains(selectedMapping.multiTargetConfig.map(config => config.domain));
-      } else {
-        setTargetDomains(selectedMapping.type === 'one-to-many' ? ['', ''] : ['']);
-      }
-      
-      setMultiTargetConfig(selectedMapping.multiTargetConfig || []);
-      setPreserveAlias(selectedMapping.preserveSourceAsAlias || false);
-      setConflictResolution(selectedMapping.conflictResolution || 'prefix');
-    }
+    // DISABLED: Auto-population from selectedMapping prop - users must manually select all domains
+    // if (selectedMapping) {
+    //   setSelectedType(selectedMapping.type);
+    //   setSourceDomains(selectedMapping.sourceDomains);
+    //   setTargetDomain(selectedMapping.targetDomain || '');
+    //   
+    //   // Handle target domains array properly
+    //   if (selectedMapping.targetDomains && selectedMapping.targetDomains.length > 0) {
+    //     setTargetDomains(selectedMapping.targetDomains);
+    //   } else if (selectedMapping.multiTargetConfig && selectedMapping.multiTargetConfig.length > 0) {
+    //     setTargetDomains(selectedMapping.multiTargetConfig.map(config => config.domain));
+    //   } else {
+    //     setTargetDomains(selectedMapping.type === 'one-to-many' ? ['', ''] : ['']);
+    //   }
+    //   
+    //   setMultiTargetConfig(selectedMapping.multiTargetConfig || []);
+    //   setPreserveAlias(selectedMapping.preserveSourceAsAlias || false);
+    //   setConflictResolution(selectedMapping.conflictResolution || 'prefix');
+    // }
+    
+    console.log('[DomainMappingSelector] selectedMapping sync disabled for manual domain selection');
   }, [selectedMapping]);
 
   const supportedMappings = getSupportedMappingTypes(selectedScenario);
@@ -172,25 +178,17 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     
     setSelectedType(option.type);
     
-    // Get the primary domain to preserve auto-selection
-    const primaryDomain = domains.find(domain => domain.isPrimary);
-    const primaryDomainName = primaryDomain?.domainName || '';
-    
-    // Check if primary domain is already selected
-    const currentlyHasPrimary = sourceDomains.includes(primaryDomainName);
+    // DISABLED: Primary domain auto-selection - manual selection required
+    // No primary domain logic - all domains start empty for manual selection
     
     if (isMultiSourceMapping(option.type)) {
-      // For multi-source mappings, ensure primary is first if it was already selected
-      if (currentlyHasPrimary) {
-        setSourceDomains([primaryDomainName, '']); // Keep primary as first, add empty second
-      } else {
-        setSourceDomains([primaryDomainName, '']); // Start with primary + empty
-      }
-      console.log('[DomainMappingSelector] Set multi-source domains:', [primaryDomainName, '']);
+      // For multi-source mappings, start with empty domains for manual selection
+      setSourceDomains(['', '']); // Start with empty domains
+      console.log('[DomainMappingSelector] Set multi-source domains (manual):', ['', '']);
     } else {
-      // For single source mappings, use primary if available
-      setSourceDomains([primaryDomainName]);
-      console.log('[DomainMappingSelector] Set single source domain:', [primaryDomainName]);
+      // For single source mappings, start with empty domain for manual selection  
+      setSourceDomains(['']);
+      console.log('[DomainMappingSelector] Set single source domain (manual):', ['']);
     }
     
     if (isMultiTargetMapping(option.type)) {
@@ -201,10 +199,10 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
       setMultiTargetConfig([]); // Reset multi-target config
     }
     
-    // Set the auto-selection flag since we preserved/set the primary
-    if (primaryDomainName) {
-      setHasAutoSelectedPrimary(true);
-    }
+    // DISABLED: Auto-selection flag setting - manual selection only
+    // if (primaryDomainName) {
+    //   setHasAutoSelectedPrimary(true);
+    // }
   };
 
   const addSourceDomain = () => {
@@ -571,9 +569,12 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
           ) : (
             /* Regular Source Domains for Cross-Tenant */
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Source Domain{sourceDomains.length > 1 ? 's' : ''}
               </label>
+              <p className="text-xs text-gray-500 mb-2">
+                Manual selection required - domains are no longer auto-selected
+              </p>
               
               {domainsLoading && (
                 <div className="flex items-center justify-between space-x-2 text-gray-500 mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">

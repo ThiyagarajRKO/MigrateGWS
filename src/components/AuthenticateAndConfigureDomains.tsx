@@ -252,6 +252,80 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     }
   }, [sessionId, isLoading, currentAuthType, sourceAuthStatus.authenticated, targetAuthStatus.authenticated]);
 
+  // Function to discover domains after OAuth authentication
+  const discoverDomainsForAuth = useCallback(async (domain: string, authType: string) => {
+    console.log(`[discoverDomainsForAuth] Starting domain discovery for ${authType} with domain:`, domain);
+    
+    try {
+      const response = await fetch('/api/auth/oauth/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          domain,
+          type: authType 
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to discover domains for ${authType}`);
+      }
+
+      const data = await response.json();
+      console.log(`[discoverDomainsForAuth] Domain discovery response for ${authType}:`, data);
+      
+      if (data.success && data.domains) {
+        // Update the appropriate auth status based on auth type
+        if (authType === 'source') {
+          setSourceAuthStatus({
+            authenticated: true,
+            domains: data.domains,
+            error: undefined
+          });
+        } else if (authType === 'target') {
+          setTargetAuthStatus({
+            authenticated: true,
+            domains: data.domains,
+            error: undefined
+          });
+        } else {
+          // Single super admin case
+          setSingleAuthStatus({
+            authenticated: true,
+            domains: data.domains,
+            error: undefined
+          });
+        }
+        
+        console.log(`[discoverDomainsForAuth] Successfully updated ${authType} auth status with ${data.domains.length} domains`);
+      } else {
+        throw new Error(data.error || `Failed to discover domains for ${authType}`);
+      }
+    } catch (error) {
+      console.error(`[discoverDomainsForAuth] Error discovering domains for ${authType}:`, error);
+      const errorMessage = error instanceof Error ? error.message : `Failed to discover domains for ${authType}`;
+      
+      // Update the appropriate auth status with error
+      if (authType === 'source') {
+        setSourceAuthStatus(prev => ({
+          ...prev,
+          error: errorMessage
+        }));
+      } else if (authType === 'target') {
+        setTargetAuthStatus(prev => ({
+          ...prev,
+          error: errorMessage
+        }));
+      } else {
+        setSingleAuthStatus(prev => ({
+          ...prev,
+          error: errorMessage
+        }));
+      }
+    }
+  }, []);
+
   // Check if authentication is complete
   const isAuthenticationComplete = () => {
     if (selectedScenario === 'cross-tenant') {
@@ -363,8 +437,55 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         return;
       }
       
+      console.log('[OAuth] Received postMessage:', event.data);
+      
       if (event.data.type === 'oauth_success') {
-        processOAuthSuccess(event.data.domainsDiscovered, event.data.sessionId, event.data.authType, event.data.adminEmail);
+        console.log('[OAuth] Processing OAuth success from postMessage');
+        
+        // Clear loading state
+        setIsLoading(false);
+        setCurrentAuthType(null);
+        
+        // Close popup if we have reference
+        if (currentPopup) {
+          try {
+            currentPopup.close();
+          } catch (error) {
+            // COOP policy may prevent closing, which is fine
+          }
+          setCurrentPopup(null);
+        }
+        
+        // For domain admin authentication, discover domains
+        if (event.data.domain && event.data.authType) {
+          discoverDomainsForAuth(event.data.domain, event.data.authType);
+        }
+        
+        // Legacy support for old format with domain discovery
+        if (event.data.domainsDiscovered) {
+          console.log('[OAuth] Processing domains discovered from postMessage:', event.data.domainsDiscovered);
+          processOAuthSuccess(event.data.domainsDiscovered, event.data.sessionId, event.data.authType, event.data.adminEmail);
+        }
+      } else if (event.data.type === 'oauth_error') {
+        console.error('[OAuth] Received OAuth error from postMessage:', event.data);
+        
+        // Clear loading state
+        setIsLoading(false);
+        setCurrentAuthType(null);
+        
+        // Close popup if we have reference
+        if (currentPopup) {
+          try {
+            currentPopup.close();
+          } catch (error) {
+            // COOP policy may prevent closing, which is fine
+          }
+          setCurrentPopup(null);
+        }
+        
+        // Show error to user
+        const errorMessage = event.data.message || 'Authentication failed. Please try again.';
+        setError(errorMessage);
       }
     };
 
@@ -477,40 +598,41 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     }
   }, [selectedScenario, authSession, showCrossTenantAuth, isLoading, currentAuthType]);
 
-  // Auto-complete configuration for single super admin scenario
+  // Auto-complete configuration for single super admin scenario - DISABLED FOR MANUAL MAPPING
   useEffect(() => {
     if (selectedScenario === 'single-super-admin' && 
         singleAuthStatus.authenticated && 
         singleAuthStatus.domains.length > 0) {
       
-      // Auto-create default domain mappings for single super admin if none exist
-      if (domainMappings.length === 0) {
-        if (userMappingStrategy === 'one-to-many') {
-          // For one-to-many, create one mapping with first domain as source and all domains as targets
-          const defaultMappings = [{
-            source: singleAuthStatus.domains[0],
-            target: singleAuthStatus.domains
-          }];
-          setDomainMappings(defaultMappings);
-        } else if (userMappingStrategy === 'many-to-one') {
-          // For many-to-one, create one mapping with all domains as sources and first domain as target
-          const defaultMappings = [{
-            source: singleAuthStatus.domains,
-            target: singleAuthStatus.domains[0]
-          }];
-          setDomainMappings(defaultMappings);
-        } else {
-          // Default one-to-one mapping
-          const defaultMappings = singleAuthStatus.domains.map(domain => ({
-            source: domain,
-            target: domain
-          }));
-          setDomainMappings(defaultMappings);
-        }
-      }
+      // DISABLED: Auto-create default domain mappings - users must manually configure
+      // if (domainMappings.length === 0) {
+      //   if (userMappingStrategy === 'one-to-many') {
+      //     // For one-to-many, create one mapping with first domain as source and all domains as targets
+      //     const defaultMappings = [{
+      //       source: singleAuthStatus.domains[0],
+      //       target: singleAuthStatus.domains
+      //     }];
+      //     setDomainMappings(defaultMappings);
+      //   } else if (userMappingStrategy === 'many-to-one') {
+      //     // For many-to-one, create one mapping with all domains as sources and first domain as target
+      //     const defaultMappings = [{
+      //       source: singleAuthStatus.domains,
+      //       target: singleAuthStatus.domains[0]
+      //     }];
+      //     setDomainMappings(defaultMappings);
+      //   } else {
+      //     // Default one-to-one mapping
+      //     const defaultMappings = singleAuthStatus.domains.map(domain => ({
+      //       source: domain,
+      //       target: domain
+      //     }));
+      //     setDomainMappings(defaultMappings);
+      //   }
+      // }
       
       // For single super admin, don't auto-complete - let user configure domain mappings
       // This allows users to set up different mapping strategies (one-to-one, one-to-many, etc.)
+      console.log('[AuthenticateAndConfigureDomains] Manual domain mapping required for single super admin scenario');
     }
   }, [selectedScenario, singleAuthStatus.authenticated, singleAuthStatus.domains, domainMappings.length, userMappingStrategy]);
 
@@ -611,6 +733,9 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       if (!popup) {
         throw new Error('Popup blocked. Please allow popups for this site.');
       }
+      
+      // Store popup reference for potential manual closing
+      setCurrentPopup(popup);
 
       // Monitor popup for completion with enhanced COOP handling
       const checkClosed = setInterval(() => {
@@ -619,6 +744,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           if (popup.closed) {
             clearInterval(checkClosed);
             setIsLoading(false);
+            setCurrentPopup(null);
           }
         } catch (error) {
           // Handle case where we can't access popup.closed due to COOP policy
@@ -640,7 +766,14 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         } catch (error) {
           // COOP policy prevents popup access, which is fine
         }
+        setCurrentPopup(null);
       }, 30000); // 30 second timeout for better UX
+
+      // Clean up on unmount
+      return () => {
+        clearInterval(checkClosed);
+        clearTimeout(enhancedTimeout);
+      };
 
     } catch (error) {
       console.error('OAuth initiation error:', error);
@@ -1154,11 +1287,14 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             {domainMappings.length === 0 ? (
               <div className="text-center py-8">
                 <Globe className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No domain mappings configured yet.</p>
+                <p className="text-gray-700 font-medium">Manual domain mapping required.</p>
+                <p className="text-gray-500 text-sm mb-3">
+                  Automatic domain generation has been disabled. You must manually configure your domain mappings.
+                </p>
                 <p className="text-gray-400 text-sm">
                   {selectedScenario === 'single-super-admin' 
-                    ? `Click "Add Mapping" to configure your ${userMappingStrategy || 'one-to-one'} domain migration strategy.`
-                    : 'Click "Add Mapping" to get started.'
+                    ? `Click "Add Mapping" to manually configure your ${userMappingStrategy || 'one-to-one'} domain migration strategy.`
+                    : 'Click "Add Mapping" to manually set up your cross-tenant domain mappings.'
                   }
                 </p>
               </div>

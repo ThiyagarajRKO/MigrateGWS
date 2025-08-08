@@ -134,7 +134,40 @@ export default function OAuthSuccessPage() {
   useEffect(() => {
     if (shouldClosePopup) {
       setTimeout(() => {
-        window.close();
+        try {
+          // Try to use postMessage to inform parent to close this popup
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({
+              type: 'close_oauth_popup'
+            }, window.location.origin);
+          }
+        } catch (error) {
+          console.log('Could not send close message to parent, attempting direct close');
+        }
+        
+        try {
+          // Attempt to close the window
+          window.close();
+        } catch (error) {
+          console.log('Could not close popup window due to COOP policy:', error);
+          // Show a message to the user instead
+          document.body.innerHTML = `
+            <div class="min-h-screen flex items-center justify-center bg-gray-50">
+              <div class="text-center p-8 bg-white rounded-lg shadow-lg max-w-md">
+                <div class="text-green-600 mb-4">
+                  <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </div>
+                <h2 class="text-lg font-medium text-gray-900 mb-2">Authentication Complete!</h2>
+                <p class="text-gray-600 mb-4">You can now close this window and return to the main application.</p>
+                <button onclick="window.close()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  Close Window
+                </button>
+              </div>
+            </div>
+          `;
+        }
       }, 500);
     }
   }, [shouldClosePopup]);

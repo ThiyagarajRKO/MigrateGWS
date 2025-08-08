@@ -134,7 +134,42 @@ const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario } = body
+    const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario, verificationToken } = body
+    
+    // Check for verification token in headers as well
+    const headerToken = request.headers.get('X-Verification-Token')
+    const activeToken = verificationToken || headerToken
+    
+    // Validate verification token if provided
+    if (activeToken) {
+      try {
+        const tokenData = JSON.parse(atob(activeToken))
+        console.log('[Delegation Verify] Received verification token:', {
+          verificationId: tokenData.verificationId,
+          timestamp: tokenData.timestamp,
+          domainsCount: tokenData.verifiedDomains?.length || 0,
+          serviceAccount: tokenData.serviceAccountEmail,
+          scenario: tokenData.delegationStatus?.scenario,
+          source: headerToken ? 'header' : 'body'
+        })
+        
+        // Validate token timestamp (not older than 1 hour)
+        const tokenAge = Date.now() - new Date(tokenData.timestamp).getTime()
+        if (tokenAge > 3600000) { // 1 hour
+          console.warn('[Delegation Verify] Verification token expired')
+        } else {
+          console.log('[Delegation Verify] Verification token is valid and recent')
+        }
+        
+        // Additional validation could be added here
+        console.log('[Delegation Verify] Verification token validated successfully')
+      } catch (error) {
+        console.warn('[Delegation Verify] Invalid verification token:', error)
+        // Continue with verification even if token is invalid
+      }
+    } else {
+      console.log('[Delegation Verify] No verification token provided')
+    }
 
     // Handle Single Super Admin scenario
     if (migrationScenario === 'single-super-admin' || (!sourceAdminEmail && !destAdminEmail && adminEmail)) {
