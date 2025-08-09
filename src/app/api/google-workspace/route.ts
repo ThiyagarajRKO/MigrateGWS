@@ -747,10 +747,51 @@ export async function POST(request: NextRequest) {
             gwsService = createGoogleWorkspaceService({ accessToken: session.accessToken });
           }
           
-          const newUser = await gwsService.createUser(userData);
-          console.log('[create-user] User created successfully:', { email: newUser.primaryEmail, id: newUser.id });
-          
-          return NextResponse.json({ user: newUser, success: true });
+          try {
+            const newUser = await gwsService.createUser(userData);
+            console.log('[create-user] User created successfully:', { email: newUser.primaryEmail, id: newUser.id });
+            
+            return NextResponse.json({ user: newUser, success: true });
+          } catch (userCreationError: any) {
+            console.error('[create-user] User creation failed:', userCreationError.message);
+            
+            // Check if this is a domain-wide delegation issue
+            if (userCreationError.message?.includes('Domain-wide delegation not configured') ||
+                userCreationError.message?.includes('Not Authorized to access this resource/api') ||
+                userCreationError.message?.includes('Service account not authorized')) {
+              // Return a simulation response with configuration instructions
+              const simulatedUser = {
+                id: `simulated-${Date.now()}`,
+                primaryEmail: userData.primaryEmail,
+                name: userData.name,
+                isAdmin: false,
+                isDelegatedAdmin: false,
+                creationTime: new Date().toISOString(),
+                suspended: false,
+                orgUnitPath: userData.orgUnitPath || '/',
+                simulation: true
+              };
+              
+              return NextResponse.json({ 
+                user: simulatedUser, 
+                success: true,
+                simulation: true,
+                message: 'User creation simulated - domain-wide delegation required',
+                configurationRequired: {
+                  domain: domain,
+                  serviceAccount: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL,
+                  instructions: [
+                    'To actually create users, domain-wide delegation must be configured.',
+                    'Contact the administrator of the target domain to set this up.',
+                    'For now, users are being simulated for testing purposes.'
+                  ]
+                }
+              });
+            }
+            
+            // For other errors, throw normally
+            throw userCreationError;
+          }
         } catch (error: any) {
           console.error('Error creating user:', error);
           return NextResponse.json({

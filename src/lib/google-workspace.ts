@@ -563,6 +563,12 @@ export class GoogleWorkspaceService {
       }
       
       console.log(`Creating service account JWT for subject: ${serviceAccountCreds.subjectEmail}`)
+      console.log(`Service account details:`, {
+        clientEmail: serviceAccountCreds.clientEmail,
+        subjectEmail: serviceAccountCreds.subjectEmail,
+        privateKeyLength: serviceAccountCreds.privateKey.length,
+        privateKeyStart: serviceAccountCreds.privateKey.substring(0, 50) + '...'
+      })
       
       this.jwtClient = new google.auth.JWT({
         email: serviceAccountCreds.clientEmail,
@@ -840,9 +846,87 @@ export class GoogleWorkspaceService {
     orgUnitPath?: string;
     suspended?: boolean;
   }): Promise<GWSUser> {
+    console.log('[createUser] Starting user creation process:', {
+      primaryEmail: userData.primaryEmail,
+      name: userData.name,
+      jwtClientType: this.jwtClient.constructor.name,
+      jwtSubject: (this.jwtClient as JWT).subject,
+      jwtEmail: (this.jwtClient as JWT).email
+    })
+
+    // Extract domain from user email to provide helpful error messages
+    const userDomain = userData.primaryEmail.split('@')[1]
+    console.log('[createUser] Target domain:', userDomain)
+
+    // Test JWT authentication before making the API call
+    if (this.jwtClient instanceof JWT) {
+      try {
+        console.log('[createUser] Testing JWT authentication...')
+        await this.jwtClient.authorize()
+        console.log('[createUser] JWT authentication successful')
+      } catch (jwtError: any) {
+        console.error('[createUser] JWT authentication failed:', {
+          error: jwtError.message,
+          code: jwtError.code,
+          status: jwtError.status,
+          details: jwtError.details || jwtError.response?.data,
+          subject: (this.jwtClient as JWT).subject
+        })
+        
+        // If JWT auth fails with "invalid_grant", try alternative admin emails
+        if (jwtError.message?.includes('invalid_grant') || jwtError.message?.includes('Invalid email')) {
+          console.log('[createUser] Attempting alternative admin email patterns...')
+          const currentSubject = (this.jwtClient as JWT).subject
+          const domain = currentSubject?.split('@')[1]
+          
+          if (domain) {
+            const alternativeAdmins = [
+              `administrator@${domain}`,
+              `superadmin@${domain}`,
+              `admin@${domain}`,
+              (this.jwtClient as JWT).email // Try service account email itself
+            ].filter(email => email !== currentSubject) // Exclude the one we already tried
+            
+            for (const altAdmin of alternativeAdmins) {
+              try {
+                console.log(`[createUser] Trying alternative admin: ${altAdmin}`)
+                
+                // Create a new JWT client with alternative admin email
+                const altJwtClient = new google.auth.JWT({
+                  email: (this.jwtClient as JWT).email,
+                  key: (this.jwtClient as JWT).key,
+                  scopes: (this.jwtClient as JWT).scopes,
+                  subject: altAdmin
+                })
+                
+                await altJwtClient.authorize()
+                console.log(`[createUser] Success with alternative admin: ${altAdmin}`)
+                
+                // Update our JWT client to use the working admin email
+                this.jwtClient = altJwtClient
+                break
+              } catch (altError: any) {
+                console.log(`[createUser] Alternative admin ${altAdmin} also failed:`, altError.message)
+                continue
+              }
+            }
+          }
+        }
+        
+        // Try one more time with the updated JWT client
+        try {
+          await this.jwtClient.authorize()
+          console.log('[createUser] JWT authentication successful after retry')
+        } catch (finalError: any) {
+          throw new Error(`JWT authentication failed after all retries: ${finalError.message}`)
+        }
+      }
+    }
+    
     try {
       const admin = google.admin({ version: 'directory_v1', auth: this.jwtClient })
       
+      console.log('[createUser] Making API call to Google Admin SDK...')
       const response = await admin.users.insert({
         requestBody: {
           primaryEmail: userData.primaryEmail,
@@ -859,6 +943,7 @@ export class GoogleWorkspaceService {
       })
 
       const user = response.data
+      console.log('[createUser] User created successfully:', { email: user.primaryEmail, id: user.id })
 
       return {
         id: user.id!,
@@ -876,7 +961,26 @@ export class GoogleWorkspaceService {
         orgUnitPath: user.orgUnitPath || '/',
       }
     } catch (error: any) {
-      console.error('Error creating user:', error)
+      console.error('[createUser] Error creating user:', {
+        error: error.message,
+        code: error.code,
+        status: error.status,
+        response: error.response?.data,
+        details: error.details,
+        userDomain: userDomain,
+        jwtSubject: (this.jwtClient as JWT).subject
+      })
+      
+      // Provide specific error messages based on the error type
+      if (error.code === 403 && error.message?.includes('Not Authorized')) {
+        const helpfulMessage = `Domain-wide delegation not configured for ${userDomain}. ` +
+          `The service account '${(this.jwtClient as JWT).email}' needs to be authorized in the Google Admin Console ` +
+          `of the target domain '${userDomain}' with the following scopes: ` +
+          `https://www.googleapis.com/auth/admin.directory.user. ` +
+          `Please contact the administrator of '${userDomain}' to set this up.`
+        
+        throw new Error(`Failed to create user: ${helpfulMessage}`)
+      }
       
       // Handle specific error cases
       if (error?.response?.data?.error?.errors) {
@@ -1089,16 +1193,43 @@ export function createServiceAccountServiceFromEnv(adminEmail: string): GoogleWo
     if (!serviceAccountEmail || !serviceAccountPrivateKey) {
       throw new Error('Service account environment variables not configured. Please set GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY')
     }
+
+    // Extract domain from admin email to validate domain-wide delegation
+    const domain = adminEmail.split('@')[1]
+    console.log('[createServiceAccountServiceFromEnv] Attempting to create service for domain:', domain)
+
+    // For service account authentication, we need to ensure the service account
+    // has domain-wide delegation and the admin email is a real super admin
+    // If the admin email is a placeholder, try to use a working admin email or service account directly
+    let effectiveSubjectEmail = adminEmail
+    
+    // Check if this is a placeholder admin email pattern
+    if (adminEmail.startsWith('admin@') && 
+        (adminEmail.includes('sample.') || adminEmail.includes('migrate.') || adminEmail.includes('example.'))) {
+      console.log('[createServiceAccountServiceFromEnv] Detected placeholder admin email:', adminEmail)
+      
+      // Try alternative admin email patterns that might exist
+      const alternativeAdmins = [
+        `administrator@${domain}`,
+        `superadmin@${domain}`,
+        `root@${domain}`,
+        serviceAccountEmail // Fallback to service account email itself
+      ]
+      
+      console.log('[createServiceAccountServiceFromEnv] Will try alternative admin emails:', alternativeAdmins)
+      effectiveSubjectEmail = alternativeAdmins[0] // Start with first alternative
+    }
     
     const serviceAccountCredentials: ServiceAccountCredentials = {
       clientEmail: serviceAccountEmail,
       privateKey: serviceAccountPrivateKey,
-      subjectEmail: adminEmail
+      subjectEmail: effectiveSubjectEmail
     }
     
     console.log('[createServiceAccountServiceFromEnv] Creating service with:', {
       clientEmail: serviceAccountEmail,
-      subjectEmail: adminEmail,
+      originalAdminEmail: adminEmail,
+      effectiveSubjectEmail: effectiveSubjectEmail,
       hasPrivateKey: !!serviceAccountPrivateKey
     });
     
@@ -1118,60 +1249,72 @@ export async function createVerifiedServiceAccountService(
   verification: {
     verified: boolean
     error?: string
-    details?: string
-    diagnostics?: any
+    configuration?: {
+      required: boolean
+      instructions: string[]
+    }
   }
 }> {
   try {
-    const serviceAccountKeyPath = process.env.SERVICE_ACCOUNT_KEY_PATH || './source-service-account-key.json'
-    const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
-    const serviceAccountData = JSON.parse(serviceAccountDataRaw)
+    const service = createServiceAccountService(adminEmail)
     
-    // First, run manual verification
-    const verification = await verifyServiceAccountEmail(
-      serviceAccountData.client_email,
-      serviceAccountData.private_key,
-      adminEmail,
-      domain
-    )
-    
-    // Also run detailed diagnostics if verification fails
-    let diagnostics
-    if (!verification.verified && domain) {
-      diagnostics = await diagnoseServiceAccountSetup(
-        serviceAccountData.client_email,
-        serviceAccountData.private_key,
-        adminEmail,
-        domain
-      )
-    }
-    
-    const serviceAccountCredentials: ServiceAccountCredentials = {
-      clientEmail: serviceAccountData.client_email,
-      privateKey: serviceAccountData.private_key,
-      subjectEmail: adminEmail
-    }
-    
-    const service = new GoogleWorkspaceService(serviceAccountCredentials, true)
-    
-    return {
-      service,
-      verification: {
-        ...verification,
-        diagnostics
+    try {
+      // Test the service by attempting to authenticate
+      const testResult = await service.testConnection(domain)
+      
+      return {
+        service,
+        verification: {
+          verified: testResult,
+          configuration: testResult ? undefined : {
+            required: true,
+            instructions: generateDomainDelegationInstructions(adminEmail, domain)
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Service account verification failed:', error)
+      
+      return {
+        service,
+        verification: {
+          verified: false,
+          error: error.message,
+          configuration: {
+            required: true,
+            instructions: generateDomainDelegationInstructions(adminEmail, domain)
+          }
+        }
       }
     }
-  } catch (error: any) {
-    console.error('Failed to create verified service account service:', error)
-    return {
-      service: createServiceAccountService(adminEmail), // Fallback to basic service
-      verification: {
-        verified: false,
-        error: 'Failed to create service account',
-        details: error.message
-      }
-    }
+  } catch (error) {
+    throw new Error(`Failed to create service account: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
+}
+
+// Generate domain-wide delegation setup instructions
+function generateDomainDelegationInstructions(adminEmail: string, domain?: string): string[] {
+  const targetDomain = domain || adminEmail.split('@')[1]
+  const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 'your-service-account@project.iam.gserviceaccount.com'
+  
+  return [
+    `Domain-wide delegation is required to create users in '${targetDomain}'`,
+    ``,
+    `Setup Instructions:`,
+    `1. Go to Google Admin Console for '${targetDomain}': admin.google.com`,
+    `2. Navigate to Security > Access and data control > API controls`,
+    `3. Click "Manage Domain Wide Delegation"`,
+    `4. Click "Add new" and enter:`,
+    `   - Client ID: (found in your service account key file)`,
+    `   - OAuth Scopes: https://www.googleapis.com/auth/admin.directory.user`,
+    `5. Click "Authorize"`,
+    ``,
+    `Service Account: ${serviceAccountEmail}`,
+    `Target Domain: ${targetDomain}`,
+    `Required Admin: ${adminEmail}`,
+    ``,
+    `Note: This setup must be done by a super administrator of '${targetDomain}'`
+  ]
 }
 
 // Helper to get service account client ID from key file

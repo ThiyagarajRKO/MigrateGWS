@@ -72,6 +72,9 @@ interface CreationResult {
   targetDomain: string;
   error?: string;
   userId?: string;
+  simulation?: boolean;
+  message?: string;
+  configurationRequired?: string;
 }
 
 interface UserManagementWorkflowProps {
@@ -168,7 +171,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [totalBatches, setTotalBatches] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('');
-  
+
   // Verification token hook for service account verification
   const verificationTokenHook = useVerificationToken({
     tokenProp: verificationToken,
@@ -309,12 +312,12 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     };
     
     const firstName = cleanName(user.name.givenName);
-    // Preserve period in family name if it was the original value
+    // Don't use period as lastName to avoid double dots in email
     const originalFamilyName = user.name.familyName?.trim() || '';
-    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
+    const lastName = originalFamilyName === '.' ? '' : cleanName(user.name.familyName);
     
     if (firstName && lastName) {
-      return `${firstName}.${lastName}`;
+      return `${firstName}${lastName}`;
     } else if (firstName) {
       return firstName;
     } else if (lastName) {
@@ -327,7 +330,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const getEffectiveTargetAdminEmails = (): {[domain: string]: string} => {
-    // If service account authentication is enabled, provide placeholder admin emails
+    // If service account authentication is enabled, still use real admin emails for impersonation
     if (useServiceAccount) {
       const effectiveEmails: {[domain: string]: string} = {};
       
@@ -336,10 +339,13 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       const domainsToConfig = actualTargetDomains.length > 0 ? actualTargetDomains : targetDomains;
       
       domainsToConfig.forEach(domain => {
-        effectiveEmails[domain] = `service-account@${domain}`; // Placeholder for service account auth
+        // For service account auth, we still need real admin emails for impersonation
+        // Try to get from targetAdminEmails first, then use common admin patterns
+        const realAdminEmail = targetAdminEmails?.[domain] || `admin@${domain}`;
+        effectiveEmails[domain] = realAdminEmail;
       });
       
-      console.log('[UserManagementWorkflow] Service account - Using placeholder admin emails:', {
+      console.log('[UserManagementWorkflow] Service account - Using real admin emails for impersonation:', {
         useServiceAccount,
         domainsToConfig,
         effectiveEmails
@@ -392,7 +398,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     const firstName = cleanName(user.name.givenName);
     // Preserve period in family name if it was the original value
     const originalFamilyName = user.name.familyName?.trim() || '';
-    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
+    const lastName = originalFamilyName === '.' ? '' : cleanName(user.name.familyName); // Don't use period as lastName
     
     let emailBase = '';
     
@@ -409,10 +415,8 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       emailBase = cleanName(fallbackBase) || 'user';
     }
     
-    // Ensure emailBase is not empty and doesn't start/end with dots (unless the lastname is intentionally a period)
-    if (originalFamilyName !== '.') {
-      emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
-    }
+    // Ensure emailBase is not empty and doesn't have consecutive dots
+    emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
     
     switch (mappingType) {
       case 'one-to-many':
@@ -958,14 +962,20 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
       const response = await fetch('/api/google-workspace', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(verificationTokenHook.token && { 
+            'Authorization': `Bearer ${verificationTokenHook.token}` 
+          })
+        },
         body: JSON.stringify({
           action: 'create-user',
           data: {
             userData: userData,
             adminEmail,
             domain: mapping.targetDomain
-          }
+          },
+          verificationToken: verificationTokenHook.token
         })
       });
 
@@ -980,6 +990,23 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       if (!response.ok) {
         const errorMsg = result.message || result.error || `Failed to create user: ${response.statusText}`;
         throw new Error(errorMsg);
+      }
+
+      // Handle simulation mode
+      if (result.simulation) {
+        console.log(`User creation simulated: ${mapping.targetEmail} in ${mapping.targetDomain}`);
+        console.log('Configuration required:', result.configurationRequired);
+        
+        return {
+          success: true,
+          user: mapping.user,
+          targetEmail: mapping.targetEmail,
+          targetDomain: mapping.targetDomain,
+          userId: result.user?.id || result.id,
+          simulation: true,
+          message: result.message,
+          configurationRequired: result.configurationRequired
+        };
       }
 
       console.log(`Successfully created user: ${mapping.targetEmail} in ${mapping.targetDomain}`);
@@ -1007,6 +1034,10 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         errorMessage = `Invalid email format: ${mapping.targetEmail}. Please check the user's name components and try again.`;
       } else if (errorMessage.includes('forbidden') || errorMessage.includes('insufficient permissions')) {
         errorMessage = `Insufficient permissions to create users in ${mapping.targetDomain}. Please verify domain-wide delegation and admin permissions.`;
+      } else if (errorMessage.includes('Domain-wide delegation not configured')) {
+        errorMessage = `Domain-wide delegation required for ${mapping.targetDomain}. Please contact the administrator of ${mapping.targetDomain} to authorize the service account in Google Admin Console.`;
+      } else if (errorMessage.includes('Not Authorized to access this resource/api')) {
+        errorMessage = `Service account not authorized for ${mapping.targetDomain}. Domain-wide delegation must be configured by the target domain administrator.`;
       }
       
       return {
