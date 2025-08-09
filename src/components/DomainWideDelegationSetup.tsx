@@ -3,6 +3,7 @@
 import React, { useState, memo, useMemo, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
+import { useVerificationToken } from '@/hooks/useVerificationToken'
 import { DomainMappingConfig } from '@/types/migration-scenarios'
 import { DomainMapping } from '@/types/config'
 import { validateMappings, getSourceDomains, getTargetDomains, isOneToMany, isManyToOne, isOneToOne, getMappingType, getMappingAnalysis } from '@/utils/domainMappingHelpers'
@@ -330,6 +331,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
   const router = useRouter()
   const { user } = useAuth() // Get authenticated user
+  const { storeToken, clearToken } = useVerificationToken({ 
+    debug: true, 
+    componentName: 'DomainWideDelegationSetup'
+  })
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
   const [showOverviewTooltip, setShowOverviewTooltip] = useState(false)
   
@@ -619,8 +624,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     setPersistedVerifications({})
     localStorage.removeItem('gws-verification-status')
     setDelegationStatus(null)
-    console.log('[DomainWideDelegationSetup] Cleared all verification cache for user logout')
-  }, [])
+    clearToken() // Clear verification token from session storage
+    console.log('[DomainWideDelegationSetup] Cleared all verification cache and tokens for user logout')
+  }, [clearToken])
 
   // Source account verification functions - REMOVED
 
@@ -1653,6 +1659,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           // Save verification status for single super admin if successful
           if (domainVerified && effectiveAdminEmail) {
             saveVerificationStatus(effectiveAdminEmail, undefined, undefined, 'single-super-admin', true)
+            
+            // Store verification token for session persistence using the hook
+            const verificationToken = data.verification.token || `dwd_verified_${effectiveAdminEmail}_${Date.now()}`
+            storeToken(verificationToken)
+            console.log('[DWD Verify] Stored verification token for single super admin:', verificationToken)
           }
         } else {
           // Handle cross-tenant verification - same structure as single super admin
@@ -1675,6 +1686,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           // Save verification status for cross-tenant if both successful
           if (sourceVerified && destVerified && effectiveSourceAccount && effectiveDestAccount) {
             saveVerificationStatus('', effectiveSourceAccount, effectiveDestAccount, 'cross-tenant', true)
+            
+            // Store verification token for session persistence using the hook
+            const verificationToken = data.verification.token || `dwd_verified_cross_tenant_${effectiveSourceAccount}_${effectiveDestAccount}_${Date.now()}`
+            storeToken(verificationToken)
+            console.log('[DWD Verify] Stored verification token for cross-tenant:', verificationToken)
           }
         }
         setSuccessMessage('Verification completed successfully!')
