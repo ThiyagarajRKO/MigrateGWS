@@ -3,6 +3,7 @@
 import { useState, useEffect, memo, useCallback } from 'react';
 import { UserMappingRelationship, UserMappingConfig } from '@/types';
 import { DomainMappingConfig } from '@/types/migration-scenarios';
+import { useVerificationToken } from '@/hooks/useVerificationToken';
 import { 
   Users, 
   UserPlus, 
@@ -85,6 +86,7 @@ interface UserManagementWorkflowProps {
   userMappingStrategy?: UserMappingRelationship;
   userMappingConfig?: UserMappingConfig;
   verificationToken?: string; // Add verification token prop
+  useServiceAccount?: boolean; // Add service account flag
   onComplete?: (results: {
     discoveredUsers: User[];
     createdUsers: CreationResult[];
@@ -126,6 +128,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   userMappingStrategy,
   userMappingConfig,
   verificationToken, // Extract verification token prop
+  useServiceAccount = false, // Extract service account flag
   onComplete
 }: UserManagementWorkflowProps) {
   // Core state
@@ -166,9 +169,85 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('');
   
+  // Verification token hook for service account verification
+  const verificationTokenHook = useVerificationToken({
+    tokenProp: verificationToken,
+    storageKey: 'service_account_verification_token',
+    debug: true,
+    componentName: 'UserManagementWorkflow'
+  });
+  
+  // Service account verification state
+  const [isVerifyingServiceAccount, setIsVerifyingServiceAccount] = useState(false);
+  const [serviceAccountVerified, setServiceAccountVerified] = useState(false);
+  
   // Configuration
   const batchSize = 3; // Small batches to avoid rate limiting
   const retryAttempts = 3;
+  
+  // Service account verification function
+  const verifyServiceAccount = useCallback(async () => {
+    if (!useServiceAccount) {
+      console.log('[UserManagementWorkflow] Service account not enabled, skipping verification');
+      return;
+    }
+
+    setIsVerifyingServiceAccount(true);
+    console.log('[UserManagementWorkflow] Starting service account verification');
+
+    try {
+      // Check if service account environment variables are set
+      const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+      
+      if (!serviceAccountEmail) {
+        throw new Error('Service account environment variables not configured');
+      }
+
+      // Call the verification endpoint
+      const response = await fetch('/api/v1/delegation/verify', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          domain: 'service-account-verification',
+          adminEmail: serviceAccountEmail,
+          migrationScenario: 'service-account',
+          useServiceAccount: true
+        })
+      });
+
+      const verificationData = await response.json();
+      console.log('[UserManagementWorkflow] Service account verification response:', verificationData);
+
+      if (response.ok && verificationData.success) {
+        // Generate a verification token for service account
+        const serviceAccountToken = `service-account-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Store the verification token
+        verificationTokenHook.storeToken(serviceAccountToken);
+        setServiceAccountVerified(true);
+        
+        console.log('[UserManagementWorkflow] Service account verified successfully, token stored:', serviceAccountToken);
+      } else {
+        throw new Error(verificationData.error || verificationData.message || 'Service account verification failed');
+      }
+    } catch (error) {
+      console.error('[UserManagementWorkflow] Service account verification failed:', error);
+      setServiceAccountVerified(false);
+      // Don't throw error, just log it - we'll fall back to regular admin email validation
+    } finally {
+      setIsVerifyingServiceAccount(false);
+    }
+  }, [useServiceAccount, verificationTokenHook]);
+
+  // Verify service account on mount if enabled
+  useEffect(() => {
+    if (useServiceAccount && !serviceAccountVerified && !isVerifyingServiceAccount) {
+      verifyServiceAccount();
+    }
+  }, [useServiceAccount, serviceAccountVerified, isVerifyingServiceAccount, verifyServiceAccount]);
   
   // Helper functions
   // Helper function to get users that exist in multiple source domains (for many-to-one)
@@ -248,6 +327,27 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const getEffectiveTargetAdminEmails = (): {[domain: string]: string} => {
+    // If service account authentication is enabled, provide placeholder admin emails
+    if (useServiceAccount) {
+      const effectiveEmails: {[domain: string]: string} = {};
+      
+      // Get all unique target domains from current mappings or provided domains
+      const actualTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
+      const domainsToConfig = actualTargetDomains.length > 0 ? actualTargetDomains : targetDomains;
+      
+      domainsToConfig.forEach(domain => {
+        effectiveEmails[domain] = `service-account@${domain}`; // Placeholder for service account auth
+      });
+      
+      console.log('[UserManagementWorkflow] Service account - Using placeholder admin emails:', {
+        useServiceAccount,
+        domainsToConfig,
+        effectiveEmails
+      });
+      
+      return effectiveEmails;
+    }
+
     // For single-super-admin scenario, use the same source admin email for all target domains
     if (migrationScenario === 'single-super-admin' && sourceAdminEmail) {
       const effectiveEmails: {[domain: string]: string} = {};
@@ -346,6 +446,16 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   };
 
   const getTargetDomainConfigurationStatus = (): { isValid: boolean, missingDomains: string[], message?: string } => {
+    // If service account authentication is enabled and verified, bypass admin email requirements
+    if (useServiceAccount && (serviceAccountVerified || verificationTokenHook.hasToken)) {
+      console.log('[UserManagementWorkflow] Service account authentication verified - bypassing target domain admin email requirements', {
+        serviceAccountVerified,
+        hasVerificationToken: verificationTokenHook.hasToken,
+        tokenSource: verificationTokenHook.tokenSource
+      });
+      return { isValid: true, missingDomains: [] };
+    }
+
     // Get all target domains that will be used in mappings
     const allTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
     
@@ -1558,6 +1668,52 @@ For cross-tenant migration, each target domain requires its own admin email with
           </div>
         )}
       </div>
+
+      {/* Service Account Status Indicator */}
+      {useServiceAccount && (
+        <div className={`rounded-lg shadow p-4 mb-6 ${
+          serviceAccountVerified || verificationTokenHook.hasToken
+            ? 'bg-green-50 border border-green-200'
+            : isVerifyingServiceAccount
+            ? 'bg-blue-50 border border-blue-200'
+            : 'bg-yellow-50 border border-yellow-200'
+        }`}>
+          <div className="flex items-center space-x-3">
+            {serviceAccountVerified || verificationTokenHook.hasToken ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : isVerifyingServiceAccount ? (
+              <RefreshCw className="h-5 w-5 text-blue-600 animate-spin" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+            )}
+            <div>
+              <h3 className={`font-semibold ${
+                serviceAccountVerified || verificationTokenHook.hasToken
+                  ? 'text-green-800'
+                  : isVerifyingServiceAccount
+                  ? 'text-blue-800'
+                  : 'text-yellow-800'
+              }`}>
+                Service Account Authentication
+              </h3>
+              <p className={`text-sm ${
+                serviceAccountVerified || verificationTokenHook.hasToken
+                  ? 'text-green-700'
+                  : isVerifyingServiceAccount
+                  ? 'text-blue-700'
+                  : 'text-yellow-700'
+              }`}>
+                {serviceAccountVerified || verificationTokenHook.hasToken
+                  ? `Service account verified successfully. Admin email requirements bypassed. Token source: ${verificationTokenHook.tokenSource}`
+                  : isVerifyingServiceAccount
+                  ? 'Verifying service account configuration...'
+                  : 'Service account configured but verification pending. Target domain admin emails may still be required.'
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Step 1: Discovery */}
       {currentStep === 'discovery' && (

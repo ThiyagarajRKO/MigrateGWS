@@ -1465,6 +1465,7 @@ export default function NewMigration() {
                   ondestAdminEmailChange={handledestAdminEmailChange}
                   onsourceAdminEmailsChange={handlesourceAdminEmailsChange}
                   ondestAdminEmailsChange={handledestAdminEmailsChange}
+                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
                 />
               </ComponentLoader>
             </div>
@@ -1579,6 +1580,7 @@ export default function NewMigration() {
                   className="bg-white"
                   // Disable the component if authentication is not complete
                   style={!isOAuthCompleteForDomainDiscovery() ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
                 />
               </ComponentLoader>
             </div>
@@ -1687,6 +1689,7 @@ export default function NewMigration() {
                   userMappingStrategy={userMappingConfig?.relationship}
                   userMappingConfig={userMappingConfig || undefined}
                   verificationToken={typeof window !== 'undefined' ? sessionStorage.getItem('dwd_verification_token') || undefined : undefined}
+                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
                   mappingType={
                     userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
                     userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :

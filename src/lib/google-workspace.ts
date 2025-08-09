@@ -1080,6 +1080,35 @@ export function createServiceAccountService(adminEmail: string): GoogleWorkspace
   }
 }
 
+// Service account factory function using environment variables (preferred for user creation)
+export function createServiceAccountServiceFromEnv(adminEmail: string): GoogleWorkspaceService {
+  try {
+    const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL
+    const serviceAccountPrivateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+    
+    if (!serviceAccountEmail || !serviceAccountPrivateKey) {
+      throw new Error('Service account environment variables not configured. Please set GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY')
+    }
+    
+    const serviceAccountCredentials: ServiceAccountCredentials = {
+      clientEmail: serviceAccountEmail,
+      privateKey: serviceAccountPrivateKey,
+      subjectEmail: adminEmail
+    }
+    
+    console.log('[createServiceAccountServiceFromEnv] Creating service with:', {
+      clientEmail: serviceAccountEmail,
+      subjectEmail: adminEmail,
+      hasPrivateKey: !!serviceAccountPrivateKey
+    });
+    
+    return new GoogleWorkspaceService(serviceAccountCredentials, true)
+  } catch (error) {
+    console.error('Failed to create service account service from environment:', error)
+    throw new Error(`Failed to initialize service account authentication: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
 // Enhanced service account factory with manual verification
 export async function createVerifiedServiceAccountService(
   adminEmail: string,

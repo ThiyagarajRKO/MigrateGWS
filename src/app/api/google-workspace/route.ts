@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { 
   createGoogleWorkspaceService, 
   createServiceAccountService,
+  createServiceAccountServiceFromEnv,
   createVerifiedServiceAccountService,
   testServiceAccountDelegation,
   verifyCrossTenantServiceAccount
@@ -719,12 +720,36 @@ export async function POST(request: NextRequest) {
         try {
           const { domain, adminEmail, userData } = data;
           
-          // Use service account authentication for user creation
-          const gwsService = adminEmail 
-            ? createServiceAccountService(adminEmail)
-            : createGoogleWorkspaceService({ accessToken: session.accessToken });
+          console.log('[create-user] Request data:', {
+            domain,
+            adminEmail,
+            userData: { ...userData, password: '[REDACTED]' },
+            hasServiceAccountEnv: !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
+          });
+          
+          // Detect if we're using service account authentication
+          const isServiceAccountAuth = !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+          const isPlaceholderAdminEmail = adminEmail && adminEmail.startsWith('service-account@');
+          
+          let gwsService;
+          
+          if (isServiceAccountAuth && (isPlaceholderAdminEmail || !adminEmail)) {
+            // Use environment-based service account authentication
+            console.log('[create-user] Using service account from environment variables');
+            gwsService = createServiceAccountServiceFromEnv(adminEmail || 'admin@example.com');
+          } else if (adminEmail) {
+            // Use file-based service account authentication 
+            console.log('[create-user] Using service account from file with admin email:', adminEmail);
+            gwsService = createServiceAccountService(adminEmail);
+          } else {
+            // Use OAuth session authentication
+            console.log('[create-user] Using OAuth session authentication');
+            gwsService = createGoogleWorkspaceService({ accessToken: session.accessToken });
+          }
           
           const newUser = await gwsService.createUser(userData);
+          console.log('[create-user] User created successfully:', { email: newUser.primaryEmail, id: newUser.id });
+          
           return NextResponse.json({ user: newUser, success: true });
         } catch (error: any) {
           console.error('Error creating user:', error);
