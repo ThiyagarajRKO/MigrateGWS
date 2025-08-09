@@ -1,7 +1,21 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import { Providers } from './providers'
-import Head from 'next/head'
+import { Merriweather, Inter } from 'next/font/google'
+
+// Configure fonts using Next.js optimization
+const merriweather = Merriweather({
+  subsets: ['latin'],
+  variable: '--font-merriweather',
+  weight: ['300', '400', '700', '900'],
+  display: 'swap',
+})
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: {
@@ -82,16 +96,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${merriweather.variable} ${inter.variable}`}>
       <head>
-        {/* Preload critical font */}
-        <link
-          rel="preload"
-          href="/fonts/fonts/ClashGrotesk-Variable.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
+        {/* Fonts are optimized and loaded via Next.js font system */}
       </head>
       <body suppressHydrationWarning>
         <Providers>

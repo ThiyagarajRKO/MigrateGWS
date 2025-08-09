@@ -1155,11 +1155,12 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   }, [inputsourceAdminEmail, onsourceAdminEmailChange])
 
   useEffect(() => {
-    console.log('[DomainWideDelegationSetup] Auto-sync of input dest email disabled to prevent domain auto-population');
-    // DISABLED: Auto-sync input dest email to parent
-    // if (ondestAdminEmailChange) {
-    //   ondestAdminEmailChange(inputdestAdminEmail || '')
-    // }
+    console.log('[DomainWideDelegationSetup] Syncing destination admin email with parent component');
+    // Sync input dest email to parent when it changes
+    if (ondestAdminEmailChange) {
+      console.log('[DomainWideDelegationSetup] Calling ondestAdminEmailChange with:', inputdestAdminEmail || '');
+      ondestAdminEmailChange(inputdestAdminEmail || '');
+    }
   }, [inputdestAdminEmail, ondestAdminEmailChange])
 
   // DISABLED: Initial sync of admin emails when component mounts or props change to prevent domain auto-population
@@ -1196,12 +1197,43 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   }, [sourceAccounts, onsourceAdminEmailsChange])
 
   useEffect(() => {
-    console.log('[DomainWideDelegationSetup] Auto-sync of prop dest accounts disabled to prevent domain auto-population');
-    // DISABLED: Auto-sync prop dest accounts to parent
-    // if (ondestAdminEmailsChange) {
-    //   ondestAdminEmailsChange(destAccounts || {})
-    // }
+    console.log('[DomainWideDelegationSetup] Syncing destination admin emails with parent component');
+    // Sync prop dest accounts to parent when they change
+    if (ondestAdminEmailsChange && destAccounts) {
+      console.log('[DomainWideDelegationSetup] Calling ondestAdminEmailsChange with:', destAccounts);
+      ondestAdminEmailsChange(destAccounts);
+    }
   }, [destAccounts, ondestAdminEmailsChange])
+
+  // Auto-populate target domain placeholders from domain mapping
+  useEffect(() => {
+    if (ondestAdminEmailsChange && domainMapping && domainMappingValid) {
+      const targetDomains = getTargetDomains(standardDomainMapping);
+      
+      if (targetDomains.length > 0) {
+        // Create placeholder entries for discovered target domains
+        const targetDomainPlaceholders: {[domain: string]: string} = {};
+        
+        targetDomains.forEach(domain => {
+          // Only add placeholder if not already configured
+          const existingEmail = destAccounts?.[domain];
+          if (!existingEmail || existingEmail.trim() === '') {
+            targetDomainPlaceholders[domain] = ''; // Empty placeholder
+          } else {
+            targetDomainPlaceholders[domain] = existingEmail; // Keep existing
+          }
+        });
+        
+        console.log('[DomainWideDelegationSetup] Auto-populating target domain placeholders:', {
+          targetDomains,
+          targetDomainPlaceholders,
+          existingDestAccounts: destAccounts
+        });
+        
+        ondestAdminEmailsChange(targetDomainPlaceholders);
+      }
+    }
+  }, [domainMapping, domainMappingValid, ondestAdminEmailsChange, destAccounts, standardDomainMapping])
 
   // Initial sync of persistent verification status with parent component
   useEffect(() => {

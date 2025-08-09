@@ -2,12 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Google Fonts - Merriweather for headers and Sansation for body text */
-@import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,opsz,wght@0,18..144,300..900;1,18..144,300..900&family=Sansation:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap');
-
-/* Apply Sansation as default font family */
+/* Apply Inter as default font family with system font fallbacks */
 body {
-  font-family: 'Sansation', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-inter, 'Inter'), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Merriweather for headers via CSS variable */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-merriweather, 'Merriweather'), serif;
 }
 
 :root {
