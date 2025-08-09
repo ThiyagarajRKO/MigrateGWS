@@ -391,6 +391,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     verified: boolean;
     timestamp: number;
     migrationScenario: string;
+    userEmail?: string; // Track which user this verification belongs to
   }}>({})
 
   // Load persisted verifications on component mount
@@ -399,31 +400,44 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       const stored = localStorage.getItem('gws-verification-status')
       if (stored) {
         const parsed = JSON.parse(stored)
-        // Filter out expired verifications (older than 24 hours)
-        const now = Date.now()
-        const filtered: {[key: string]: {verified: boolean; timestamp: number; migrationScenario: string}} = {}
+        // Filter out verifications for different users (user has logged out/changed)
+        const currentUserEmail = user?.email
+        const filtered: {[key: string]: {verified: boolean; timestamp: number; migrationScenario: string; userEmail?: string}} = {}
+        
+        console.log('[DomainWideDelegationSetup] Loading verification cache for user:', currentUserEmail ? '***@' + currentUserEmail.split('@')[1] : 'no user')
         
         Object.entries(parsed).forEach(([key, data]: [string, any]) => {
           if (data && typeof data === 'object' && 
               typeof data.verified === 'boolean' && 
               typeof data.timestamp === 'number' &&
-              typeof data.migrationScenario === 'string' &&
-              now - data.timestamp < 24 * 60 * 60 * 1000) { // 24 hours
-            filtered[key] = data
+              typeof data.migrationScenario === 'string') {
+            
+            // If verification has userEmail, only keep if it matches current user
+            // If no userEmail stored (legacy), keep it for backward compatibility
+            if (!data.userEmail || data.userEmail === currentUserEmail) {
+              filtered[key] = data
+              console.log('[DomainWideDelegationSetup] Keeping verification:', key, 'for user:', data.userEmail || 'legacy')
+            } else {
+              console.log('[DomainWideDelegationSetup] Removing verification for different user:', data.userEmail, 'current:', currentUserEmail)
+            }
           }
         })
         
         setPersistedVerifications(filtered)
         
-        // Update localStorage with filtered data
+        // Update localStorage with filtered data if any were removed
         if (Object.keys(filtered).length !== Object.keys(parsed).length) {
           localStorage.setItem('gws-verification-status', JSON.stringify(filtered))
+        }
+        
+        if (Object.keys(filtered).length > 0) {
+          console.log('[DomainWideDelegationSetup] Loaded', Object.keys(filtered).length, 'verification(s) for current user')
         }
       }
     } catch (error) {
       console.error('[DomainWideDelegationSetup] Error loading persisted verifications:', error)
     }
-  }, [])
+  }, [user?.email]) // Re-run when user changes
 
   // DISABLED: Load cached admin emails into input state to prevent domain auto-population
   useEffect(() => {
@@ -497,7 +511,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         [key]: {
           verified,
           timestamp: Date.now(),
-          migrationScenario: scenario || 'unknown'
+          migrationScenario: scenario || 'unknown',
+          userEmail: user?.email || 'unknown' // Store current user email for session tracking
         }
       }
       
@@ -508,6 +523,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         key,
         verified,
         scenario,
+        userEmail: user?.email ? '***@' + user.email.split('@')[1] : 'unknown',
         adminEmail: adminEmail ? '***@' + adminEmail.split('@')[1] : undefined,
         sourceAdminEmail: sourceAdminEmail ? '***@' + sourceAdminEmail.split('@')[1] : undefined,
         destAdminEmail: destAdminEmail ? '***@' + destAdminEmail.split('@')[1] : undefined
@@ -515,7 +531,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     } catch (error) {
       console.error('[DomainWideDelegationSetup] Error saving verification status:', error)
     }
-  }, [persistedVerifications, getVerificationKey])
+  }, [persistedVerifications, getVerificationKey, user?.email])
 
   // Clean up malformed verification keys from localStorage
   const cleanupMalformedKeys = useCallback(() => {
@@ -598,7 +614,24 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     destAccounts, sourceAccounts, migrationScenario, persistedVerifications, getVerificationKey
   ])
 
+  // Clear all verification cache (for logout)
+  const clearAllVerificationCache = useCallback(() => {
+    setPersistedVerifications({})
+    localStorage.removeItem('gws-verification-status')
+    setDelegationStatus(null)
+    console.log('[DomainWideDelegationSetup] Cleared all verification cache for user logout')
+  }, [])
+
   // Source account verification functions - REMOVED
+
+  // Clear verification cache when user logs out
+  useEffect(() => {
+    // If user becomes null (logout), clear all verification cache
+    if (user === null) {
+      console.log('[DomainWideDelegationSetup] User logged out, clearing verification cache')
+      clearAllVerificationCache()
+    }
+  }, [user, clearAllVerificationCache])
 
   // Load cached verification status when source account email is available - REMOVED
 
@@ -2318,6 +2351,321 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               </div>
             )}
 
+            {/* Setup Instructions Display */}
+            {delegationSetupData && delegationSetupData.setupInstructions && (
+              <div className="mb-6 space-y-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 bg-green-600 rounded-lg">
+                    <Key className="h-4 w-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-bold text-black">Domain-wide Delegation Setup Instructions</h3>
+                </div>
+
+                {/* Single Super Admin Instructions */}
+                {delegationSetupData.setupInstructions.domain && (
+                  <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-300/60 rounded-xl shadow-sm">
+                    <h4 className="font-bold text-green-800 mb-3 flex items-center gap-2">
+                      <Shield className="h-5 w-5" />
+                      {delegationSetupData.setupInstructions.domain.title}
+                    </h4>
+                    
+                    {/* Admin Console Link - Moved to top */}
+                    <div className="mb-4">
+                      <a
+                        href={delegationSetupData.setupInstructions.domain?.adminConsoleUrl || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open Google Admin Console
+                      </a>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Client ID */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
+                        <div className="flex items-center gap-2 p-3 bg-white border border-green-200 rounded-lg">
+                          <code className="flex-1 text-sm text-gray-800 font-mono">
+                            {delegationSetupData.setupInstructions.domain?.clientId || 'N/A'}
+                          </code>
+                          <button
+                            onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.clientId || '', 'clientId')}
+                            className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                          >
+                            {copiedItem === 'clientId' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                            {copiedItem === 'clientId' ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* OAuth Scopes */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
+                        <div className="p-3 bg-white border border-green-200 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-gray-600">
+                              {delegationSetupData.setupInstructions.domain?.scopes?.length || 0} scopes required
+                            </span>
+                            <button
+                              onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.domain?.scopes.join(',') || '', 'scopes')}
+                              className="flex items-center gap-1 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                            >
+                              {copiedItem === 'scopes' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                              {copiedItem === 'scopes' ? 'Copied' : 'Copy All'}
+                            </button>
+                          </div>
+                          
+                          {/* Scopes in chunks of 15 for easier copying */}
+                          <div className="space-y-3">
+                            <div className="text-xs text-gray-500 font-medium mb-2">
+                               Scopes are grouped in chunks of 15 for easier copying and pasting
+                            </div>
+                            {chunkScopes(delegationSetupData.setupInstructions.domain?.scopes || [], 15).map((chunk, index) => (
+                              <div key={index} className="border border-gray-200 rounded-lg p-2">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs font-medium text-gray-500">
+                                    Chunk {index + 1} ({chunk.length} scopes)
+                                  </span>
+                                  <button
+                                    onClick={() => copyToClipboard(chunk.join(','), `domainChunk${index}`)}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                                  >
+                                    {copiedItem === `domainChunk${index}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    {copiedItem === `domainChunk${index}` ? 'Copied' : 'Copy Chunk'}
+                                  </button>
+                                </div>
+                                <code className="text-xs text-gray-700 font-mono block bg-gray-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
+                                  {chunk.join(',')}
+                                </code>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Setup Steps - Integrated directly */}
+                      <div className="p-3 bg-white border border-green-200 rounded-lg">
+                        <h5 className="font-bold text-green-800 mb-2 flex items-center gap-2">
+                          <Settings className="h-4 w-4" />
+                          Setup Steps
+                        </h5>
+                        <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                          <li>Copy the <strong>Client ID</strong> above</li>
+                          <li>Click <strong>Open Google Admin Console</strong> below</li>
+                          <li>Navigate to <strong>Security → Access and data control → API controls</strong></li>
+                          <li>Click <strong>Domain-wide delegation</strong></li>
+                          <li>Click <strong>Add new</strong> or find your existing Client ID</li>
+                          <li>Paste the <strong>Client ID</strong> and <strong>OAuth scopes</strong></li>
+                          <li>Click <strong>Authorize</strong> to save the delegation</li>
+                          <li>Return here and click <strong>Verify Domain-Wide Delegation</strong></li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cross-Tenant Instructions */}
+                {(delegationSetupData.setupInstructions.source || delegationSetupData.setupInstructions.destination) && (
+                  <div className="space-y-4">
+                    {/* Setup Steps for Cross-Tenant - Before domain sections */}
+                    <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-50 border border-gray-300/60 rounded-xl shadow-sm">
+                      <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                        <Settings className="h-5 w-5" />
+                        Cross-Tenant Setup Steps
+                      </h4>
+                      <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+                        <li><strong>For each domain</strong> (source and destination):</li>
+                        <li className="ml-4">Copy the <strong>Service Account Client ID</strong> from the respective section below</li>
+                        <li className="ml-4">Click the <strong>Admin Console</strong> link for that domain</li>
+                        <li className="ml-4">Navigate to <strong>Security → Access and data control → API controls</strong></li>
+                        <li className="ml-4">Click <strong>Domain-wide delegation</strong></li>
+                        <li className="ml-4">Click <strong>Add new</strong> or find your existing Client ID</li>
+                        <li className="ml-4">Paste the <strong>Client ID</strong> and <strong>OAuth scopes</strong></li>
+                        <li className="ml-4">Click <strong>Authorize</strong> to save the delegation</li>
+                        <li><strong>After configuring both domains</strong>, return here and click <strong>Verify Domain-Wide Delegation</strong></li>
+                      </ol>
+                    </div>
+
+                    {/* Source Domain Instructions */}
+                    {delegationSetupData.setupInstructions.source && (
+                      <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-300/60 rounded-xl shadow-sm">
+                        <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
+                          <Database className="h-5 w-5" />
+                          {delegationSetupData.setupInstructions.source.title}
+                        </h4>
+                        
+                        {/* Admin Console Link - Moved to top */}
+                        <div className="mb-4">
+                          <a
+                            href={delegationSetupData.setupInstructions.source?.adminConsoleUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open Source Admin Console
+                          </a>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          {/* Client ID */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
+                            <div className="flex items-center gap-2 p-3 bg-white border border-blue-200 rounded-lg">
+                              <code className="flex-1 text-sm text-gray-800 font-mono">
+                                {delegationSetupData.setupInstructions.source?.clientId || 'N/A'}
+                              </code>
+                              <button
+                                onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.source?.clientId || '', 'sourceClientId')}
+                                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                              >
+                                {copiedItem === 'sourceClientId' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                {copiedItem === 'sourceClientId' ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* OAuth Scopes */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
+                            <div className="p-3 bg-white border border-blue-200 rounded-lg">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-gray-600">
+                                  {delegationSetupData.setupInstructions.source?.scopes?.length || 0} scopes required
+                                </span>
+                                <button
+                                  onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.source?.scopes.join(',') || '', 'sourceScopes')}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                                >
+                                  {copiedItem === 'sourceScopes' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                  {copiedItem === 'sourceScopes' ? 'Copied' : 'Copy All'}
+                                </button>
+                              </div>
+                              
+                              {/* Scopes in chunks of 15 for easier copying */}
+                              <div className="space-y-3">
+                                <div className="text-xs text-gray-500 font-medium mb-2">
+                                  ✨ Scopes are grouped in chunks of 15 for easier copying and pasting
+                                </div>
+                                {chunkScopes(delegationSetupData.setupInstructions.source?.scopes || [], 15).map((chunk, index) => (
+                                  <div key={index} className="border border-gray-200 rounded-lg p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-medium text-gray-500">
+                                        Chunk {index + 1} ({chunk.length} scopes)
+                                      </span>
+                                      <button
+                                        onClick={() => copyToClipboard(chunk.join(','), `sourceChunk${index}`)}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                                      >
+                                        {copiedItem === `sourceChunk${index}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                        {copiedItem === `sourceChunk${index}` ? 'Copied' : 'Copy Chunk'}
+                                      </button>
+                                    </div>
+                                    <code className="text-xs text-gray-700 font-mono block bg-gray-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
+                                      {chunk.join(',')}
+                                    </code>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Destination Domain Instructions */}
+                    {delegationSetupData.setupInstructions.destination && (
+                      <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300/60 rounded-xl shadow-sm">
+                        <h4 className="font-bold text-purple-800 mb-3 flex items-center gap-2">
+                          <Target className="h-5 w-5" />
+                          {delegationSetupData.setupInstructions.destination.title}
+                        </h4>
+                        
+                        {/* Admin Console Link - Moved to top */}
+                        <div className="mb-4">
+                          <a
+                            href={delegationSetupData.setupInstructions.destination?.adminConsoleUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open Destination Admin Console
+                          </a>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          {/* Client ID */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
+                            <div className="flex items-center gap-2 p-3 bg-white border border-purple-200 rounded-lg">
+                              <code className="flex-1 text-sm text-gray-800 font-mono">
+                                {delegationSetupData.setupInstructions.destination?.clientId || 'N/A'}
+                              </code>
+                              <button
+                                onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.clientId || '', 'destClientId')}
+                                className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                              >
+                                {copiedItem === 'destClientId' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                {copiedItem === 'destClientId' ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* OAuth Scopes */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
+                            <div className="p-3 bg-white border border-purple-200 rounded-lg">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-gray-600">
+                                  {delegationSetupData.setupInstructions.destination?.scopes?.length || 0} scopes required
+                                </span>
+                                <button
+                                  onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.scopes.join(',') || '', 'destScopes')}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                                >
+                                  {copiedItem === 'destScopes' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                  {copiedItem === 'destScopes' ? 'Copied' : 'Copy All'}
+                                </button>
+                              </div>
+                              
+                              {/* Scopes in chunks of 15 for easier copying */}
+                              <div className="space-y-3">
+                                <div className="text-xs text-gray-500 font-medium mb-2">
+                                  ✨ Scopes are grouped in chunks of 15 for easier copying and pasting
+                                </div>
+                                {chunkScopes(delegationSetupData.setupInstructions.destination?.scopes || [], 15).map((chunk, index) => (
+                                  <div key={index} className="border border-gray-200 rounded-lg p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-medium text-gray-500">
+                                        Chunk {index + 1} ({chunk.length} scopes)
+                                      </span>
+                                      <button
+                                        onClick={() => copyToClipboard(chunk.join(','), `destChunk${index}`)}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                                      >
+                                        {copiedItem === `destChunk${index}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                        {copiedItem === `destChunk${index}` ? 'Copied' : 'Copy Chunk'}
+                                      </button>
+                                    </div>
+                                    <code className="text-xs text-gray-700 font-mono block bg-gray-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
+                                      {chunk.join(',')}
+                                    </code>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Persistent Verification Status */}
             {isCurrentConfigurationVerified() && (() => {
               const cachedInfo = getCachedAdminInfo();
@@ -2336,7 +2684,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             }
                           </>
                         )}
-                        {!cachedInfo && 'This configuration has been successfully verified and is cached for 24 hours'}
+                        {!cachedInfo && 'This configuration has been successfully verified and will remain active until you log out'}
                       </span>
                     </div>
                     <button
@@ -2356,7 +2704,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       </div>
                     )}
                     <div>
-                      Skip verification step - you can proceed directly to user discovery.
+                      Skip verification step - you can proceed directly to user discovery. Verification will remain active until logout.
                     </div>
                   </div>
                 </div>
