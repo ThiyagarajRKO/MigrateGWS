@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, memo, useCallback } from 'react';
+import { useOAuth } from '@/hooks/useOAuth';
 import { 
   Shield, 
   CheckCircle, 
@@ -105,6 +106,43 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
   
   // Single super admin modal state
   const [showSingleAuthModal, setShowSingleAuthModal] = useState(false);
+
+  // COOP-safe OAuth hooks for source and target authentication
+  const sourceOAuth = useOAuth({
+    onSuccess: (result) => {
+      console.log(' Source OAuth success:', result);
+      // Handle source authentication success
+      setSourceAuthStatus({
+        authenticated: true,
+        domains: (result as any).domains || [],
+        error: undefined
+      });
+      setIsLoading(false);
+    },
+    onError: (error) => {
+      console.error('❌ Source OAuth error:', error);
+      setError(`Source authentication failed: ${error.message}`);
+      setIsLoading(false);
+    }
+  });
+
+  const targetOAuth = useOAuth({
+    onSuccess: (result) => {
+      console.log('✅ Target OAuth success:', result);
+      // Handle target authentication success
+      setTargetAuthStatus({
+        authenticated: true,
+        domains: (result as any).domains || [],
+        error: undefined
+      });
+      setIsLoading(false);
+    },
+    onError: (error) => {
+      console.error('❌ Target OAuth error:', error);
+      setError(`Target authentication failed: ${error.message}`);
+      setIsLoading(false);
+    }
+  });
 
   // Initialize cross-tenant auth session
   useEffect(() => {
@@ -286,7 +324,85 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       setIsLoading(false);
       setCurrentAuthType(null);
     }
-  }, [sessionId, isLoading, currentAuthType, sourceAuthStatus.authenticated, targetAuthStatus.authenticated]);
+  }, [sessionId, sourceOAuth, targetOAuth]);
+
+  // COOP-safe cross-tenant OAuth function using popup manager directly
+  const initiateCrossTenantOAuthCOOPSafe = useCallback(async (authType: 'source' | 'target') => {
+    setCurrentAuthType(authType);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      console.log(`🚀 Starting COOP-safe ${authType} authentication`);
+
+      // Get OAuth URL from API
+      const response = await fetch('/api/auth/oauth/discover-domains', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          sessionId: `${sessionId}_${authType}`,
+          authType 
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to initiate ${authType} OAuth`);
+      }
+
+      const data = await response.json();
+
+      // Import popup manager directly
+      const { createPopupManager } = await import('@/lib/popup-manager');
+      const popupManager = createPopupManager();
+
+      // Open COOP-safe popup
+      await popupManager.open(data.authUrl, {
+        windowName: `oauth_${authType}_discovery`,
+        windowFeatures: 'width=500,height=600,scrollbars=yes,resizable=yes',
+        timeout: 300000, // 5 minutes
+        onSuccess: (result) => {
+          console.log(`✅ ${authType} OAuth success:`, result);
+          // Handle authentication success
+          if (authType === 'source') {
+            setSourceAuthStatus({
+              authenticated: true,
+              domains: result.domains || [],
+              error: undefined
+            });
+          } else {
+            setTargetAuthStatus({
+              authenticated: true,
+              domains: result.domains || [],
+              error: undefined
+            });
+          }
+          setIsLoading(false);
+          setCurrentAuthType(null);
+        },
+        onError: (error) => {
+          console.error(`❌ ${authType} OAuth error:`, error);
+          setError(`${authType} authentication failed: ${error.message}`);
+          setIsLoading(false);
+          setCurrentAuthType(null);
+        },
+        onTimeout: () => {
+          console.log(`⏰ ${authType} OAuth timeout`);
+          setError(`${authType} authentication timed out. Please try again.`);
+          setIsLoading(false);
+          setCurrentAuthType(null);
+        }
+      });
+
+      console.log(`✅ ${authType} authentication popup opened successfully`);
+    } catch (error) {
+      console.error(`❌ ${authType} authentication error:`, error);
+      setError(`Failed to initiate ${authType} authentication: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsLoading(false);
+      setCurrentAuthType(null);
+    }
+  }, [sessionId]);
 
   // Function to discover domains after OAuth authentication
   const discoverDomainsForAuth = useCallback(async (domain: string, authType: string) => {
@@ -1428,7 +1544,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                         Authenticate with the source Google Workspace domain
                       </p>
                       <button
-                        onClick={() => initiateCrossTenantOAuth('source')}
+                        onClick={() => initiateCrossTenantOAuthCOOPSafe('source')}
                         disabled={isLoading && currentAuthType === 'source'}
                         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
                       >
@@ -1475,7 +1591,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                         Authenticate with the target Google Workspace domain
                       </p>
                       <button
-                        onClick={() => initiateCrossTenantOAuth('target')}
+                        onClick={() => initiateCrossTenantOAuthCOOPSafe('target')}
                         disabled={isLoading && currentAuthType === 'target'}
                         className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
                       >
