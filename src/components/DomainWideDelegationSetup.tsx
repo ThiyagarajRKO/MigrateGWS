@@ -1357,6 +1357,34 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       setError(null);
       setSuccessMessage('Service account authentication configured - domain-wide delegation setup completed automatically.');
       
+      // Set up delegation setup data for UI display
+      const sourceDomains = getSourceDomains(standardDomainMapping);
+      const targetDomains = getTargetDomains(standardDomainMapping);
+      
+      setDelegationSetupData({
+        success: true,
+        migrationScenario: 'cross-tenant',
+        scopes: REQUIRED_SCOPES,
+        setupInstructions: {
+          source: {
+            title: `Service Account Configuration for ${sourceDomains.join(', ')}`,
+            clientId: process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || 'service-account-client-id',
+            scopes: REQUIRED_SCOPES,
+            adminConsoleUrl: sourceDomains[0] ? `https://admin.google.com/ac/apps/gmail/authenticatedemailsources?domainName=${sourceDomains[0]}` : 'https://admin.google.com',
+            domain: sourceDomains[0] || 'service-account-domain',
+            adminEmail: 'service-account@configured'
+          },
+          destination: {
+            title: `Service Account Configuration for ${targetDomains.join(', ')}`,
+            clientId: process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || 'service-account-client-id',
+            scopes: REQUIRED_SCOPES,
+            adminConsoleUrl: targetDomains[0] ? `https://admin.google.com/ac/apps/gmail/authenticatedemailsources?domainName=${targetDomains[0]}` : 'https://admin.google.com',
+            domain: targetDomains[0] || 'service-account-domain',
+            adminEmail: 'service-account@configured'
+          }
+        }
+      });
+      
       // Simulate successful delegation setup for service account
       setTimeout(() => {
         setDelegationSetupLoading(false);
@@ -1370,9 +1398,6 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
         
         // Trigger user discovery with minimal required data
         if (onUserDiscoveryReady) {
-          const sourceDomains = getSourceDomains(standardDomainMapping);
-          const targetDomains = getTargetDomains(standardDomainMapping);
-          
           onUserDiscoveryReady({
             sourceDomains,
             targetDomains,
