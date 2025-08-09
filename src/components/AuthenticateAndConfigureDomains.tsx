@@ -2,6 +2,7 @@
 
 import { useState, useEffect, memo, useCallback } from 'react';
 import { useOAuth } from '@/hooks/useOAuth';
+import { useVerificationToken } from '@/hooks/useVerificationToken';
 import { 
   Shield, 
   CheckCircle, 
@@ -63,6 +64,12 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     sourceAdminEmail,
     targetAdminEmail
   } = useCrossTenantAuth();
+  
+  // Verification token hook for storing authentication tokens
+  const { storeToken, clearToken } = useVerificationToken({
+    debug: true,
+    componentName: 'AuthenticateAndConfigureDomains'
+  });
   
   // Add defensive check for null scenario
   if (!selectedScenario) {
@@ -364,6 +371,12 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         timeout: 300000, // 5 minutes
         onSuccess: (result) => {
           console.log(`✅ ${authType} OAuth success:`, result);
+          
+          // Store verification token for this authentication
+          const verificationToken = `oauth_${authType}_${result.adminEmail}_${Date.now()}`;
+          storeToken(verificationToken);
+          console.log(`🔐 Stored verification token for ${authType}:`, verificationToken);
+          
           // Handle authentication success
           if (authType === 'source') {
             setSourceAuthStatus({
@@ -383,12 +396,22 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         },
         onError: (error) => {
           console.error(`❌ ${authType} OAuth error:`, error);
+          
+          // Clear any verification tokens on error
+          clearToken();
+          console.log(`🧹 Cleared verification tokens due to ${authType} OAuth error`);
+          
           setError(`${authType} authentication failed: ${error.message}`);
           setIsLoading(false);
           setCurrentAuthType(null);
         },
         onTimeout: () => {
           console.log(`⏰ ${authType} OAuth timeout`);
+          
+          // Clear any verification tokens on timeout
+          clearToken();
+          console.log(`🧹 Cleared verification tokens due to ${authType} OAuth timeout`);
+          
           setError(`${authType} authentication timed out. Please try again.`);
           setIsLoading(false);
           setCurrentAuthType(null);
