@@ -44,7 +44,8 @@ import {
   ClipboardList,
   UserPlus,
   AlertTriangle,
-  GitBranch
+  GitBranch,
+  MapPin
 } from 'lucide-react';
 
 // Dynamic imports for heavy components with better loading strategies
@@ -169,6 +170,7 @@ export default function NewMigration() {
     }
     return targets.filter(Boolean).join(', ');
   }, [getTargetDomainsFromMapping]);
+  
   const [migrationConfig, setMigrationConfig] = useState({
     migrationName: '',
     sourceDomain: '',
@@ -323,19 +325,100 @@ export default function NewMigration() {
   });
 
   // User Discovery state
-  const [selectedUsers, setSelectedUsers] = useState<any[]>([
-    // Add test users for development
-    { id: '1', email: 'user1@test.com', name: 'Test User 1', isAdmin: false },
-    { id: '2', email: 'admin@test.com', name: 'Admin User', isAdmin: true }
-  ]);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
   const [discoveredUsers, setDiscoveredUsers] = useState<any[]>([]);
   const [userMappings, setUserMappings] = useState<any[]>([]);
   const [createdUsers, setCreatedUsers] = useState<any[]>([]);
 
+  // Extract target users from user mappings
+  const getTargetUsersFromMappings = useCallback(() => {
+    if (!userMappings || userMappings.length === 0) {
+      return [];
+    }
+
+    return userMappings.map(mapping => {
+      // Safely extract name from potentially complex name objects
+      let sourceName = '';
+      if (mapping.user?.name) {
+        if (typeof mapping.user.name === 'string') {
+          sourceName = mapping.user.name;
+        } else if (mapping.user.name?.fullName) {
+          sourceName = mapping.user.name.fullName;
+        } else if (mapping.user.name?.givenName || mapping.user.name?.familyName) {
+          sourceName = `${mapping.user.name.givenName || ''} ${mapping.user.name.familyName || ''}`.trim();
+        }
+      }
+      
+      // Fallback to displayName or email
+      if (!sourceName) {
+        sourceName = mapping.user?.displayName || mapping.user?.primaryEmail || mapping.user?.email || 'Unknown User';
+      }
+
+      return {
+        sourceUser: mapping.user,
+        targetEmail: mapping.targetEmail,
+        targetDomain: mapping.targetDomain,
+        status: mapping.status,
+        sourceEmail: mapping.user?.primaryEmail || mapping.user?.email,
+        sourceName: sourceName,
+        sourceDomain: mapping.user?.domain || (mapping.user?.primaryEmail || mapping.user?.email)?.split('@')[1]
+      };
+    });
+  }, [userMappings]);
+
+  // Helper function to find corresponding source user for a target user
+  const findSourceUserForTarget = useCallback((targetUser: any) => {
+    if (!userMappings || userMappings.length === 0) return null;
+    
+    const targetEmail = targetUser.email || targetUser.primaryEmail;
+    if (!targetEmail) return null;
+    
+    // Find mapping where target email matches
+    const mapping = userMappings.find(m => 
+      m.targetEmail === targetEmail || 
+      m.user?.email === targetEmail ||
+      m.user?.primaryEmail === targetEmail
+    );
+    
+    if (!mapping || !mapping.user) return null;
+    
+    // Extract source user information
+    let sourceName = '';
+    if (mapping.user?.name) {
+      if (typeof mapping.user.name === 'string') {
+        sourceName = mapping.user.name;
+      } else if (mapping.user.name?.fullName) {
+        sourceName = mapping.user.name.fullName;
+      } else if (mapping.user.name?.givenName || mapping.user.name?.familyName) {
+        sourceName = `${mapping.user.name.givenName || ''} ${mapping.user.name.familyName || ''}`.trim();
+      }
+    }
+    
+    if (!sourceName) {
+      sourceName = mapping.user?.displayName || mapping.user?.primaryEmail || mapping.user?.email || 'Unknown User';
+    }
+    
+    return {
+      sourceEmail: mapping.user?.primaryEmail || mapping.user?.email,
+      sourceName: sourceName,
+      sourceDomain: mapping.user?.domain || (mapping.user?.primaryEmail || mapping.user?.email)?.split('@')[1],
+      sourceUser: mapping.user
+    };
+  }, [userMappings]);
+
   // Existing Users Selection state for migration settings
   const [existingUsers, setExistingUsers] = useState<any[]>([]);
   const [selectedExistingUsers, setSelectedExistingUsers] = useState<any[]>([]);
+  const [loadingTargetUsers, setLoadingTargetUsers] = useState(false);
   const [useExistingUsers, setUseExistingUsers] = useState(false);
+
+  // All Target Domain Users state for migration settings
+  const [allTargetUsers, setAllTargetUsers] = useState<any[]>([]);
+  const [selectedAllTargetUsers, setSelectedAllTargetUsers] = useState<any[]>([]);
+  const [loadingAllTargetUsers, setLoadingAllTargetUsers] = useState(false);
+
+  // User view mode state - controls whether to show only cloned users or all users
+  const [userViewMode, setUserViewMode] = useState<'cloned' | 'all'>('all');
 
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
 
@@ -737,12 +820,18 @@ export default function NewMigration() {
 
   // Existing Users Helper Functions
   const toggleExistingUserSelection = (user: any) => {
+    console.log('[User Selection] Toggling user:', user.email);
     setSelectedExistingUsers(prev => {
       const isSelected = prev.some(u => u.email === user.email);
+      console.log('[User Selection] Was selected:', isSelected, 'Current selection count:', prev.length);
       if (isSelected) {
-        return prev.filter(u => u.email !== user.email);
+        const newSelection = prev.filter(u => u.email !== user.email);
+        console.log('[User Selection] Removing user, new count:', newSelection.length);
+        return newSelection;
       } else {
-        return [...prev, user];
+        const newSelection = [...prev, user];
+        console.log('[User Selection] Adding user, new count:', newSelection.length);
+        return newSelection;
       }
     });
   };
@@ -755,49 +844,434 @@ export default function NewMigration() {
     setSelectedExistingUsers([]);
   };
 
-  // Load existing users when we enter configuration step
-  useEffect(() => {
-    if (currentStep === 'configuration') {
-      // For testing, add some existing users if discovered users are available
-      if (discoveredUsers.length > 0) {
-        const existing = discoveredUsers.filter(user => user.exists);
-        setExistingUsers(existing);
+  // All Target Users Helper Functions
+  const toggleAllTargetUserSelection = (user: any) => {
+    console.log('[All Target User Selection] Toggling user:', user.primaryEmail);
+    setSelectedAllTargetUsers(prev => {
+      const isSelected = prev.some(u => u.primaryEmail === user.primaryEmail);
+      if (isSelected) {
+        const newSelection = prev.filter(u => u.primaryEmail !== user.primaryEmail);
+        console.log('[All Target User Selection] Removing user, new count:', newSelection.length);
+        return newSelection;
       } else {
-        // Add test existing users for development
-        const testExistingUsers = [
-          { 
-            id: 'existing1', 
-            email: 'john.doe@target.com', 
-            name: 'John Doe', 
-            isAdmin: false, 
-            exists: true 
-          },
-          { 
-            id: 'existing2', 
-            email: 'admin@target.com', 
-            name: 'Target Admin', 
-            isAdmin: true, 
-            exists: true 
-          },
-          { 
-            id: 'existing3', 
-            email: 'sarah.smith@target.com', 
-            name: 'Sarah Smith', 
-            isAdmin: false, 
-            exists: true 
-          },
-          { 
-            id: 'existing4', 
-            email: 'manager@target.com', 
-            name: 'Department Manager', 
-            isAdmin: false, 
-            exists: true 
-          }
-        ];
-        setExistingUsers(testExistingUsers);
+        const newSelection = [...prev, user];
+        console.log('[All Target User Selection] Adding user, new count:', newSelection.length);
+        return newSelection;
       }
+    });
+  };
+
+  const selectAllTargetUsers = () => {
+    setSelectedAllTargetUsers([...allTargetUsers]);
+  };
+
+  const deselectAllTargetUsers = () => {
+    setSelectedAllTargetUsers([]);
+  };
+
+  // Simplified function to load target users from Google Admin Console
+  const loadTargetUsersFromAdminConsole = async () => {
+    console.log('[Admin Console] Loading target users from Google Admin Console...');
+    setLoadingAllTargetUsers(true);
+    
+    try {
+      const targetDomains = getTargetDomains();
+      const verificationToken = typeof window !== 'undefined' ? localStorage.getItem('dwd_verification_token') : null;
+      
+      console.log('[Admin Console] Target domains:', targetDomains);
+      console.log('[Admin Console] Verification token available:', !!verificationToken);
+      console.log('[Admin Console] Target admin emails:', targetAdminEmails);
+      console.log('[Admin Console] Domain mapping:', domainMapping);
+      
+      if (!targetDomains || targetDomains.length === 0) {
+        console.log('[Admin Console] No target domains found');
+        alert('No target domains configured. Please complete the domain mapping step first.');
+        return;
+      }
+      
+      if (!verificationToken) {
+        console.log('[Admin Console] No verification token found');
+        alert('No verification token found. Please complete the domain-wide delegation setup first.');
+        return;
+      }
+      
+      const allUsers = [];
+      
+      for (const domain of targetDomains) {
+        console.log(`[Admin Console] Fetching users from domain: ${domain}`);
+        
+        // Try different admin email sources
+        let adminEmail = targetAdminEmails[domain] || targetAdminEmail;
+        
+        if (!adminEmail && selectedScenario === 'cross-tenant') {
+          // For cross-tenant, try to find admin email from the target admin emails object
+          const availableEmails = Object.values(targetAdminEmails);
+          if (availableEmails.length > 0) {
+            adminEmail = availableEmails[0];
+          }
+        }
+        
+        // If still no admin email, try to extract from domain mapping or use a default pattern
+        if (!adminEmail && domainMapping) {
+          // Try to find an admin email pattern for this domain
+          const domainKeys = Object.keys(domainMapping);
+          const targetDomainsList = Object.values(domainMapping).flat();
+          
+          if (targetDomainsList.includes(domain)) {
+            // This domain is in our mapping, try to use admin@domain pattern
+            adminEmail = `admin@${domain}`;
+            console.log(`[Admin Console] Using pattern admin email: ${adminEmail} for domain: ${domain}`);
+          }
+        }
+        
+        if (!adminEmail) {
+          console.error(`[Admin Console] No admin email found for domain: ${domain}`);
+          console.log('[Admin Console] Available admin emails:', targetAdminEmails);
+          console.log('[Admin Console] Target admin email:', targetAdminEmail);
+          continue;
+        }
+        
+        console.log(`[Admin Console] Using admin email: ${adminEmail} for domain: ${domain}`);
+        
+        try {
+          // Build the API URL with verification token
+          const params = new URLSearchParams({
+            action: 'users',
+            domain: domain,
+            adminEmail: adminEmail,
+            verificationToken: verificationToken
+          });
+          
+          const url = `/api/google-workspace?${params.toString()}`;
+          console.log(`[Admin Console] API URL: ${url.replace(verificationToken, 'TOKEN_HIDDEN')}`);
+          
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[Admin Console] API Error for ${domain}:`, response.status, errorText);
+            
+            // Try without verification token as fallback
+            if (response.status === 401 || response.status === 403) {
+              console.log(`[Admin Console] Trying fallback without verification token for ${domain}`);
+              const fallbackParams = new URLSearchParams({
+                action: 'users',
+                domain: domain,
+                adminEmail: adminEmail
+              });
+              
+              const fallbackResponse = await fetch(`/api/google-workspace?${fallbackParams.toString()}`);
+              
+              if (fallbackResponse.ok) {
+                const fallbackData = await fallbackResponse.json();
+                console.log(`[Admin Console] Fallback success for ${domain}:`, fallbackData);
+                
+                if (fallbackData.success && fallbackData.users && Array.isArray(fallbackData.users)) {
+                  const users = fallbackData.users
+                    .filter((user: any) => user && user.primaryEmail && !user.suspended)
+                    .map((user: any) => ({
+                      id: user.id || user.primaryEmail,
+                      primaryEmail: user.primaryEmail,
+                      email: user.primaryEmail,
+                      name: user.name,
+                      displayName: typeof user.name === 'string' ? user.name : 
+                                 user.name?.fullName || 
+                                 `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 
+                                 user.primaryEmail.split('@')[0],
+                      isAdmin: user.isAdmin || false,
+                      suspended: user.suspended || false,
+                      domain: domain,
+                      targetDomain: domain,
+                      orgUnitPath: user.orgUnitPath || '/',
+                      lastLoginTime: user.lastLoginTime,
+                      creationTime: user.creationTime,
+                      customerId: user.customerId,
+                      exists: true,
+                      verified: true,
+                      source: 'google-admin-console',
+                      loadedWith: 'fallback-no-token'
+                    }));
+                  allUsers.push(...users);
+                  continue;
+                }
+              }
+            }
+            continue;
+          }
+          
+          const data = await response.json();
+          console.log(`[Admin Console] Raw API response for ${domain}:`, data);
+          console.log(`[Admin Console] Response structure analysis:`, {
+            hasSuccess: 'success' in data,
+            successValue: data.success,
+            hasUsers: 'users' in data,
+            usersType: typeof data.users,
+            usersIsArray: Array.isArray(data.users),
+            usersLength: data.users ? data.users.length : 0,
+            hasError: 'error' in data,
+            errorValue: data.error,
+            allKeys: Object.keys(data)
+          });
+          
+          // Check multiple possible response formats
+          let users = [];
+          
+          // The API returns { users: [], count: number, domain: string, timestamp: string, cached: boolean }
+          if (data.users && Array.isArray(data.users)) {
+            users = data.users;
+            console.log(`[Admin Console] Found users in data.users array: ${users.length}`);
+          } else if (data.success && data.users && Array.isArray(data.users)) {
+            users = data.users;
+            console.log(`[Admin Console] Found users in data.users with success flag: ${users.length}`);
+          } else if (Array.isArray(data)) {
+            users = data;
+            console.log(`[Admin Console] Found users in root array: ${users.length}`);
+          } else if (data.result && Array.isArray(data.result)) {
+            users = data.result;
+            console.log(`[Admin Console] Found users in data.result: ${users.length}`);
+          } else {
+            console.log(`[Admin Console] No users array found in response for ${domain}. Response:`, data);
+          }
+          
+          if (users.length > 0) {
+            console.log(`[Admin Console] Sample user object:`, users[0]);
+            
+            const processedUsers = users
+              .filter((user: any) => {
+                const isValid = user && user.primaryEmail && !user.suspended;
+                if (!isValid) {
+                  console.log(`[Admin Console] Filtering out user:`, { user, reason: !user ? 'null' : !user.primaryEmail ? 'no email' : 'suspended' });
+                }
+                return isValid;
+              })
+              .map((user: any) => ({
+                id: user.id || user.primaryEmail,
+                primaryEmail: user.primaryEmail,
+                email: user.primaryEmail,
+                name: user.name,
+                displayName: typeof user.name === 'string' ? user.name : 
+                           user.name?.fullName || 
+                           `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 
+                           user.primaryEmail.split('@')[0],
+                isAdmin: user.isAdmin || false,
+                suspended: user.suspended || false,
+                domain: domain,
+                targetDomain: domain,
+                orgUnitPath: user.orgUnitPath || '/',
+                lastLoginTime: user.lastLoginTime,
+                creationTime: user.creationTime,
+                customerId: user.customerId,
+                exists: true,
+                verified: true,
+                source: 'google-admin-console',
+                loadedWith: 'verification-token'
+              }));
+              
+            console.log(`[Admin Console] Processed ${processedUsers.length} users from ${domain} (filtered from ${users.length})`);
+            allUsers.push(...processedUsers);
+          } else if (data.error) {
+            console.error(`[Admin Console] API returned error for ${domain}:`, data.error);
+          } else {
+            console.log(`[Admin Console] No users found in any expected format for ${domain}:`, data);
+          }
+        } catch (apiError) {
+          console.error(`[Admin Console] API call failed for ${domain}:`, apiError);
+        }
+      }
+      
+      console.log(`[Admin Console] Total users loaded: ${allUsers.length}`);
+      
+      if (allUsers.length > 0) {
+        setAllTargetUsers(allUsers);
+        console.log('[Admin Console] Successfully loaded target users:', allUsers);
+        
+        // Show success message
+        const userCount = allUsers.length;
+        const domainCount = [...new Set(allUsers.map(u => u.domain))].length;
+        alert(`Successfully loaded ${userCount} users from ${domainCount} target domain(s)!`);
+      } else {
+        console.warn('[Admin Console] No users were loaded from any domain');
+        alert('No users found in the target domains. Please check domain configuration and admin permissions.');
+      }
+      
+    } catch (error) {
+      console.error('[Admin Console] Error loading target users:', error);
+      alert('Failed to load target users. Check console for details.');
+    } finally {
+      setLoadingAllTargetUsers(false);
     }
-  }, [currentStep, discoveredUsers]);
+  };
+
+  // Function to load all users from target domains for migration settings
+  const loadAllTargetDomainUsers = async () => {
+    console.log('[Migration Config] Loading all target domain users for migration settings...');
+    setLoadingAllTargetUsers(true);
+    
+    const targetDomains = getTargetDomains();
+    console.log('[Migration Config] Target domains for all users:', targetDomains);
+    console.log('[Migration Config] Target admin emails:', targetAdminEmails);
+    console.log('[Migration Config] Domain mapping:', domainMapping);
+    
+    if (!targetDomains || targetDomains.length === 0) {
+      console.log('[Migration Config] No target domains configured for all users');
+      setLoadingAllTargetUsers(false);
+      return;
+    }
+    
+    const allUsers = [];
+    
+    try {
+      // Load users from each target domain
+      for (const domain of targetDomains) {
+        let adminEmail = targetAdminEmails[domain];
+        
+        // If no admin email in targetAdminEmails, try to find it from domain mapping or use a fallback
+        if (!adminEmail) {
+          // Try to use the target admin email if it's a single target scenario
+          if (targetAdminEmail && targetDomains.length === 1) {
+            adminEmail = targetAdminEmail;
+            console.log(`[Migration Config] Using single target admin email: ${adminEmail} for domain: ${domain}`);
+          } else {
+            console.warn(`[Migration Config] No admin email configured for domain: ${domain}`);
+            console.log(`[Migration Config] Available admin emails:`, Object.keys(targetAdminEmails));
+            continue;
+          }
+        }
+        
+        console.log(`[Migration Config] Fetching all users from domain: ${domain} with admin: ${adminEmail}`);
+        
+        const response = await fetch(`/api/google-workspace?action=users&domain=${domain}&adminEmail=${encodeURIComponent(adminEmail)}`);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[Migration Config] Failed to fetch all users from ${domain}:`, response.status, errorText);
+          continue;
+        }
+        
+        const data = await response.json();
+        console.log(`[Migration Config] Raw response from ${domain}:`, data);
+        console.log(`[Migration Config] Fetched ${data.users?.length || 0} total users from ${domain}`);
+        
+        if (data.users && data.users.length > 0) {
+          const domainUsers = data.users
+            .filter((user: any) => {
+              // Include all active users (not suspended)
+              return !user.suspended && user.primaryEmail && user.name;
+            })
+            .map((user: any) => ({
+              id: user.id || user.primaryEmail,
+              primaryEmail: user.primaryEmail,
+              email: user.primaryEmail, // Add email alias for compatibility
+              name: user.name?.fullName || `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 'Unknown User',
+              isAdmin: user.isAdmin || false,
+              suspended: user.suspended || false,
+              domain: domain,
+              targetDomain: domain,
+              adminEmail: adminEmail,
+              orgUnitPath: user.orgUnitPath || '/',
+              lastLoginTime: user.lastLoginTime,
+              creationTime: user.creationTime,
+              userType: 'all-existing', // Mark as all existing users
+              customerId: user.customerId,
+              isFromTargetDomain: true, // Flag to identify these are from target domain
+              exists: true // Mark as existing/verified
+            }));
+          
+          console.log(`[Migration Config] Processed ${domainUsers.length} users from ${domain}`);
+          allUsers.push(...domainUsers);
+        } else {
+          console.log(`[Migration Config] No users found in response from ${domain}`);
+        }
+      }
+      
+      console.log(`[Migration Config] Total users loaded from all target domains: ${allUsers.length}`);
+      setAllTargetUsers(allUsers);
+      
+      if (allUsers.length === 0) {
+        console.warn('[Migration Config] No target users were loaded. Check domain configuration and admin permissions.');
+      }
+      
+    } catch (error) {
+      console.error('[Migration Config] Error loading all target domain users:', error);
+    } finally {
+      setLoadingAllTargetUsers(false);
+    }
+  };
+
+  // Function to load actual target domain users
+  const loadActualTargetUsers = async () => {
+    console.log('[Migration Config] Loading actual target domain users...');
+    const targetDomains = getTargetDomains();
+    console.log('[Migration Config] Target domains:', targetDomains);
+    console.log('[Migration Config] Target admin emails:', targetAdminEmails);
+    
+    if (!targetDomains || targetDomains.length === 0) {
+      console.log('[Migration Config] No target domains configured');
+      return [];
+    }
+    
+    const allTargetUsers = [];
+    
+    try {
+      // Load users from each target domain
+      for (const domain of targetDomains) {
+        const adminEmail = targetAdminEmails[domain];
+        if (!adminEmail) {
+          console.warn(`[Migration Config] No admin email configured for domain: ${domain}`);
+          continue;
+        }
+        
+        console.log(`[Migration Config] Fetching users from domain: ${domain} with admin: ${adminEmail}`);
+        
+        const response = await fetch(`/api/google-workspace?action=users&domain=${domain}&adminEmail=${encodeURIComponent(adminEmail)}`);
+        
+        if (!response.ok) {
+          console.error(`[Migration Config] Failed to fetch users from ${domain}:`, response.status);
+          continue;
+        }
+        
+        const data = await response.json();
+        console.log(`[Migration Config] Fetched ${data.users?.length || 0} users from ${domain}`);
+        
+        if (data.users && data.users.length > 0) {
+          const domainUsers = data.users
+            .filter((user: any) => {
+              // Filter out suspended users or users that don't meet existence criteria
+              return !user.suspended && user.primaryEmail && user.name;
+            })
+            .map((user: any) => ({
+              id: user.primaryEmail,
+              email: user.primaryEmail,
+              name: user.name?.fullName || user.name?.givenName || 'Unknown User',
+              isAdmin: user.isAdmin || false,
+              exists: true, // All users returned from API exist
+              domain: domain,
+              adminEmail: adminEmail,
+              orgUnitPath: user.orgUnitPath,
+              suspended: user.suspended || false,
+              lastLoginTime: user.lastLoginTime,
+              creationTime: user.creationTime,
+              userType: 'existing' // Mark as existing user
+            }));
+          
+          console.log(`[Migration Config] Filtered to ${domainUsers.length} existing users from ${data.users.length} total users in ${domain}`);
+          allTargetUsers.push(...domainUsers);
+        }
+      }
+      
+      console.log(`[Migration Config] Total target users loaded: ${allTargetUsers.length}`);
+      return allTargetUsers;
+      
+    } catch (error) {
+      console.error('[Migration Config] Error loading target users:', error);
+      return [];
+    }
+  };
 
   const handleNext = () => {
     switch (currentStep) {
@@ -1583,7 +2057,6 @@ export default function NewMigration() {
                   ondestAdminEmailChange={handledestAdminEmailChange}
                   onsourceAdminEmailsChange={handlesourceAdminEmailsChange}
                   ondestAdminEmailsChange={handledestAdminEmailsChange}
-                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
                 />
               </ComponentLoader>
             </div>
@@ -1698,7 +2171,6 @@ export default function NewMigration() {
                   className="bg-white"
                   // Disable the component if authentication is not complete
                   style={!isOAuthCompleteForDomainDiscovery() ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
-                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
                 />
               </ComponentLoader>
             </div>
@@ -1814,9 +2286,15 @@ export default function NewMigration() {
                   userMappingStrategy={memoizedUserMappingStrategy}
                   userMappingConfig={memoizedUserMappingConfig}
                   verificationToken={memoizedVerificationToken}
-                  useServiceAccount={memoizedUseServiceAccount}
                   mappingType={memoizedMappingType}
                   onComplete={(results) => {
+                    console.log('[Migration Wizard] Workflow completed with results:', {
+                      discoveredUsers: results.discoveredUsers?.length || 0,
+                      createdUsers: results.createdUsers?.length || 0,
+                      mappings: results.mappings?.length || 0,
+                      userPairs: results.userPairs?.length || 0
+                    });
+                    
                     setDiscoveredUsers(results.discoveredUsers);
                     setCreatedUsers(results.createdUsers);
                     setUserMappings(results.mappings);
@@ -1824,6 +2302,10 @@ export default function NewMigration() {
                     // Log the source-to-target user pairs for services migration
                     console.log('[Migration Wizard] Source-to-target user pairs:', results.userPairs);
                     console.log('[Migration Wizard] Comprehensive mapping:', results.sourceToTargetMapping);
+                    
+                    // Advance to configuration step after user management completes
+                    console.log('[Migration Wizard] User management complete, advancing to configuration step');
+                    setCurrentStep('configuration');
                   }}
                 />
               </ComponentLoader>
@@ -2097,7 +2579,7 @@ export default function NewMigration() {
                   </div>
                 </div>
 
-                {/* Existing Users Selection */}
+                {/* Use Existing Target Users */}
                 <div className="bg-white border border-gray-200 rounded-xl p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Users className="h-5 w-5 mr-2 text-gray-600" />
@@ -2105,133 +2587,410 @@ export default function NewMigration() {
                   </h3>
                   
                   {/* Toggle for using existing users */}
-                  <div className="mb-4">
-                    <label className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={useExistingUsers}
-                        onChange={(e) => {
-                          setUseExistingUsers(e.target.checked);
-                          if (!e.target.checked) {
-                            setSelectedExistingUsers([]);
-                          }
-                        }}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                      <div>
-                        <span className="text-sm font-medium text-gray-900">
-                          Migrate to existing target domain users
-                        </span>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Enable this to select existing users in the target domain(s) for migration
-                        </p>
-                      </div>
-                    </label>
-                  </div>
 
                   {/* Existing Users List */}
-                  {useExistingUsers && (
-                    <div className="space-y-4">
-                      {existingUsers.length > 0 ? (
-                        <>
-                          {/* Select All Controls */}
-                          <div className="flex items-center justify-between py-2 border-b border-gray-200">
-                            <span className="text-sm font-medium text-gray-700">
-                              Existing Users ({existingUsers.length})
-                            </span>
-                            <div className="flex space-x-2">
-                              <button
-                                type="button"
-                                onClick={selectAllExistingUsers}
-                                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                              >
-                                Select All
-                              </button>
-                              <span className="text-xs text-gray-400">|</span>
-                              <button
-                                type="button"
-                                onClick={deselectAllExistingUsers}
-                                className="text-xs text-gray-600 hover:text-gray-800 font-medium"
-                              >
-                                Clear All
-                              </button>
-                            </div>
+                  <div className="space-y-4">
+                    {allTargetUsers.length > 0 ? (
+                      <>
+                        {/* Select All Controls */}
+                        <div className="flex items-center justify-between py-2 border-b border-gray-200">
+                          <span className="text-sm font-medium text-gray-700">
+                            Target Domain Users ({allTargetUsers.length})
+                          </span>
+                          <div className="flex space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedExistingUsers([...allTargetUsers])}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-xs text-gray-400">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedExistingUsers([])}
+                              className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                            >
+                              Clear All
+                            </button>
                           </div>
+                        </div>
 
-                          {/* Users List */}
-                          <div className="max-h-48 overflow-y-auto space-y-2">
-                            {existingUsers.map((user) => {
-                              const isSelected = selectedExistingUsers.some(u => u.email === user.email);
-                              return (
-                                <label
-                                  key={user.email}
-                                  className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                                    isSelected
-                                      ? 'border-blue-300 bg-blue-50'
-                                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleExistingUserSelection(user)}
-                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center space-x-2">
-                                      <span className="text-sm font-medium text-gray-900 truncate">
-                                        {user.name || user.email}
+                        {/* Users List */}
+                        <div className="max-h-48 overflow-y-auto space-y-2">
+                          {allTargetUsers.map((user) => {
+                            const isSelected = selectedExistingUsers.some(u => 
+                              (u.email || u.primaryEmail) === (user.email || user.primaryEmail)
+                            );
+                            const sourceUser = findSourceUserForTarget(user);
+                            return (
+                              <label
+                                key={user.email || user.primaryEmail}
+                                className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? 'border-blue-300 bg-blue-50'
+                                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    setSelectedExistingUsers(prev => {
+                                      const userEmail = user.email || user.primaryEmail;
+                                      const exists = prev.some(u => (u.email || u.primaryEmail) === userEmail);
+                                      if (exists) {
+                                        return prev.filter(u => (u.email || u.primaryEmail) !== userEmail);
+                                      } else {
+                                        return [...prev, user];
+                                      }
+                                    });
+                                  }}
+                                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-sm font-medium text-gray-900 truncate">
+                                      {typeof user.name === 'string' ? user.name : 
+                                       user.name?.fullName || 
+                                       `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 
+                                       user.email || user.primaryEmail}
+                                    </span>
+                                    {user.isAdmin && (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                        Admin
                                       </span>
-                                      {user.isAdmin && (
-                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                          Admin
-                                        </span>
-                                      )}
-                                    </div>
-                                    {user.name && user.name !== user.email && (
-                                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                    )}
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      Verified
+                                    </span>
+                                    {sourceUser && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        Mapped
+                                      </span>
                                     )}
                                   </div>
-                                </label>
-                              );
-                            })}
-                          </div>
+                                  <div className="text-xs text-gray-500 truncate mt-1">
+                                    <span className="font-medium">Target:</span> {user.email || user.primaryEmail}
+                                  </div>
+                                  <div className="text-xs text-blue-600 truncate">
+                                    <span className="font-medium">Domain:</span> {(user.email || user.primaryEmail)?.split('@')[1]}
+                                  </div>
+                                  {sourceUser && (
+                                    <>
+                                      <div className="text-xs text-orange-600 truncate mt-1">
+                                        <span className="font-medium">Source:</span> {sourceUser.sourceName} ({sourceUser.sourceEmail})
+                                      </div>
+                                      <div className="text-xs text-orange-500 truncate">
+                                        <span className="font-medium">From:</span> {sourceUser.sourceDomain}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
 
-                          {/* Selection Summary */}
-                          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-gray-600">Selected Users:</span>
-                              <span className="font-medium text-gray-900">
-                                {selectedExistingUsers.length} of {existingUsers.length}
-                              </span>
+                        {/* Selection Summary */}
+                        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">Selected Users:</span>
+                            <span className="font-medium text-gray-900">
+                              {selectedExistingUsers.length} of {allTargetUsers.length}
+                            </span>
+                          </div>
+                          {selectedExistingUsers.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {selectedExistingUsers.slice(0, 3).map(user => (
+                                <span key={user.email || user.primaryEmail} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
+                                  {typeof user.name === 'string' ? user.name : 
+                                   user.name?.fullName || 
+                                   user.email || user.primaryEmail}
+                                </span>
+                              ))}
+                              {selectedExistingUsers.length > 3 && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
+                                  +{selectedExistingUsers.length - 3} more
+                                </span>
+                              )}
                             </div>
-                            {selectedExistingUsers.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {selectedExistingUsers.slice(0, 3).map(user => (
-                                  <span key={user.email} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
-                                    {user.name || user.email}
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-sm text-gray-600 mb-2">No target domain users found</p>
+                        <p className="text-xs text-gray-500 mb-4">
+                          Target users will be loaded from the target domains once user discovery is completed
+                        </p>
+                        
+                        {/* Debug Information */}
+                        <div className="text-xs text-gray-400 bg-gray-50 p-3 rounded-lg mb-4">
+                          <p>Debug Info:</p>
+                          <p>• Target Domains: {getTargetDomains().length} ({getTargetDomains().join(', ')})</p>
+                          <p>• Target Admin Emails: {Object.keys(targetAdminEmails).length}</p>
+                          <p>• Current Step: {currentStep}</p>
+                          <p>• Loading: {loadingAllTargetUsers ? 'Yes' : 'No'}</p>
+                        </div>
+                        
+                        {/* Manual Load Button */}
+                        <div className="space-y-2">
+                          <button
+                            onClick={() => loadTargetUsersFromAdminConsole()}
+                            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            disabled={loadingAllTargetUsers}
+                          >
+                            {loadingAllTargetUsers ? 'Loading...' : 'Load from Google Admin Console'}
+                          </button>
+                          
+                          {/* Debug Info Button */}
+                          <button
+                            onClick={() => {
+                              console.log('=== DEBUG INFO ===');
+                              console.log('Target Domains:', getTargetDomains());
+                              console.log('Target Admin Emails:', targetAdminEmails);
+                              console.log('Single Target Admin Email:', targetAdminEmail);
+                              console.log('Selected Scenario:', selectedScenario);
+                              console.log('Domain Mapping:', domainMapping);
+                              console.log('Current allTargetUsers:', allTargetUsers);
+                              console.log('==================');
+                            }}
+                            className="px-4 py-2 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 transition-colors"
+                          >
+                            Show Debug Info
+                          </button>
+                        </div>
+                        
+                        {loadingAllTargetUsers && (
+                          <div className="mt-3">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                            <p className="text-xs text-blue-600 mt-2">Loading target domain users...</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* All Target Domain Users Section */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Database className="h-5 w-5 mr-2 text-purple-600" />
+                    All Existing Target Domain Users
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    {/* Info Banner */}
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                        <span className="text-sm font-medium text-purple-900">All users currently in target domains</span>
+                      </div>
+                      <p className="text-xs text-purple-700 mt-1">
+                        These are all existing users in your target domains, including both cloned and pre-existing users
+                      </p>
+                    </div>
+                    
+                    {allTargetUsers.length > 0 ? (
+                      <>
+                        {/* Header with Select All Controls */}
+                        <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                          <div>
+                            <h4 className="text-base font-medium text-gray-900">
+                              Target Domain Users ({allTargetUsers.length})
+                            </h4>
+                            <p className="text-sm text-gray-600 mt-1">
+                              All existing users in your target domains available for migration
+                            </p>
+                            <div className="flex items-center space-x-2 mt-2">
+                              <span className="text-xs text-purple-600 font-medium">Target Domains:</span>
+                              <div className="flex flex-wrap gap-1">
+                                {[...new Set(allTargetUsers.map(u => u.targetDomain))].map(domain => (
+                                  <span key={domain} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    {domain}
                                   </span>
                                 ))}
-                                {selectedExistingUsers.length > 3 && (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
-                                    +{selectedExistingUsers.length - 3} more
-                                  </span>
-                                )}
                               </div>
-                            )}
+                            </div>
                           </div>
-                        </>
-                      ) : (
-                        <div className="text-center py-8">
-                          <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                          <p className="text-sm text-gray-600 mb-2">No existing users found</p>
-                          <p className="text-xs text-gray-500">
-                            Complete user discovery in the previous step to see existing target domain users
-                          </p>
+                          <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id="selectAllTargetUsers"
+                                checked={selectedAllTargetUsers.length === allTargetUsers.length && allTargetUsers.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    selectAllTargetUsers();
+                                  } else {
+                                    deselectAllTargetUsers();
+                                  }
+                                }}
+                                className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                              />
+                              <label htmlFor="selectAllTargetUsers" className="text-sm font-medium text-gray-700">
+                                Select All
+                              </label>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={deselectAllTargetUsers}
+                              className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                            >
+                              Clear Selection
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  )}
+
+                        {/* Users List */}
+                        <div className="max-h-64 overflow-y-auto space-y-3">
+                          {allTargetUsers.map((user) => {
+                            const isSelected = selectedAllTargetUsers.some(u => u.primaryEmail === user.primaryEmail);
+                            const sourceUser = findSourceUserForTarget(user);
+                            return (
+                              <label
+                                key={user.primaryEmail}
+                                className={`flex items-center space-x-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                  isSelected
+                                    ? 'border-purple-300 bg-purple-50'
+                                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleAllTargetUserSelection(user)}
+                                  className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="flex-1">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-sm font-medium text-gray-900 truncate">
+                                          {typeof user.name === 'string' ? user.name : 
+                                           user.name?.fullName || 
+                                           `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 
+                                           user.primaryEmail}
+                                        </span>
+                                        {user.isAdmin && (
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                            Admin
+                                          </span>
+                                        )}
+                                        {sourceUser && (
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                            Mapped from Source
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 space-y-1">
+                                        <p className="text-xs text-gray-500 truncate">
+                                          <span className="font-medium">Target Email:</span> {user.primaryEmail}
+                                        </p>
+                                        <p className="text-xs text-gray-500 truncate">
+                                          <span className="font-medium">Target Domain:</span> {user.targetDomain}
+                                        </p>
+                                        {sourceUser && (
+                                          <>
+                                            <p className="text-xs text-orange-600 truncate">
+                                              <span className="font-medium">Source User:</span> {sourceUser.sourceName}
+                                            </p>
+                                            <p className="text-xs text-orange-600 truncate">
+                                              <span className="font-medium">Source Email:</span> {sourceUser.sourceEmail}
+                                            </p>
+                                            <p className="text-xs text-orange-500 truncate">
+                                              <span className="font-medium">Source Domain:</span> {sourceUser.sourceDomain}
+                                            </p>
+                                          </>
+                                        )}
+                                        <p className="text-xs text-gray-500 truncate">
+                                          <span className="font-medium">Org Unit:</span> {user.orgUnitPath || '/'}
+                                        </p>
+                                        {user.lastLoginTime && (
+                                          <p className="text-xs text-gray-500 truncate">
+                                            <span className="font-medium">Last Login:</span> {new Date(user.lastLoginTime).toLocaleDateString()}
+                                          </p>
+                                        )}
+                                        {user.creationTime && (
+                                          <p className="text-xs text-gray-500 truncate">
+                                            <span className="font-medium">Created:</span> {new Date(user.creationTime).toLocaleDateString()}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {isSelected && (
+                                      <CheckCircle className="h-5 w-5 text-purple-600" />
+                                    )}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        {/* Selection Summary */}
+                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between text-sm mb-2">
+                            <span className="text-gray-600">Selected Target Users:</span>
+                            <span className="font-medium text-gray-900">
+                              {selectedAllTargetUsers.length} of {allTargetUsers.length} users
+                            </span>
+                          </div>
+                          {selectedAllTargetUsers.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedAllTargetUsers.slice(0, 4).map(user => (
+                                <span key={user.primaryEmail} className="inline-flex items-center px-2 py-1 rounded-md bg-purple-100 text-purple-800 text-xs font-medium">
+                                  {typeof user.name === 'string' ? user.name : 
+                                   user.name?.fullName || 
+                                   `${user.name?.givenName || ''} ${user.name?.familyName || ''}`.trim() || 
+                                   user.primaryEmail}
+                                </span>
+                              ))}
+                              {selectedAllTargetUsers.length > 4 && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
+                                  +{selectedAllTargetUsers.length - 4} more
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No target users selected</p>
+                          )}
+                        </div>
+                      </>
+                    ) : loadingAllTargetUsers ? (
+                      <div className="text-center py-12">
+                        <div className="flex justify-center mb-4">
+                          <Loader2 className="h-16 w-16 text-purple-500 animate-spin" />
+                        </div>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">Loading All Target Users...</h4>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Fetching all existing users from target domain(s)
+                        </p>
+                        <div className="text-xs text-gray-500 bg-purple-50 rounded-lg p-3 max-w-md mx-auto">
+                          <p><strong>Loading:</strong> Retrieving all users from your target domain(s) via Google Admin API.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Database className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Target Users Found</h4>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Unable to load users from target domains
+                        </p>
+                        <div className="text-xs text-gray-500 bg-yellow-50 rounded-lg p-3 max-w-md mx-auto space-y-2">
+                          <p><strong>Possible reasons:</strong></p>
+                          <ul className="text-left space-y-1">
+                            <li>• Target domains are not properly configured</li>
+                            <li>• Admin permissions are insufficient</li>
+                            <li>• Network connectivity issues</li>
+                          </ul>
+                          <p className="mt-2"><strong>Try:</strong> Check your domain configuration and admin permissions.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2522,34 +3281,36 @@ export default function NewMigration() {
                 </div>
               </div>
 
-              {/* Selected Users */}
-              {selectedUsers.length > 0 && (
+              {/* Existing Target Users */}
+              {selectedExistingUsers.length > 0 && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    <Users className="h-5 w-5 mr-2 text-gray-600" />
-                    Selected Users ({selectedUsers.length})
+                    <Users className="h-5 w-5 mr-2 text-blue-600" />
+                    Selected Existing Target Users ({selectedExistingUsers.length})
                   </h3>
                   <div className="space-y-3">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <div className="text-sm text-gray-600 mb-1">Total Users</div>
-                        <div className="font-medium text-gray-900">{selectedUsers.length}</div>
+                        <div className="text-sm text-gray-600 mb-1">Total Existing Users</div>
+                        <div className="font-medium text-gray-900">{selectedExistingUsers.length}</div>
                       </div>
                       <div>
                         <div className="text-sm text-gray-600 mb-1">Admin Users</div>
                         <div className="font-medium text-gray-900">
-                          {selectedUsers.filter(user => user.isAdmin).length}
+                          {selectedExistingUsers.filter(user => user.isAdmin).length}
                         </div>
                       </div>
                     </div>
                     <div className="max-h-32 overflow-y-auto">
-                      <div className="text-sm text-gray-600 mb-2">Users to migrate:</div>
+                      <div className="text-sm text-gray-600 mb-2">Existing users to migrate to:</div>
                       <div className="space-y-1">
-                        {selectedUsers.slice(0, 10).map(user => (
+                        {selectedExistingUsers.slice(0, 10).map(user => (
                           <div key={user.id} className="flex items-center space-x-2 text-sm">
-                            <Mail className="h-3 w-3 text-gray-400" />
-                            <span className="text-gray-900">{user.name.fullName}</span>
-                            <span className="text-gray-500">({user.primaryEmail})</span>
+                            <Mail className="h-3 w-3 text-blue-400" />
+                            <span className="text-gray-900">{user.name || user.email}</span>
+                            {user.name && user.name !== user.email && (
+                              <span className="text-gray-500">({user.email})</span>
+                            )}
                             {user.isAdmin && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                                 Admin
@@ -2557,11 +3318,20 @@ export default function NewMigration() {
                             )}
                           </div>
                         ))}
-                        {selectedUsers.length > 10 && (
+                        {selectedExistingUsers.length > 10 && (
                           <div className="text-sm text-gray-500 italic">
-                            ...and {selectedUsers.length - 10} more users
+                            ...and {selectedExistingUsers.length - 10} more users
                           </div>
                         )}
+                      </div>
+                    </div>
+                    <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-blue-800">
+                          <p className="font-medium mb-1">Migration to Existing Users</p>
+                          <p>Data will be migrated to these existing target domain users. Ensure proper permissions and backup policies are in place.</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2569,7 +3339,7 @@ export default function NewMigration() {
               )}
 
               {/* Existing Target Users */}
-              {useExistingUsers && selectedExistingUsers.length > 0 && (
+              {selectedExistingUsers.length > 0 && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Users className="h-5 w-5 mr-2 text-blue-600" />
@@ -2843,6 +3613,292 @@ export default function NewMigration() {
   const sourceDomains = useMemo(() => getSourceDomains(), [getSourceDomains]);
   const targetDomains = useMemo(() => getTargetDomains(), [getTargetDomains]);
   
+  // Add ref to track if we've loaded users for this configuration step
+  const hasLoadedUsersForCurrentStep = useRef(false);
+
+  // Load existing users when we enter configuration step
+  useEffect(() => {
+    console.log('[Migration Config] useEffect triggered - Current step:', currentStep);
+    console.log('[Migration Config] hasLoadedUsersForCurrentStep:', hasLoadedUsersForCurrentStep.current);
+    console.log('[Migration Config] selectedExistingUsers.length:', selectedExistingUsers.length);
+    
+    if (currentStep === 'configuration') {
+      console.log('[Migration Config] Loading target users...');
+      console.log('[Migration Config] Available data - discoveredUsers:', discoveredUsers.length, 'createdUsers:', createdUsers.length, 'userMappings:', userMappings.length);
+      
+      const isFirstLoad = !hasLoadedUsersForCurrentStep.current;
+      console.log('[Migration Config] isFirstLoad:', isFirstLoad);
+      
+      const loadTargetUsers = async () => {
+        setLoadingTargetUsers(true);
+        
+        try {
+          // Debug: Log the current data sources
+          console.log('[Migration Config] === USER CLASSIFICATION DEBUG ===');
+          console.log('[Migration Config] Debug - userMappings.length:', userMappings.length);
+          console.log('[Migration Config] Debug - createdUsers.length:', createdUsers.length);
+          console.log('[Migration Config] Debug - discoveredUsers (SOURCE):', discoveredUsers.map(u => u.primaryEmail));
+          console.log('[Migration Config] Debug - targetDomains:', getTargetDomains());
+          console.log('[Migration Config] Debug - targetAdminEmails:', targetAdminEmails);
+          
+          // If we have no created users but have user mappings, 
+          // check for historical data before giving up
+          if (userMappings.length > 0 && createdUsers.length === 0) {
+            console.log('[Migration Config] === CHECKING FOR HISTORICAL CLONED USERS ===');
+            console.log('[Migration Config] User mappings exist but no users were created in current session');
+            
+            // Load historical cloned users from localStorage for early exit check
+            const earlyHistoricalCheck = loadClonedUsersFromHistory();
+            console.log('[Migration Config] Historical cloned users found:', earlyHistoricalCheck.length);
+            
+            if (earlyHistoricalCheck.length === 0) {
+              console.log('[Migration Config] No historical cloned users found either - showing empty list');
+              setExistingUsers([]);
+              setLoadingTargetUsers(false);
+              hasLoadedUsersForCurrentStep.current = true;
+              return;
+            } else {
+              console.log('[Migration Config] Found historical cloned users, will proceed with processing');
+              // Continue processing to include historical users
+            }
+          }
+          
+          // Priority 1: Check if we have user mappings (from skip or creation process)
+          if (userMappings.length > 0) {
+            console.log('[Migration Config] Using user mappings to build target users list');
+            console.log('[Migration Config] Sample userMapping:', userMappings[0]);
+            
+            // Check if these mappings are from actual user creation/cloning
+            const hasCreatedUsers = createdUsers.length > 0;
+            console.log('[Migration Config] Has created users:', hasCreatedUsers);
+            console.log('[Migration Config] Created users emails:', createdUsers.map(c => c.user?.primaryEmail));
+            
+            // Load historical cloned users from localStorage
+            const allHistoricalUsers = loadClonedUsersFromHistory();
+            console.log('[Migration Config] Historical cloned users loaded:', allHistoricalUsers.length);
+            
+            const targetUsers = userMappings
+              .filter(mapping => {
+                // Must have valid target email and domain
+                const hasValidTarget = mapping.targetEmail && mapping.targetDomain;
+                // Must have valid source user
+                const hasValidSource = mapping.user && mapping.user.primaryEmail;
+                // Both source and target should exist for complete mapping
+                console.log('[Migration Config] Filtering mapping:', {
+                  targetEmail: mapping.targetEmail,
+                  targetDomain: mapping.targetDomain,
+                  hasValidTarget,
+                  hasValidSource,
+                  sourceEmail: mapping.user?.primaryEmail
+                });
+                return hasValidTarget && hasValidSource;
+              })
+              .map(mapping => {
+                // Determine if this is a cloned user or just a mapped user
+                const isActuallyCloned = createdUsers.some(created => {
+                  const match = created.success && 
+                    created.user?.primaryEmail === mapping.targetEmail;
+                  console.log('[Migration Config] Checking if cloned:', {
+                    targetEmail: mapping.targetEmail,
+                    createdEmail: created.user?.primaryEmail,
+                    success: created.success,
+                    match: match
+                  });
+                  return match;
+                });
+                
+                // Also check if this user exists in historical data
+                const isHistoricallyCloned = allHistoricalUsers.some(historical => 
+                  historical.email === mapping.targetEmail
+                );
+                
+                const isClonedUser = isActuallyCloned || isHistoricallyCloned;
+                
+                console.log('[Migration Config] User', mapping.targetEmail, 'is cloned:', isClonedUser, 
+                  '(current session:', isActuallyCloned, ', historical:', isHistoricallyCloned, ')');
+                
+                return {
+                  id: mapping.targetEmail,
+                  email: mapping.targetEmail,
+                  name: mapping.targetName || mapping.user.name?.fullName || 'Unknown User',
+                  isAdmin: false, // We don't have admin status for target users from mappings
+                  exists: true, // These are confirmed existing mappings
+                  sourceMapping: mapping.user.primaryEmail,
+                  sourceName: mapping.user.name?.fullName || 'Unknown Source User',
+                  targetDomain: mapping.targetDomain,
+                  status: isClonedUser ? 'cloned' : mapping.status || 'mapped',
+                  userType: isClonedUser ? 'cloned' : 'existing', // Mark as cloned if created in any session
+                  isCloned: isClonedUser,
+                  isHistorical: isHistoricallyCloned && !isActuallyCloned, // Mark if from history only
+                  createdInCurrentSession: isActuallyCloned,
+                  createdInPreviousSession: isHistoricallyCloned && !isActuallyCloned
+                };
+              });
+            
+            const clonedUsers = targetUsers.filter(user => user.isCloned);
+            const existingUsers = targetUsers.filter(user => !user.isCloned);
+            
+            // Add purely historical users that might not be in current mappings
+            const purelyHistoricalUsers = allHistoricalUsers.filter(historical => 
+              !targetUsers.some(target => target.email === historical.email)
+            ).map(historical => ({
+              ...historical,
+              isHistorical: true,
+              createdInCurrentSession: false,
+              createdInPreviousSession: true
+            }));
+            
+            console.log('[Migration Config] Found purely historical users (not in current mappings):', purelyHistoricalUsers.length);
+            
+            // Combine cloned users with purely historical users
+            const allClonedUsers = [...clonedUsers, ...purelyHistoricalUsers];
+            
+            console.log('[Migration Config] Found cloned users from mappings:', clonedUsers.length);
+            console.log('[Migration Config] Found existing mapped users:', existingUsers.length);
+            console.log('[Migration Config] Found purely historical users:', purelyHistoricalUsers.length);
+            console.log('[Migration Config] Total cloned users (current + historical):', allClonedUsers.length);
+            console.log('[Migration Config] All cloned users list:', allClonedUsers.map(u => ({ target: u.email, source: u.sourceMapping, historical: u.isHistorical })));
+            
+            // If user wants to see only cloned users, filter to show only those
+            // Otherwise show all target users (both cloned and existing)
+            const shouldShowOnlyCloned = userViewMode === 'cloned'; // Use state to control filter
+            
+            if (shouldShowOnlyCloned && allClonedUsers.length > 0) {
+              console.log('[Migration Config] Filtering to show ONLY cloned users (including historical):', allClonedUsers.length);
+              setExistingUsers(allClonedUsers);
+            } else if (shouldShowOnlyCloned && allClonedUsers.length === 0) {
+              console.log('[Migration Config] No cloned users found (including historical), showing empty list');
+              setExistingUsers([]);
+            } else {
+              console.log('[Migration Config] Setting existingUsers to all target users (cloned + existing)');
+              setExistingUsers(targetUsers);
+            }
+          } else if (createdUsers.length > 0) {
+            console.log('[Migration Config] Using created/cloned users as target users');
+            console.log('[Migration Config] Created users data:', createdUsers);
+            
+            const actuallyClonedUsers = createdUsers
+              .filter(result => {
+                // Only successful creations with valid source mapping
+                return result.success && result.user && result.user.primaryEmail && result.sourceEmail;
+              })
+              .map(result => ({
+                id: result.user.primaryEmail,
+                email: result.user.primaryEmail,
+                name: result.user.name?.fullName || 'Cloned User',
+                isAdmin: result.user.isAdmin || false,
+                exists: true,
+                sourceMapping: result.sourceEmail,
+                sourceName: 'Source User', // We don't have source user details here
+                status: 'cloned', // These are truly cloned users
+                userType: 'cloned', // Mark as cloned user
+                isCloned: true, // These are definitely cloned
+                targetDomain: result.user.primaryEmail.split('@')[1], // Extract domain from email
+                createdAt: result.user.creationTime
+              }));
+            
+            console.log('[Migration Config] Created actually cloned target users from creation results:', actuallyClonedUsers.length);
+            console.log('[Migration Config] Actually cloned users list:', actuallyClonedUsers.map(u => ({ target: u.email, source: u.sourceMapping })));
+            console.log('[Migration Config] Setting existingUsers to actually cloned target users');
+            
+            // Save cloned users to history for future sessions
+            if (actuallyClonedUsers.length > 0) {
+              saveClonedUsersToHistory(actuallyClonedUsers);
+            }
+            
+            setExistingUsers(actuallyClonedUsers);
+          } else {
+            console.log('[Migration Config] No mappings or created users found, loading actual target domain users with source mapping');
+            const actualTargetUsers = await loadActualTargetUsers();
+            console.log('[Migration Config] Loaded actual target users:', actualTargetUsers.length);
+            
+            if (actualTargetUsers.length > 0 && discoveredUsers.length > 0) {
+              console.log('[Migration Config] Matching target users with discovered source users...');
+              
+              // Create a comprehensive list: Target users with their corresponding source users
+              const targetUsersWithSourceMapping = actualTargetUsers.map(targetUser => {
+                // Find corresponding source user by matching username (local part)
+                const targetLocalPart = targetUser.email.split('@')[0].toLowerCase();
+                const correspondingSourceUser = discoveredUsers.find(sourceUser => {
+                  const sourceLocalPart = sourceUser.primaryEmail.split('@')[0].toLowerCase();
+                  return sourceLocalPart === targetLocalPart;
+                });
+                
+                // Always include the target user, but mark if it has source mapping
+                const userWithMapping = {
+                  ...targetUser,
+                  sourceMapping: correspondingSourceUser?.primaryEmail || null,
+                  sourceName: correspondingSourceUser?.name?.fullName || null,
+                  hasSourceMapping: !!correspondingSourceUser,
+                  targetDomain: targetUser.domain,
+                  userType: 'target' // Explicitly mark as target user
+                };
+                
+                console.log('[Migration Config] Target user:', targetUser.email, 'Source mapping:', userWithMapping.sourceMapping, 'Has mapping:', userWithMapping.hasSourceMapping);
+                return userWithMapping;
+              });
+              
+              // Filter to only show target users that have corresponding source users
+              const usersWithValidSourceMapping = targetUsersWithSourceMapping.filter(user => user.hasSourceMapping);
+              
+              console.log('[Migration Config] Target users with valid source mapping:', usersWithValidSourceMapping.length, 'out of', actualTargetUsers.length, 'total target users');
+              console.log('[Migration Config] Final target user list:', usersWithValidSourceMapping.map(u => ({ target: u.email, source: u.sourceMapping })));
+              
+              console.log('[Migration Config] Setting existingUsers to target users with source mapping');
+              setExistingUsers(usersWithValidSourceMapping);
+            } else {
+              console.log('[Migration Config] No target users found with corresponding source users');
+              console.log('[Migration Config] Setting existingUsers to empty array');
+              setExistingUsers([]);
+            }
+          }
+          
+          // Only reset selection on first load of configuration step
+          // Don't reset if users are already selected and this is just a data refresh
+          if (isFirstLoad) {
+            setSelectedExistingUsers([]);
+            hasLoadedUsersForCurrentStep.current = true;
+          }
+          console.log('[Migration Config] Target users loaded successfully');
+        } catch (error) {
+          console.error('[Migration Config] Error in loadTargetUsers:', error);
+          setExistingUsers([]);
+        } finally {
+          setLoadingTargetUsers(false);
+        }
+      };
+      
+      loadTargetUsers();
+    } else {
+      // Reset the ref when leaving configuration step
+      hasLoadedUsersForCurrentStep.current = false;
+    }
+  }, [currentStep, discoveredUsers, createdUsers, userMappings, targetDomains, targetAdminEmails, loadActualTargetUsers]);
+  
+  // Load all target domain users when configuration step is reached
+  useEffect(() => {
+    console.log('[Target Users Loading] useEffect triggered');
+    console.log('[Target Users Loading] currentStep:', currentStep);
+    console.log('[Target Users Loading] targetDomains:', getTargetDomains());
+    console.log('[Target Users Loading] allTargetUsers.length:', allTargetUsers.length);
+    
+    if (currentStep === 'configuration') {
+      const targetDomainsArray = getTargetDomains();
+      const hasTargetDomains = targetDomainsArray.length > 0;
+      const needsLoading = allTargetUsers.length === 0 && !loadingAllTargetUsers;
+      
+      console.log('[Target Users Loading] hasTargetDomains:', hasTargetDomains);
+      console.log('[Target Users Loading] needsLoading:', needsLoading);
+      
+      if (hasTargetDomains && needsLoading) {
+        console.log('[Target Users Loading] Auto-loading target users from admin console...');
+        loadTargetUsersFromAdminConsole();
+      } else {
+        console.log('[Target Users Loading] Conditions not met for auto-loading');
+      }
+    }
+  }, [currentStep, allTargetUsers.length, loadingAllTargetUsers]);
+  
   const memoizedSourceAdminEmails = useMemo(() => {
     return selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined;
   }, [selectedScenario, getSourceDomains, sourceAdminEmails]);
@@ -2876,6 +3932,115 @@ export default function NewMigration() {
            userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
            'one-to-one';
   }, [userMappingConfig?.relationship]);
+
+  // Function to save cloned users to localStorage for history
+  const saveClonedUsersToHistory = (clonedUsers: any[]) => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const historyKey = 'gws_cloned_users_history';
+      const existingHistory = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      
+      // Add current session cloned users with timestamp
+      const sessionData = {
+        timestamp: new Date().toISOString(),
+        sessionId: Date.now().toString(),
+        users: clonedUsers.map(user => ({
+          ...user,
+          createdInSession: true,
+          sessionTimestamp: new Date().toISOString()
+        }))
+      };
+      
+      // Keep only last 10 sessions to avoid localStorage bloat
+      const updatedHistory = [sessionData, ...existingHistory].slice(0, 10);
+      localStorage.setItem(historyKey, JSON.stringify(updatedHistory));
+      
+      console.log('[Migration Config] Saved cloned users to history:', clonedUsers.length);
+    } catch (error) {
+      console.error('[Migration Config] Error saving cloned users to history:', error);
+    }
+  };
+
+  // Function to load cloned users from history
+  const loadClonedUsersFromHistory = (): any[] => {
+    if (typeof window === 'undefined') return [];
+    
+    try {
+      const historyKey = 'gws_cloned_users_history';
+      const history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      
+      // Flatten all users from all sessions
+      const allHistoricalUsers = history.reduce((acc: any[], session: any) => {
+        return acc.concat(session.users || []);
+      }, []);
+      
+      console.log('[Migration Config] Loaded historical cloned users:', allHistoricalUsers.length);
+      return allHistoricalUsers;
+    } catch (error) {
+      console.error('[Migration Config] Error loading cloned users from history:', error);
+      return [];
+    }
+  };
+
+  // Function to clear historical data (for testing)
+  const clearHistoricalData = () => {
+    if (typeof window === 'undefined') return;
+    
+    const historyKey = 'gws_cloned_users_history';
+    localStorage.removeItem(historyKey);
+    console.log('[Migration Config] Cleared historical data');
+    
+    // Reload the page to reflect changes
+    window.location.reload();
+  };
+
+  // Function to detect cloned users by checking user creation patterns
+  const detectClonedUsersFromAPI = async (targetUsers: any[]): Promise<any[]> => {
+    const potentialClonedUsers: any[] = [];
+    
+    try {
+      // Look for users that might have been created through cloning
+      // Check for common patterns:
+      // 1. Users created recently (within last 30 days)
+      // 2. Users with similar naming patterns to source users
+      // 3. Users that match known source-target domain patterns
+      
+      for (const user of targetUsers) {
+        const isRecentlyCreated = user.creationTime && 
+          new Date(user.creationTime) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days
+        
+        const hasClonedPattern = user.name?.fullName?.includes('(Cloned)') || 
+          user.name?.fullName?.includes('Migration') ||
+          user.primaryEmail?.includes('migrated') ||
+          user.primaryEmail?.includes('cloned');
+        
+        if (isRecentlyCreated || hasClonedPattern) {
+          potentialClonedUsers.push({
+            ...user,
+            id: user.primaryEmail,
+            email: user.primaryEmail,
+            name: user.name?.fullName || user.primaryEmail,
+            isAdmin: user.isAdmin || false,
+            exists: true,
+            isCloned: true,
+            userType: 'cloned',
+            status: 'cloned',
+            targetDomain: user.primaryEmail.split('@')[1],
+            createdAt: user.creationTime,
+            detectedFromAPI: true,
+            sourceMapping: null // Will be updated if we find a mapping
+          });
+        }
+      }
+      
+      console.log('[Migration Config] Detected potential cloned users from API:', potentialClonedUsers.length);
+      return potentialClonedUsers;
+    } catch (error) {
+      console.error('[Migration Config] Error detecting cloned users from API:', error);
+      return [];
+    }
+  };
 
   return (
     <ProtectedRoute>
