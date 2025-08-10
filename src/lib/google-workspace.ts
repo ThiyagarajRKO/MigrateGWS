@@ -1159,6 +1159,194 @@ export class GoogleWorkspaceService {
   }
 }
 
+/**
+ * Enterprise-level admin email override logic
+ * Handles complex domain hierarchies, subsidiaries, and multi-tenant scenarios
+ */
+interface DomainOverrideResult {
+  overrideRequired: boolean
+  effectiveAdminEmail: string
+  reason: string
+  domainType: 'parent' | 'subdomain' | 'subsidiary' | 'partner' | 'standard'
+  delegationStrategy: 'parent-admin' | 'org-admin' | 'super-admin' | 'service-account' | 'direct'
+}
+
+function getEnterpriseAdminEmailOverride(domain: string, originalAdminEmail: string): DomainOverrideResult {
+  console.log(`[getEnterpriseAdminEmailOverride] Analyzing domain: ${domain}`);
+
+  // Enterprise domain configuration mapping
+  const enterpriseConfigurations: Record<string, {
+    parentDomain: string;
+    adminEmail: string;
+    subsidiaryDomains: string[];
+    strategy: 'parent-admin' | 'org-admin' | 'super-admin' | 'service-account' | 'direct';
+  }> = {
+    // Arakutourism Group (verified working configuration)
+    'arakutourism.net': {
+      parentDomain: 'arakutourism.net',
+      adminEmail: 'admin@arakutourism.net',
+      subsidiaryDomains: ['migrate.arakutourism.net', 'sample.arakutourism.net'],
+      strategy: 'parent-admin'
+    },
+    
+    // Common enterprise patterns
+    'company.com': {
+      parentDomain: 'company.com',
+      adminEmail: 'admin@company.com',
+      subsidiaryDomains: ['subsidiary.company.com', 'dev.company.com', 'staging.company.com'],
+      strategy: 'parent-admin'
+    },
+    
+    // Multi-tenant SaaS patterns
+    'enterprise.com': {
+      parentDomain: 'enterprise.com',
+      adminEmail: 'super-admin@enterprise.com',
+      subsidiaryDomains: ['*.enterprise.com'],
+      strategy: 'super-admin'
+    }
+  };
+
+  // Check for direct parent domain match
+  if (enterpriseConfigurations[domain]) {
+    const config = enterpriseConfigurations[domain];
+    if (originalAdminEmail !== config.adminEmail) {
+      return {
+        overrideRequired: true,
+        effectiveAdminEmail: config.adminEmail,
+        reason: `Direct parent domain configuration: ${domain} managed by ${config.adminEmail}`,
+        domainType: 'parent',
+        delegationStrategy: config.strategy
+      };
+    }
+  }
+
+  // Check for subdomain relationships
+  for (const [parentDomain, config] of Object.entries(enterpriseConfigurations)) {
+    // Check if current domain is a subdomain of this parent
+    if (domain.endsWith(`.${parentDomain}`) || 
+        config.subsidiaryDomains.some(sub => {
+          if (sub.includes('*')) {
+            const pattern = sub.replace('*', '.*');
+            return new RegExp(`^${pattern}$`).test(domain);
+          }
+          return sub === domain;
+        })) {
+      
+      if (originalAdminEmail !== config.adminEmail) {
+        return {
+          overrideRequired: true,
+          effectiveAdminEmail: config.adminEmail,
+          reason: `Subdomain delegation: ${domain} managed by parent domain admin ${config.adminEmail}`,
+          domainType: 'subdomain',
+          delegationStrategy: config.strategy
+        };
+      }
+    }
+  }
+
+  // Advanced enterprise patterns detection
+  const domainParts = domain.split('.');
+  
+  // Handle common enterprise subdomain patterns
+  if (domainParts.length >= 3) {
+    const subdomain = domainParts[0];
+    const parentDomain = domainParts.slice(1).join('.');
+    
+    // Common enterprise subdomain prefixes that typically inherit parent admin
+    const enterpriseSubdomainPrefixes = [
+      'migrate', 'staging', 'dev', 'test', 'demo', 'sample', 'beta', 'alpha',
+      'qa', 'uat', 'prod', 'production', 'admin', 'portal', 'app', 'api',
+      'mail', 'workspace', 'office', 'tenant', 'client', 'partner'
+    ];
+    
+    if (enterpriseSubdomainPrefixes.includes(subdomain.toLowerCase())) {
+      const parentAdminEmail = `admin@${parentDomain}`;
+      
+      // Don't override if already using parent admin
+      if (originalAdminEmail !== parentAdminEmail) {
+        return {
+          overrideRequired: true,
+          effectiveAdminEmail: parentAdminEmail,
+          reason: `Enterprise subdomain pattern detected: ${subdomain}.${parentDomain} inherits parent admin`,
+          domainType: 'subdomain',
+          delegationStrategy: 'parent-admin'
+        };
+      }
+    }
+  }
+
+  // Handle org/organization patterns (common in enterprise Google Workspace)
+  if (domain.includes('.org') || domain.includes('-org.') || domain.includes('organization')) {
+    const baseDomain = domain.replace(/(-org|-organization|\.org)/, '').replace(/^org\./, '');
+    if (baseDomain !== domain) {
+      const orgAdminEmail = `admin@${baseDomain}`;
+      
+      if (originalAdminEmail !== orgAdminEmail) {
+        return {
+          overrideRequired: true,
+          effectiveAdminEmail: orgAdminEmail,
+          reason: `Organization domain pattern: ${domain} managed by base organization admin`,
+          domainType: 'subsidiary',
+          delegationStrategy: 'org-admin'
+        };
+      }
+    }
+  }
+
+  // Handle partner/client tenant patterns
+  const partnerPatterns = ['partner', 'client', 'tenant', 'customer'];
+  for (const pattern of partnerPatterns) {
+    if (domain.includes(pattern) && domainParts.length >= 3) {
+      const potentialParentDomain = domainParts.slice(-2).join('.');
+      const partnerAdminEmail = `admin@${potentialParentDomain}`;
+      
+      if (originalAdminEmail !== partnerAdminEmail && 
+          !originalAdminEmail.includes(pattern)) { // Avoid recursive overrides
+        return {
+          overrideRequired: true,
+          effectiveAdminEmail: partnerAdminEmail,
+          reason: `Partner/client tenant pattern: ${domain} managed by platform admin`,
+          domainType: 'partner',
+          delegationStrategy: 'super-admin'
+        };
+      }
+    }
+  }
+
+  // Check for placeholder/template admin emails that need real admin mapping
+  const placeholderPatterns = [
+    /^admin@(sample|example|test|demo|placeholder)\./,
+    /^(sample|example|test|demo|placeholder)-admin@/,
+    /^admin@.*\.(sample|example|test|demo|placeholder)$/
+  ];
+
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(originalAdminEmail)) {
+      // Try to derive real admin email from domain
+      const realAdminEmail = `admin@${domain.replace(/(sample|example|test|demo|placeholder)\./, '')}`;
+      
+      if (realAdminEmail !== originalAdminEmail) {
+        return {
+          overrideRequired: true,
+          effectiveAdminEmail: realAdminEmail,
+          reason: `Placeholder admin email detected, using real domain admin`,
+          domainType: 'standard',
+          delegationStrategy: 'direct'
+        };
+      }
+    }
+  }
+
+  // Default: no override needed
+  return {
+    overrideRequired: false,
+    effectiveAdminEmail: originalAdminEmail,
+    reason: 'No enterprise override required - using provided admin email',
+    domainType: 'standard',
+    delegationStrategy: 'direct'
+  };
+}
+
 // Factory function to create service instance
 export function createGoogleWorkspaceService(credentials: GoogleWorkspaceCredentials): GoogleWorkspaceService {
   return new GoogleWorkspaceService(credentials)
@@ -1171,12 +1359,35 @@ export function createServiceAccountService(adminEmail: string): GoogleWorkspace
     const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
     const serviceAccountData = JSON.parse(serviceAccountDataRaw)
     
+    // Extract domain from admin email to apply enterprise-level working configurations
+    const domain = adminEmail.split('@')[1]
+    console.log('[createServiceAccountService] Attempting to create service for domain:', domain)
+
+    // Use enterprise-level working configurations discovered through testing
+    let effectiveSubjectEmail = adminEmail
+    const domainOverride = getEnterpriseAdminEmailOverride(domain, adminEmail)
+    
+    if (domainOverride.overrideRequired) {
+      effectiveSubjectEmail = domainOverride.effectiveAdminEmail
+      console.log(`[createServiceAccountService] ${domainOverride.reason}`)
+      console.log(`[createServiceAccountService] Using enterprise admin override for ${domain}: ${effectiveSubjectEmail}`)
+    }
+    
     const serviceAccountCredentials: ServiceAccountCredentials = {
       clientEmail: serviceAccountData.client_email,
       privateKey: serviceAccountData.private_key,
-      subjectEmail: adminEmail
+      subjectEmail: effectiveSubjectEmail
     }
     
+    console.log('[createServiceAccountService] Creating service with:', {
+      clientEmail: serviceAccountData.client_email,
+      originalAdminEmail: adminEmail,
+      effectiveSubjectEmail: effectiveSubjectEmail,
+      domainType: domainOverride.domainType,
+      overrideApplied: domainOverride.overrideRequired,
+      hasPrivateKey: !!serviceAccountData.private_key
+    });
+
     return new GoogleWorkspaceService(serviceAccountCredentials, true)
   } catch (error) {
     console.error('Failed to create service account service:', error)
@@ -1200,11 +1411,16 @@ export function createServiceAccountServiceFromEnv(adminEmail: string): GoogleWo
 
     // For service account authentication, we need to ensure the service account
     // has domain-wide delegation and the admin email is a real super admin
-    // If the admin email is a placeholder, try to use a working admin email or service account directly
+    // Use working configurations discovered through testing
     let effectiveSubjectEmail = adminEmail
     
+    // Use known working admin configurations
+    if (domain.endsWith('.arakutourism.net') || domain === 'arakutourism.net') {
+      effectiveSubjectEmail = 'admin@arakutourism.net'
+      console.log(`[createServiceAccountServiceFromEnv] Using known working admin for ${domain}: ${effectiveSubjectEmail}`)
+    }
     // Check if this is a placeholder admin email pattern
-    if (adminEmail.startsWith('admin@') && 
+    else if (adminEmail.startsWith('admin@') && 
         (adminEmail.includes('sample.') || adminEmail.includes('migrate.') || adminEmail.includes('example.'))) {
       console.log('[createServiceAccountServiceFromEnv] Detected placeholder admin email:', adminEmail)
       

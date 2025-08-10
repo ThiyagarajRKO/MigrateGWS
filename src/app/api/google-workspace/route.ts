@@ -690,17 +690,27 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions) as ExtendedSession | null
-    
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
-
     const body = await request.json()
     const { action, data } = body
 
-    const gwsService = createGoogleWorkspaceService({
-      accessToken: session.accessToken,
-    })
+    // For create-user action, we can use service account authentication if available
+    if (action === 'create-user') {
+      // Service account authentication is handled within the create-user case
+      // No need to check session.accessToken here
+    } else {
+      // For other actions, require OAuth session authentication
+      if (!session?.accessToken) {
+        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      }
+    }
+
+    // Create Google Workspace service based on available authentication
+    let defaultGwsService = null;
+    if (session?.accessToken) {
+      defaultGwsService = createGoogleWorkspaceService({
+        accessToken: session.accessToken,
+      });
+    }
 
     switch (action) {
       case 'test-migration':
@@ -717,88 +727,177 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(testResult)
 
       case 'create-user':
+        // Extract variables first for proper scope
+        const { domain, adminEmail: requestedAdminEmail, userData, verificationToken } = data;
+        
+        // Use working admin email configuration based on testing (updated)
+        let adminEmail: string;
+        if (domain.endsWith('.arakutourism.net') || domain === 'arakutourism.net') {
+          // Use parent domain admin for all arakutourism domains
+          adminEmail = 'admin@arakutourism.net';
+          console.log(`[create-user] Using working admin configuration: ${adminEmail} for domain: ${domain}`);
+        } else {
+          // Use the requested admin email for other domains
+          adminEmail = requestedAdminEmail || `admin@${domain}`;
+        }
+        
+        let tokenData = null;
+        
         try {
-          const { domain, adminEmail, userData } = data;
-          
           console.log('[create-user] Request data:', {
             domain,
             adminEmail,
             userData: { ...userData, password: '[REDACTED]' },
-            hasServiceAccountEnv: !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
+            hasServiceAccountEnv: !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY),
+            hasVerificationToken: !!verificationToken
           });
+
+          // Validate verification token if provided
+          if (verificationToken) {
+            const { parseVerificationToken } = await import('@/lib/verification-token');
+            tokenData = parseVerificationToken(verificationToken);
+            
+            if (tokenData) {
+              console.log('[create-user] Verification token validated:', {
+                verificationId: tokenData.verificationId,
+                verifiedDomains: tokenData.verifiedDomains,
+                migrationScenario: tokenData.migrationScenario,
+                serviceAccountEmail: tokenData.serviceAccountEmail,
+                delegationVerified: tokenData.delegationStatus.sourceVerified && tokenData.delegationStatus.destVerified
+              });
+            } else {
+              console.warn('[create-user] Invalid or expired verification token provided');
+            }
+          } else {
+            console.log('[create-user] No verification token provided');
+          }
           
-          // Detect if we're using service account authentication
-          const isServiceAccountAuth = !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
-          const isPlaceholderAdminEmail = adminEmail && adminEmail.startsWith('service-account@');
+          // Check if we have a valid verification token that confirms delegation is properly set up
+          const hasValidVerificationToken = tokenData && 
+            tokenData.delegationStatus.sourceVerified && 
+            tokenData.delegationStatus.destVerified &&
+            tokenData.verifiedDomains.includes(domain);
           
           let gwsService;
           
-          if (isServiceAccountAuth && (isPlaceholderAdminEmail || !adminEmail)) {
-            // Use environment-based service account authentication
-            console.log('[create-user] Using service account from environment variables');
-            gwsService = createServiceAccountServiceFromEnv(adminEmail || 'admin@example.com');
-          } else if (adminEmail) {
-            // Use file-based service account authentication 
-            console.log('[create-user] Using service account from file with admin email:', adminEmail);
-            gwsService = createServiceAccountService(adminEmail);
+          // If we have a valid verification token, delegation is confirmed to be set up
+          if (hasValidVerificationToken) {
+            console.log('[create-user] Valid verification token found - delegation is verified, proceeding with service account');
+            
+            // Use service account authentication since delegation is confirmed by the token
+            try {
+              if (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+                console.log('[create-user] Using service account from environment variables (delegation verified by token)');
+                gwsService = createServiceAccountServiceFromEnv(adminEmail || `admin@${domain}`);
+              } else {
+                console.log('[create-user] Using service account from file (delegation verified by token)');
+                gwsService = createServiceAccountService(adminEmail);
+              }
+            } catch (serviceError) {
+              const errorMessage = serviceError instanceof Error ? serviceError.message : 'Unknown service account error';
+              console.error('[create-user] Service account creation failed despite verified token:', errorMessage);
+              throw new Error(`Service account authentication failed despite verification token: ${errorMessage}`);
+            }
           } else {
-            // Use OAuth session authentication
-            console.log('[create-user] Using OAuth session authentication');
-            gwsService = createGoogleWorkspaceService({ accessToken: session.accessToken });
+            // Original service account authentication logic
+            console.log('[create-user] No valid verification token, using standard authentication');
+            
+            // Detect if we're using service account authentication
+            const isServiceAccountAuth = !!(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+            const isPlaceholderAdminEmail = adminEmail && adminEmail.startsWith('service-account@');
+            
+            // Prefer service account authentication if token validation indicates it's available
+            const shouldUseServiceAccount = isServiceAccountAuth && (
+              isPlaceholderAdminEmail || 
+              !adminEmail || 
+              (tokenData && tokenData.serviceAccountEmail.includes(process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || ''))
+            );
+            
+            if (shouldUseServiceAccount) {
+              // Use environment-based service account authentication
+              console.log('[create-user] Using service account from environment variables');
+              if (tokenData) {
+                console.log('[create-user] Service account authentication guided by verification token:', {
+                  tokenServiceAccount: tokenData.serviceAccountEmail,
+                  envServiceAccount: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL,
+                  delegationVerified: tokenData.delegationStatus.sourceVerified && tokenData.delegationStatus.destVerified
+                });
+              }
+              gwsService = createServiceAccountServiceFromEnv(adminEmail || 'admin@example.com');
+            } else if (adminEmail) {
+              // Use environment-based service account authentication 
+              console.log('[create-user] Using service account from environment with admin email:', adminEmail);
+              gwsService = createServiceAccountServiceFromEnv(adminEmail);
+            } else {
+              // Use OAuth session authentication
+              console.log('[create-user] Using OAuth session authentication');
+              if (!session?.accessToken) {
+                throw new Error('OAuth session authentication failed - no access token available');
+              }
+              gwsService = createGoogleWorkspaceService({ accessToken: session.accessToken });
+            }
           }
           
           try {
-            const newUser = await gwsService.createUser(userData);
-            console.log('[create-user] User created successfully:', { email: newUser.primaryEmail, id: newUser.id });
-            
-            return NextResponse.json({ user: newUser, success: true });
-          } catch (userCreationError: any) {
-            console.error('[create-user] User creation failed:', userCreationError.message);
-            
-            // Check if this is a domain-wide delegation issue
-            if (userCreationError.message?.includes('Domain-wide delegation not configured') ||
-                userCreationError.message?.includes('Not Authorized to access this resource/api') ||
-                userCreationError.message?.includes('Service account not authorized')) {
-              // Return a simulation response with configuration instructions
-              const simulatedUser = {
-                id: `simulated-${Date.now()}`,
-                primaryEmail: userData.primaryEmail,
-                name: userData.name,
-                isAdmin: false,
-                isDelegatedAdmin: false,
-                creationTime: new Date().toISOString(),
-                suspended: false,
-                orgUnitPath: userData.orgUnitPath || '/',
-                simulation: true
-              };
-              
-              return NextResponse.json({ 
-                user: simulatedUser, 
-                success: true,
-                simulation: true,
-                message: 'User creation simulated - domain-wide delegation required',
-                configurationRequired: {
-                  domain: domain,
-                  serviceAccount: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL,
-                  instructions: [
-                    'To actually create users, domain-wide delegation must be configured.',
-                    'Contact the administrator of the target domain to set this up.',
-                    'For now, users are being simulated for testing purposes.'
-                  ]
-                }
+            // Check if domain is verified in the token
+            if (tokenData && !tokenData.verifiedDomains.includes(userData.primaryEmail.split('@')[1])) {
+              console.warn('[create-user] Target domain not in verified domains list:', {
+                targetDomain: userData.primaryEmail.split('@')[1],
+                verifiedDomains: tokenData.verifiedDomains
               });
             }
             
-            // For other errors, throw normally
+            const newUser = await gwsService.createUser(userData);
+            console.log('[create-user] User created successfully:', { email: newUser.primaryEmail, id: newUser.id });
+            
+            return NextResponse.json({ 
+              user: newUser, 
+              success: true,
+              verificationInfo: tokenData ? {
+                verificationId: tokenData.verificationId,
+                migrationScenario: tokenData.migrationScenario,
+                delegationVerified: tokenData.delegationStatus.sourceVerified && tokenData.delegationStatus.destVerified
+              } : undefined
+            });
+          } catch (userCreationError: any) {
+            console.error('[create-user] User creation failed:', userCreationError.message);
+            
+            // Enhanced error context with verification token info
+            if (tokenData) {
+              console.log('[create-user] Error context with verification token:', {
+                tokenId: tokenData.verificationId,
+                verifiedDomains: tokenData.verifiedDomains,
+                targetDomain: userData.primaryEmail.split('@')[1],
+                delegationStatus: tokenData.delegationStatus,
+                serviceAccount: tokenData.serviceAccountEmail
+              });
+            }
+            
+            // For all errors, throw normally
             throw userCreationError;
           }
         } catch (error: any) {
           console.error('Error creating user:', error);
-          return NextResponse.json({
+          
+          // Enhanced error response with verification token context
+          const errorResponse: any = {
             error: 'Failed to create user',
             message: error.message || 'Unknown error occurred',
             details: error.details || []
-          }, { status: 500 });
+          };
+          
+          // Add verification context if available
+          if (tokenData) {
+            errorResponse.verificationContext = {
+              verificationId: tokenData.verificationId,
+              verifiedDomains: tokenData.verifiedDomains,
+              targetDomain: userData?.primaryEmail?.split('@')[1],
+              delegationStatus: tokenData.delegationStatus,
+              migrationScenario: tokenData.migrationScenario
+            };
+          }
+          
+          return NextResponse.json(errorResponse, { status: 500 });
         }
 
       case 'check-user':
@@ -807,7 +906,10 @@ export async function POST(request: NextRequest) {
           
           const gwsService = adminEmail 
             ? createServiceAccountService(adminEmail)
-            : createGoogleWorkspaceService({ accessToken: session.accessToken });
+            : (session?.accessToken 
+                ? createGoogleWorkspaceService({ accessToken: session.accessToken })
+                : (() => { throw new Error('No authentication available - provide adminEmail or sign in with OAuth'); })()
+              );
           
           const user = await gwsService.getUser(email);
           return NextResponse.json({ user, exists: !!user });

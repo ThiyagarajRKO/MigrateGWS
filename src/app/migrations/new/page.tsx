@@ -418,6 +418,49 @@ export default function NewMigration() {
     })
   }, [dwdVerificationStatus, dwdSetupComplete, currentStep])
 
+  // Auto-populate domain fields from domainMapping selections
+  useEffect(() => {
+    console.log('[Migration Wizard] Auto-population effect triggered:', {
+      domainMapping,
+      currentSourceDomain: migrationConfig.sourceDomain,
+      currentTargetDomain: migrationConfig.targetDomain,
+      getSourceDomainsResult: getSourceDomains(),
+      getTargetDomainsResult: getTargetDomains()
+    });
+
+    if (domainMapping && Object.keys(domainMapping).length > 0) {
+      // Auto-populate source domain from domainMapping
+      const sourceDomains = Object.keys(domainMapping).filter(domain => Boolean(domain));
+      console.log('[Migration Wizard] Available source domains from mapping:', sourceDomains);
+      
+      if (sourceDomains.length > 0 && (!migrationConfig.sourceDomain || migrationConfig.sourceDomain === '')) {
+        const newSourceDomain = sourceDomains[0];
+        setMigrationConfig(prev => ({
+          ...prev,
+          sourceDomain: newSourceDomain
+        }));
+        console.log('[Migration Wizard] Auto-populated source domain:', newSourceDomain);
+      }
+
+      // Auto-populate target domain from domainMapping
+      const targetDomains = Object.values(domainMapping).flat().filter(domain => Boolean(domain));
+      console.log('[Migration Wizard] Available target domains from mapping:', targetDomains);
+      
+      if (targetDomains.length > 0 && (!migrationConfig.targetDomain || migrationConfig.targetDomain === '')) {
+        const newTargetDomain = targetDomains[0];
+        setMigrationConfig(prev => ({
+          ...prev,
+          targetDomain: newTargetDomain,
+          targetDomains: targetDomains // Also update the targetDomains array
+        }));
+        console.log('[Migration Wizard] Auto-populated target domain:', newTargetDomain);
+        console.log('[Migration Wizard] Auto-populated target domains array:', targetDomains);
+      }
+    } else {
+      console.log('[Migration Wizard] No valid domainMapping available for auto-population');
+    }
+  }, [domainMapping, migrationConfig.sourceDomain, migrationConfig.targetDomain])
+
   // Debug useEffect to track admin email changes
   // Monitor admin email state for debugging
   useEffect(() => {
@@ -1810,155 +1853,7 @@ export default function NewMigration() {
                 </div>
               </div>
 
-              {/* Admin Email Configuration */}
-              <div className="mb-4">
-                {selectedScenario === 'single-super-admin' ? (
-                  // Single Super Admin - Source admin email + target admin emails if multiple targets
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Super Admin Email
-                      </label>
-                      <input
-                        type="email"
-                        value={sourceAdminEmail}
-                        onChange={(e) => setSourceAdminEmail(e.target.value)}
-                        placeholder="admin@your-domain.com"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Super admin email with access to both source and target domains
-                      </p>
-                    </div>
-
-                    {/* Target Domain Admin Emails for Multiple Targets */}
-                    {(() => {
-                      const targetDomains = getTargetDomains();
-                      
-                      // For single-super-admin, we don't need separate target domain admin emails
-                      // The super admin should have access to all domains
-                      return null;
-                    })()}
-                  </div>
-                ) : (
-                  // Cross-Tenant - Source admin email + target admin emails
-                  <div className="space-y-4">
-                    {/* Source Domain Admin Email(s) */}
-                    <div className="space-y-3">
-                      {getSourceDomains().length > 1 ? (
-                        // Multiple source domains
-                        getSourceDomains().map((domain, index) => (
-                          <div key={domain}>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              {index === 0 ? 'Primary ' : ''}Source Domain Admin Email {domain && `(${domain})`}
-                            </label>
-                            <input
-                              type="email"
-                              value={sourceAdminEmails[domain] || ''}
-                              onChange={(e) => setSourceAdminEmails(prev => ({
-                                ...prev,
-                                [domain]: e.target.value
-                              }))}
-                              placeholder={`admin@${domain}`}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                              Super admin email for {domain}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        // Single source domain
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Source Domain Admin Email
-                          </label>
-                          <input
-                            type="email"
-                            value={sourceAdminEmail}
-                            onChange={(e) => setSourceAdminEmail(e.target.value)}
-                            placeholder="admin@source-domain.com"
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Super admin email for the source Google Workspace domain
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Target Domain Admin Emails */}
-                    {(() => {
-                      const targetDomains = getTargetDomains();
-                      
-                      // Only show target domain admin emails for cross-tenant migrations
-                      if (selectedScenario === 'cross-tenant') {
-                        if (targetDomains.length <= 1) {
-                          // Single target domain
-                          return (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Target Domain Admin Email
-                              </label>
-                              <input
-                                type="email"
-                                value={targetAdminEmail}
-                                onChange={(e) => setTargetAdminEmail(e.target.value)}
-                                placeholder="admin@target-domain.com"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              />
-                              <p className="text-xs text-gray-500 mt-1">
-                                Super admin email for the target Google Workspace domain
-                              </p>
-                            </div>
-                          );
-                        } else {
-                          // Multiple target domains
-                        return (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-3">
-                              Target Domain Admin Emails
-                            </label>
-                            <div className="space-y-3">
-                              {targetDomains.map((domain, index) => (
-                                <div key={domain} className="flex items-center space-x-3">
-                                  <div className="flex-1">
-                                    <div className="flex items-center space-x-2 mb-1">
-                                      <span className="text-sm font-medium text-gray-600">
-                                        Domain {index + 1}:
-                                      </span>
-                                      <span className="text-sm text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded">
-                                        {domain}
-                                      </span>
-                                    </div>
-                                    <input
-                                      type="email"
-                                      value={targetAdminEmails[domain] || ''}
-                                      onChange={(e) => setTargetAdminEmails(prev => ({
-                                        ...prev,
-                                        [domain]: e.target.value
-                                      }))}
-                                      placeholder={`admin@${domain}`}
-                                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                              <p className="text-xs text-gray-500 mt-2">
-                                Super admin email for each target Google Workspace domain
-                              </p>
-                            </div>
-                          </div>
-                        );
-                        }
-                      }
-                      
-                      // For single super admin migrations, no target admin emails needed
-                      return null;
-                    })()}
-                  </div>
-                )}
-              </div>
+              {/* Admin Email Configuration - Removed for service account authentication */}
 
               {/* User Discovery Modal - REMOVED */}
             </div>
@@ -1973,21 +1868,35 @@ export default function NewMigration() {
                   </h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
                         {getSourceDomains().length > 1 ? 'Primary Source Domain' : 'Source Domain'}
+                        {domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.sourceDomain && (
+                          <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Auto-populated
+                          </span>
+                        )}
                       </label>
                       <input
                         type="text"
                         value={migrationConfig.sourceDomain}
                         onChange={(e) => setMigrationConfig(prev => ({ ...prev, sourceDomain: e.target.value }))}
-                        placeholder="e.g., oldcompany.com"
+                        placeholder={domainMapping && Object.keys(domainMapping).length > 0 ? "Auto-populated from domain mapping" : "e.g., oldcompany.com"}
                         autoComplete="off"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        readOnly={!!(domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.sourceDomain)}
+                        className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.sourceDomain
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-gray-300'
+                        }`}
                         required
                       />
-                      {getSourceDomains().length > 1 && (
+                      {getSourceDomains().length > 1 ? (
                         <p className="text-xs text-gray-500 mt-1">
                           Primary domain for migration. Total source domains: {getSourceDomains().length}
+                        </p>
+                      ) : domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.sourceDomain && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          ✓ Auto-populated from previous domain mapping selection
                         </p>
                       )}
                     </div>
@@ -2017,21 +1926,35 @@ export default function NewMigration() {
                     )}
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
                         {getTargetDomains().length > 1 ? 'Primary Target Domain' : 'Target Domain'}
+                        {domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.targetDomain && (
+                          <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Auto-populated
+                          </span>
+                        )}
                       </label>
                       <input
                         type="text"
                         value={migrationConfig.targetDomain}
                         onChange={(e) => setMigrationConfig(prev => ({ ...prev, targetDomain: e.target.value }))}
-                        placeholder="e.g., newcompany.com"
+                        placeholder={domainMapping && Object.keys(domainMapping).length > 0 ? "Auto-populated from domain mapping" : "e.g., newcompany.com"}
                         autoComplete="off"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        readOnly={!!(domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.targetDomain)}
+                        className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.targetDomain
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-gray-300'
+                        }`}
                         required
                       />
-                      {getTargetDomains().length > 1 && (
+                      {getTargetDomains().length > 1 ? (
                         <p className="text-xs text-gray-500 mt-1">
                           Primary domain for migration. Total target domains: {getTargetDomains().length}
+                        </p>
+                      ) : domainMapping && Object.keys(domainMapping).length > 0 && migrationConfig.targetDomain && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          ✓ Auto-populated from previous domain mapping selection
                         </p>
                       )}
                     </div>
