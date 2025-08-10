@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense, useEffect } from 'react';
+import { useState, lazy, Suspense, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useCrossTenantTokens } from '@/lib/cross-tenant-auth-context';
@@ -157,18 +157,18 @@ export default function NewMigration() {
   const [userMappingConfig, setUserMappingConfig] = useState<UserMappingConfig | null>(null);
 
   // Helper functions for domain handling
-  const getTargetDomainsFromMapping = (mapping: DomainMapping) => {
+  const getTargetDomainsFromMapping = useCallback((mapping: DomainMapping) => {
     // DomainMapping is Record<string, string[]> - get all target domains
     return Object.values(mapping).flat().filter(Boolean);
-  };
+  }, []);
 
-  const formatTargetDomains = (mapping: DomainMapping) => {
+  const formatTargetDomains = useCallback((mapping: DomainMapping) => {
     const targets = getTargetDomainsFromMapping(mapping);
     if (targets.length === 1) {
       return targets[0];
     }
     return targets.filter(Boolean).join(', ');
-  };
+  }, [getTargetDomainsFromMapping]);
   const [migrationConfig, setMigrationConfig] = useState({
     migrationName: '',
     sourceDomain: '',
@@ -186,6 +186,8 @@ export default function NewMigration() {
   });
 
   // Debug migration config changes to track auto-population
+  const domainsClearedRef = useRef(false);
+  
   useEffect(() => {
     const stack = new Error().stack;
     console.log('[Migration Wizard] migrationConfig.sourceDomain changed:', {
@@ -195,12 +197,15 @@ export default function NewMigration() {
       stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
     });
     
-    // Prevent auto-population of specific domains
-    if (migrationConfig.sourceDomain === 'rrgokuldham.com' || migrationConfig.targetDomain === 'arakutourism.net') {
+    // Prevent auto-population of specific domains (only once)
+    if (!domainsClearedRef.current && 
+        (migrationConfig.sourceDomain === 'rrgokuldham.com' || migrationConfig.targetDomain === 'arakutourism.net')) {
       console.warn('[Migration Wizard] Detected auto-population of domains! Clearing them:', {
         sourceDomain: migrationConfig.sourceDomain,
         targetDomain: migrationConfig.targetDomain
       });
+      
+      domainsClearedRef.current = true;
       
       // Clear the auto-populated domains
       setMigrationConfig(prev => ({
@@ -208,6 +213,14 @@ export default function NewMigration() {
         sourceDomain: '',
         targetDomain: ''
       }));
+    }
+    
+    // Reset the flag if domains are changed manually to something else
+    if (migrationConfig.sourceDomain !== 'rrgokuldham.com' && 
+        migrationConfig.targetDomain !== 'arakutourism.net' &&
+        migrationConfig.sourceDomain !== '' && 
+        migrationConfig.targetDomain !== '') {
+      domainsClearedRef.current = false;
     }
   }, [migrationConfig.sourceDomain, migrationConfig.targetDomain]);
 
@@ -319,6 +332,11 @@ export default function NewMigration() {
   const [userMappings, setUserMappings] = useState<any[]>([]);
   const [createdUsers, setCreatedUsers] = useState<any[]>([]);
 
+  // Existing Users Selection state for migration settings
+  const [existingUsers, setExistingUsers] = useState<any[]>([]);
+  const [selectedExistingUsers, setSelectedExistingUsers] = useState<any[]>([]);
+  const [useExistingUsers, setUseExistingUsers] = useState(false);
+
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
 
   // Handle OAuth callback success - DISABLED for cross-tenant auth
@@ -409,75 +427,70 @@ export default function NewMigration() {
     return () => clearTimeout(timer);
   }, [currentStep]);
 
-  // Debug useEffect to track verification status changes
-  useEffect(() => {
-    console.log('[Migration Wizard] dwdVerificationStatus changed:', dwdVerificationStatus, {
-      currentStep,
-      dwdSetupComplete,
-      canProceedDelegation: currentStep === 'delegation' ? (dwdSetupComplete && areAllAdminEmailsProvided() && dwdVerificationStatus) : 'N/A'
-    })
-  }, [dwdVerificationStatus, dwdSetupComplete, currentStep])
+  // Debug useEffect to track verification status changes - TEMPORARILY DISABLED FOR PERFORMANCE
+  // useEffect(() => {
+  //   console.log('[Migration Wizard] dwdVerificationStatus changed:', dwdVerificationStatus, {
+  //     currentStep,
+  //     dwdSetupComplete,
+  //     canProceedDelegation: currentStep === 'delegation' ? (dwdSetupComplete && areAllAdminEmailsProvided() && dwdVerificationStatus) : 'N/A'
+  //   })
+  // }, [dwdVerificationStatus, dwdSetupComplete, currentStep, areAllAdminEmailsProvided])
 
   // Auto-populate domain fields from domainMapping selections
   useEffect(() => {
     console.log('[Migration Wizard] Auto-population effect triggered:', {
       domainMapping,
+      hasMapping: !!(domainMapping && Object.keys(domainMapping).length > 0),
       currentSourceDomain: migrationConfig.sourceDomain,
-      currentTargetDomain: migrationConfig.targetDomain,
-      getSourceDomainsResult: getSourceDomains(),
-      getTargetDomainsResult: getTargetDomains()
+      currentTargetDomain: migrationConfig.targetDomain
     });
-
+    
     if (domainMapping && Object.keys(domainMapping).length > 0) {
-      // Auto-populate source domain from domainMapping
+      // Auto-populate source domain from domainMapping if not already set
       const sourceDomains = Object.keys(domainMapping).filter(domain => Boolean(domain));
-      console.log('[Migration Wizard] Available source domains from mapping:', sourceDomains);
       
-      if (sourceDomains.length > 0 && (!migrationConfig.sourceDomain || migrationConfig.sourceDomain === '')) {
+      if (sourceDomains.length > 0 && !migrationConfig.sourceDomain) {
         const newSourceDomain = sourceDomains[0];
+        console.log('[Migration Wizard] Auto-populating source domain:', newSourceDomain);
         setMigrationConfig(prev => ({
           ...prev,
           sourceDomain: newSourceDomain
         }));
-        console.log('[Migration Wizard] Auto-populated source domain:', newSourceDomain);
       }
 
-      // Auto-populate target domain from domainMapping
+      // Auto-populate target domain from domainMapping if not already set
       const targetDomains = Object.values(domainMapping).flat().filter(domain => Boolean(domain));
-      console.log('[Migration Wizard] Available target domains from mapping:', targetDomains);
       
-      if (targetDomains.length > 0 && (!migrationConfig.targetDomain || migrationConfig.targetDomain === '')) {
+      if (targetDomains.length > 0 && !migrationConfig.targetDomain) {
         const newTargetDomain = targetDomains[0];
+        console.log('[Migration Wizard] Auto-populating target domain:', newTargetDomain, 'from targets:', targetDomains);
         setMigrationConfig(prev => ({
           ...prev,
           targetDomain: newTargetDomain,
           targetDomains: targetDomains // Also update the targetDomains array
         }));
-        console.log('[Migration Wizard] Auto-populated target domain:', newTargetDomain);
-        console.log('[Migration Wizard] Auto-populated target domains array:', targetDomains);
       }
-    } else {
-      console.log('[Migration Wizard] No valid domainMapping available for auto-population');
     }
   }, [domainMapping, migrationConfig.sourceDomain, migrationConfig.targetDomain])
 
   // Debug useEffect to track admin email changes
   // Monitor admin email state for debugging
-  useEffect(() => {
-    const stack = new Error().stack;
-    console.log('[Migration Wizard] Admin emails changed:', {
-      adminEmail,
-      sourceAdminEmail,
-      targetAdminEmail,
-      sourceAdminEmails,
-      targetAdminEmails,
-      areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
-      timestamp: new Date().toISOString(),
-      currentStep,
-      selectedScenario,
-      stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
-    });
-  }, [adminEmail, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails])
+  // Debug useEffect to track admin email changes - TEMPORARILY DISABLED FOR PERFORMANCE
+  // useEffect(() => {
+  //   const stack = new Error().stack;
+  //   console.log('[Migration Wizard] Admin emails changed:', {
+  //     adminEmail,
+  //     sourceAdminEmail,
+  //     targetAdminEmail,
+  //     sourceAdminEmails,
+  //     targetAdminEmails,
+  //     areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
+  //     timestamp: new Date().toISOString(),
+  //     currentStep,
+  //     selectedScenario,
+  //     stackTrace: stack?.split('\n').slice(1, 4).join('\n') // Show top 3 stack frames
+  //   });
+  // }, [adminEmail, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails, currentStep, selectedScenario, areAllAdminEmailsProvided])
 
   // Auto-redirect to authentication when both scenario and user mapping are selected
   useEffect(() => {
@@ -491,22 +504,22 @@ export default function NewMigration() {
     }
   }, [currentStep, selectedScenario, userMappingConfig?.relationship]);
 
-  // Debug useEffect to track user mapping configuration changes
-  useEffect(() => {
-    console.log('[Migration Wizard] User mapping configuration changed:', {
-      userMappingConfig,
-      domainMapping: {
-        type: domainMapping?.type,
-        description: domainMapping?.description,
-        sourceDomains: domainMapping?.sourceDomains,
-        targetDomain: domainMapping?.targetDomain,
-        targetDomains: domainMapping?.targetDomains
-      },
-      selectedScenario,
-      currentStep,
-      timestamp: new Date().toISOString()
-    });
-  }, [userMappingConfig, domainMapping, selectedScenario, currentStep])
+  // Debug useEffect to track user mapping configuration changes - TEMPORARILY DISABLED FOR PERFORMANCE
+  // useEffect(() => {
+  //   console.log('[Migration Wizard] User mapping configuration changed:', {
+  //     userMappingConfig,
+  //     domainMapping: {
+  //       type: domainMapping?.type,
+  //       description: domainMapping?.description,
+  //       sourceDomains: domainMapping?.sourceDomains,
+  //       targetDomain: domainMapping?.targetDomain,
+  //       targetDomains: domainMapping?.targetDomains
+  //     },
+  //     selectedScenario,
+  //     currentStep,
+  //     timestamp: new Date().toISOString()
+  //   });
+  // }, [userMappingConfig, domainMapping, selectedScenario, currentStep])
 
   // OAuth Domain Discovery handlers
   const handleDomainsDiscovered = (domains: string[]) => {
@@ -548,12 +561,12 @@ export default function NewMigration() {
     }
   };
 
-  const isOAuthCompleteForDomainDiscovery = () => {
+  const isOAuthCompleteForDomainDiscovery = useCallback(() => {
     if (selectedScenario === 'cross-tenant') {
       return sourceAuthStatus.authenticated && targetAuthStatus.authenticated;
     }
     return oauthDiscoveryStatus.authenticated && oauthDiscoveryStatus.discoveredDomains.length > 0;
-  };
+  }, [selectedScenario, sourceAuthStatus.authenticated, targetAuthStatus.authenticated, oauthDiscoveryStatus.authenticated, oauthDiscoveryStatus.discoveredDomains.length]);
 
   // Cross-tenant OAuth handlers
   const handleSourceAuthComplete = (domains: string[]) => {
@@ -648,11 +661,11 @@ export default function NewMigration() {
       // setDomainMapping(mapping);
     }
     
-    // DISABLED: Auto-populate migration config - require manual domain selection
-    // Domain configuration must be manually set, no automatic selection
+    // Allow auto-populate migration config from domain mapping
+    // Domain configuration can be auto-selected if domain mapping is available
     const finalMapping = config.domainMappings?.[0];
     if (finalMapping) {
-      // Use domains from the domain mapping but without auto-selection
+      // Use domains from the domain mapping with automatic selection
       const sourceDomains = finalMapping.sourceDomains || [];
       const targetDomains = finalMapping.type === 'one-to-many' && finalMapping.multiTargetConfig 
         ? finalMapping.multiTargetConfig.map((c: any) => c.domain).filter(Boolean)
@@ -660,17 +673,16 @@ export default function NewMigration() {
       
       setMigrationConfig(prev => ({
         ...prev,
-        sourceDomain: '', // No auto-selection - manual selection required
-        targetDomain: '', // No auto-selection - manual selection required
+        // Allow auto-population from domain mapping
+        sourceDomain: prev.sourceDomain || '', 
+        targetDomain: prev.targetDomain || '',
         targetDomains: targetDomains
       }));
     } else {
-      // No fallback auto-selection - manual domain selection required
+      // Preserve existing configuration if no domain mappings
       setMigrationConfig(prev => ({
         ...prev,
-        sourceDomain: '', // No auto-selection - manual selection required
-        targetDomain: '', // No auto-selection - manual selection required
-        targetDomains: config.targetDomains
+        targetDomains: config.targetDomains || prev.targetDomains
       }));
     }
 
@@ -684,12 +696,11 @@ export default function NewMigration() {
     // Extract target domains from the mapping
     const targetDomains = Object.values(mapping).flat();
     
-    // DISABLED: Auto-populate source and target domains - require manual selection
-    // Domain mapping selection should not automatically populate migration config
+    // Allow auto-populate source and target domains from domain mapping
+    // Domain mapping selection can automatically populate migration config
     setMigrationConfig(prev => ({
       ...prev,
-      sourceDomain: '', // No auto-selection - manual selection required
-      targetDomain: '', // No auto-selection - manual selection required
+      // Auto-population will be handled by the useEffect
       targetDomains: targetDomains
     }));
     
@@ -723,6 +734,70 @@ export default function NewMigration() {
         : [...prev.services, service]
     }));
   };
+
+  // Existing Users Helper Functions
+  const toggleExistingUserSelection = (user: any) => {
+    setSelectedExistingUsers(prev => {
+      const isSelected = prev.some(u => u.email === user.email);
+      if (isSelected) {
+        return prev.filter(u => u.email !== user.email);
+      } else {
+        return [...prev, user];
+      }
+    });
+  };
+
+  const selectAllExistingUsers = () => {
+    setSelectedExistingUsers([...existingUsers]);
+  };
+
+  const deselectAllExistingUsers = () => {
+    setSelectedExistingUsers([]);
+  };
+
+  // Load existing users when we enter configuration step
+  useEffect(() => {
+    if (currentStep === 'configuration') {
+      // For testing, add some existing users if discovered users are available
+      if (discoveredUsers.length > 0) {
+        const existing = discoveredUsers.filter(user => user.exists);
+        setExistingUsers(existing);
+      } else {
+        // Add test existing users for development
+        const testExistingUsers = [
+          { 
+            id: 'existing1', 
+            email: 'john.doe@target.com', 
+            name: 'John Doe', 
+            isAdmin: false, 
+            exists: true 
+          },
+          { 
+            id: 'existing2', 
+            email: 'admin@target.com', 
+            name: 'Target Admin', 
+            isAdmin: true, 
+            exists: true 
+          },
+          { 
+            id: 'existing3', 
+            email: 'sarah.smith@target.com', 
+            name: 'Sarah Smith', 
+            isAdmin: false, 
+            exists: true 
+          },
+          { 
+            id: 'existing4', 
+            email: 'manager@target.com', 
+            name: 'Department Manager', 
+            isAdmin: false, 
+            exists: true 
+          }
+        ];
+        setExistingUsers(testExistingUsers);
+      }
+    }
+  }, [currentStep, discoveredUsers]);
 
   const handleNext = () => {
     switch (currentStep) {
@@ -848,26 +923,26 @@ export default function NewMigration() {
 
   // Handle verification status change
   const handleVerificationStatusChange = (isVerified: boolean) => {
-    console.log('[Migration Wizard] Verification status changed:', isVerified, {
-      currentStep,
-      dwdSetupComplete,
-      previousVerificationStatus: dwdVerificationStatus,
-      adminEmailsProvided: areAllAdminEmailsProvided(),
-      adminEmail,
-      sourceAdminEmail,
-      targetAdminEmail
-    })
+    // console.log('[Migration Wizard] Verification status changed:', isVerified, {
+    //   currentStep,
+    //   dwdSetupComplete,
+    //   previousVerificationStatus: dwdVerificationStatus,
+    //   adminEmailsProvided: areAllAdminEmailsProvided(),
+    //   adminEmail,
+    //   sourceAdminEmail,
+    //   targetAdminEmail
+    // })
     setDwdVerificationStatus(isVerified);
     
     // Force a re-evaluation of canProceed after status change
-    setTimeout(() => {
-      console.log('[Migration Wizard] After verification status update:', {
-        dwdVerificationStatus: isVerified,
-        dwdSetupComplete,
-        areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
-        canProceedNow: (dwdSetupComplete && areAllAdminEmailsProvided() && isVerified)
-      });
-    }, 100);
+    // setTimeout(() => {
+    //   console.log('[Migration Wizard] After verification status update:', {
+    //     dwdVerificationStatus: isVerified,
+    //     dwdSetupComplete,
+    //     areAllAdminEmailsProvided: areAllAdminEmailsProvided(),
+    //     canProceedNow: (dwdSetupComplete && areAllAdminEmailsProvided() && isVerified)
+    //   });
+    // }, 100);
   };
 
   // Handle admin email changes from DomainWideDelegationSetup component
@@ -990,8 +1065,8 @@ export default function NewMigration() {
     // Store verification token for authenticated user discovery operations
     if (data.verificationToken) {
       try {
-        // Store the token in sessionStorage for this session's user discovery operations
-        sessionStorage.setItem('dwd_verification_token', data.verificationToken);
+        // Store the token in localStorage for persistent domain authentication until session closed
+        localStorage.setItem('dwd_verification_token', data.verificationToken);
         
         // Also decode and log verification details (for debugging)
         const verificationData = JSON.parse(atob(data.verificationToken));
@@ -1011,7 +1086,7 @@ export default function NewMigration() {
   };
 
   // Get target domains for multi-target scenarios
-  const getTargetDomains = (): string[] => {
+  const getTargetDomains = useCallback((): string[] => {
     // First check if we have target domains array in migration config
     if (migrationConfig.targetDomains && migrationConfig.targetDomains.length > 0) {
       return migrationConfig.targetDomains.filter((domain): domain is string => Boolean(domain));
@@ -1023,16 +1098,16 @@ export default function NewMigration() {
     // Extract target domains from the mapping
     const targets = Object.values(domainMapping).flat().filter((domain): domain is string => Boolean(domain));
     return targets.length > 0 ? targets : [migrationConfig.targetDomain].filter((domain): domain is string => Boolean(domain));
-  };
+  }, [migrationConfig.targetDomains, migrationConfig.targetDomain, domainMapping]);
 
   // Get source domains for multi-source scenarios
-  const getSourceDomains = (): string[] => {
+  const getSourceDomains = useCallback((): string[] => {
     if (!domainMapping) return [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
     
     // Extract source domains from the mapping keys
     const sources = Object.keys(domainMapping).filter((domain): domain is string => Boolean(domain));
     return sources.length > 0 ? sources : [migrationConfig.sourceDomain].filter((domain): domain is string => Boolean(domain));
-  };
+  }, [domainMapping, migrationConfig.sourceDomain]);
 
   // OAuth Authentication Functions for Domain Discovery
   const initiateOAuthForDomainDiscovery = async () => {
@@ -1209,13 +1284,13 @@ export default function NewMigration() {
   };
 
   // Check if all required admin emails are provided
-  const areAllAdminEmailsProvided = (): boolean => {
+  const areAllAdminEmailsProvided = useCallback((): boolean => {
     // Check if service account is configured (if so, admin emails are optional)
     const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
     
     // If service account is configured, admin emails are not required
     if (serviceAccountEmail) {
-      console.log('[Migration Page] Service account configured, admin emails not required:', serviceAccountEmail ? '***@' + serviceAccountEmail.split('@')[1] : 'NOT_SET');
+      // console.log('[Migration Page] Service account configured, admin emails not required:', serviceAccountEmail ? '***@' + serviceAccountEmail.split('@')[1] : 'NOT_SET');
       return true;
     }
     
@@ -1244,7 +1319,7 @@ export default function NewMigration() {
       // Multiple target domains - check all have admin emails
       return targetDomains.every(domain => !!targetAdminEmails[domain]);
     }
-  };
+  }, [selectedScenario, adminEmail, user?.email, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails, getSourceDomains, getTargetDomains]);
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -1722,22 +1797,25 @@ export default function NewMigration() {
             <div className="max-w-6xl mx-auto">
               <ComponentLoader>
                 <UserManagementWorkflow
-                  sourceDomains={getSourceDomains()}
-                  targetDomains={getTargetDomains()}
-                  sourceAdminEmails={selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined}
-                  sourceAdminEmail={selectedScenario === 'single-super-admin' ? adminEmail : (getSourceDomains().length <= 1 ? sourceAdminEmail : undefined)}
+                  sourceDomains={sourceDomains}
+                  targetDomains={targetDomains}
+                  sourceAdminEmails={memoizedSourceAdminEmails}
+                  sourceAdminEmail={memoizedSourceAdminEmail}
                   targetAdminEmails={targetAdminEmails}
-                  migrationScenario={selectedScenario || undefined}
-                  domainMapping={undefined} // TODO: Convert DomainMapping to DomainMappingConfig format if needed
-                  userMappingStrategy={userMappingConfig?.relationship}
-                  userMappingConfig={userMappingConfig || undefined}
-                  verificationToken={typeof window !== 'undefined' ? sessionStorage.getItem('dwd_verification_token') || undefined : undefined}
-                  useServiceAccount={!!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL)}
-                  mappingType={
-                    userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
-                    userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
-                    'one-to-one'
-                  }
+                  migrationScenario={memoizedMigrationScenario}
+                  domainMapping={domainMapping ? {
+                    type: memoizedMappingType || 'one-to-one',
+                    sourceDomains: Object.keys(domainMapping),
+                    targetDomains: Object.values(domainMapping).flat(),
+                    userMappingStrategy: 'automatic' as const,
+                    preserveStructure: true,
+                    allowCrossTenant: selectedScenario === 'cross-tenant'
+                  } : undefined}
+                  userMappingStrategy={memoizedUserMappingStrategy}
+                  userMappingConfig={memoizedUserMappingConfig}
+                  verificationToken={memoizedVerificationToken}
+                  useServiceAccount={memoizedUseServiceAccount}
+                  mappingType={memoizedMappingType}
                   onComplete={(results) => {
                     setDiscoveredUsers(results.discoveredUsers);
                     setCreatedUsers(results.createdUsers);
@@ -2017,6 +2095,143 @@ export default function NewMigration() {
                       </label>
                     ))}
                   </div>
+                </div>
+
+                {/* Existing Users Selection */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-gray-600" />
+                    Use Existing Target Users
+                  </h3>
+                  
+                  {/* Toggle for using existing users */}
+                  <div className="mb-4">
+                    <label className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        checked={useExistingUsers}
+                        onChange={(e) => {
+                          setUseExistingUsers(e.target.checked);
+                          if (!e.target.checked) {
+                            setSelectedExistingUsers([]);
+                          }
+                        }}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">
+                          Migrate to existing target domain users
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Enable this to select existing users in the target domain(s) for migration
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Existing Users List */}
+                  {useExistingUsers && (
+                    <div className="space-y-4">
+                      {existingUsers.length > 0 ? (
+                        <>
+                          {/* Select All Controls */}
+                          <div className="flex items-center justify-between py-2 border-b border-gray-200">
+                            <span className="text-sm font-medium text-gray-700">
+                              Existing Users ({existingUsers.length})
+                            </span>
+                            <div className="flex space-x-2">
+                              <button
+                                type="button"
+                                onClick={selectAllExistingUsers}
+                                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                              >
+                                Select All
+                              </button>
+                              <span className="text-xs text-gray-400">|</span>
+                              <button
+                                type="button"
+                                onClick={deselectAllExistingUsers}
+                                className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                              >
+                                Clear All
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Users List */}
+                          <div className="max-h-48 overflow-y-auto space-y-2">
+                            {existingUsers.map((user) => {
+                              const isSelected = selectedExistingUsers.some(u => u.email === user.email);
+                              return (
+                                <label
+                                  key={user.email}
+                                  className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'border-blue-300 bg-blue-50'
+                                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleExistingUserSelection(user)}
+                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-sm font-medium text-gray-900 truncate">
+                                        {user.name || user.email}
+                                      </span>
+                                      {user.isAdmin && (
+                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                          Admin
+                                        </span>
+                                      )}
+                                    </div>
+                                    {user.name && user.name !== user.email && (
+                                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                    )}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          {/* Selection Summary */}
+                          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">Selected Users:</span>
+                              <span className="font-medium text-gray-900">
+                                {selectedExistingUsers.length} of {existingUsers.length}
+                              </span>
+                            </div>
+                            {selectedExistingUsers.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {selectedExistingUsers.slice(0, 3).map(user => (
+                                  <span key={user.email} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
+                                    {user.name || user.email}
+                                  </span>
+                                ))}
+                                {selectedExistingUsers.length > 3 && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
+                                    +{selectedExistingUsers.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center py-8">
+                          <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                          <p className="text-sm text-gray-600 mb-2">No existing users found</p>
+                          <p className="text-xs text-gray-500">
+                            Complete user discovery in the previous step to see existing target domain users
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2352,6 +2567,63 @@ export default function NewMigration() {
                   </div>
                 </div>
               )}
+
+              {/* Existing Target Users */}
+              {useExistingUsers && selectedExistingUsers.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-blue-600" />
+                    Selected Existing Target Users ({selectedExistingUsers.length})
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-sm text-gray-600 mb-1">Total Existing Users</div>
+                        <div className="font-medium text-gray-900">{selectedExistingUsers.length}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-600 mb-1">Admin Users</div>
+                        <div className="font-medium text-gray-900">
+                          {selectedExistingUsers.filter(user => user.isAdmin).length}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto">
+                      <div className="text-sm text-gray-600 mb-2">Existing users to migrate to:</div>
+                      <div className="space-y-1">
+                        {selectedExistingUsers.slice(0, 10).map(user => (
+                          <div key={user.id} className="flex items-center space-x-2 text-sm">
+                            <Mail className="h-3 w-3 text-blue-400" />
+                            <span className="text-gray-900">{user.name || user.email}</span>
+                            {user.name && user.name !== user.email && (
+                              <span className="text-gray-500">({user.email})</span>
+                            )}
+                            {user.isAdmin && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                Admin
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                        {selectedExistingUsers.length > 10 && (
+                          <div className="text-sm text-gray-500 italic">
+                            ...and {selectedExistingUsers.length - 10} more users
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-blue-800">
+                          <p className="font-medium mb-1">Migration to Existing Users</p>
+                          <p>Data will be migrated to these existing target domain users. Ensure proper permissions and backup policies are in place.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Warning */}
@@ -2453,7 +2725,7 @@ export default function NewMigration() {
     return currentIndex >= 0 ? currentIndex + 1 : 1;
   };
 
-  const canProceed = () => {
+  const canProceed = useCallback(() => {
     switch (currentStep) {
       case 'scenario':
         return selectedScenario !== null && userMappingConfig !== null;
@@ -2524,9 +2796,31 @@ export default function NewMigration() {
       default:
         return false;
     }
-  };
+  }, [
+    currentStep, 
+    selectedScenario, 
+    userMappingConfig, 
+    isOAuthCompleteForDomainDiscovery, 
+    domainMapping, 
+    areAllAdminEmailsProvided, 
+    dwdSetupComplete, 
+    dwdVerificationStatus, 
+    discoveredUsers.length, 
+    migrationConfig.migrationName, 
+    migrationConfig.sourceDomain, 
+    migrationConfig.targetDomain, 
+    migrationConfig.services.length, 
+    selectedUsers.length,
+    adminEmail,
+    sourceAdminEmail,
+    targetAdminEmail,
+    sourceAdminEmails,
+    targetAdminEmails,
+    getSourceDomains,
+    getTargetDomains
+  ]);
 
-  const getNextButtonText = () => {
+  const getNextButtonText = useCallback(() => {
     switch (currentStep) {
       case 'scenario':
         return userMappingConfig ? 'Authenticate & Configure Domains' : 'Configure Domain';
@@ -2543,7 +2837,45 @@ export default function NewMigration() {
       default:
         return 'Continue';
     }
-  };
+  }, [currentStep, userMappingConfig]);
+
+  // Memoize UserManagementWorkflow props to prevent unnecessary re-renders
+  const sourceDomains = useMemo(() => getSourceDomains(), [getSourceDomains]);
+  const targetDomains = useMemo(() => getTargetDomains(), [getTargetDomains]);
+  
+  const memoizedSourceAdminEmails = useMemo(() => {
+    return selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined;
+  }, [selectedScenario, getSourceDomains, sourceAdminEmails]);
+  
+  const memoizedSourceAdminEmail = useMemo(() => {
+    return selectedScenario === 'single-super-admin' ? adminEmail : (getSourceDomains().length <= 1 ? sourceAdminEmail : undefined);
+  }, [selectedScenario, adminEmail, getSourceDomains, sourceAdminEmail]);
+  
+  const memoizedMigrationScenario = useMemo(() => {
+    return selectedScenario || undefined;
+  }, [selectedScenario]);
+  
+  const memoizedUserMappingStrategy = useMemo(() => {
+    return userMappingConfig?.relationship;
+  }, [userMappingConfig?.relationship]);
+  
+  const memoizedUserMappingConfig = useMemo(() => {
+    return userMappingConfig || undefined;
+  }, [userMappingConfig]);
+  
+  const memoizedVerificationToken = useMemo(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('dwd_verification_token') || undefined : undefined;
+  }, []);
+  
+  const memoizedUseServiceAccount = useMemo(() => {
+    return !!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL);
+  }, []);
+  
+  const memoizedMappingType = useMemo(() => {
+    return userMappingConfig?.relationship === 'one-to-many' ? 'one-to-many' :
+           userMappingConfig?.relationship === 'many-to-one' ? 'many-to-one' :
+           'one-to-one';
+  }, [userMappingConfig?.relationship]);
 
   return (
     <ProtectedRoute>

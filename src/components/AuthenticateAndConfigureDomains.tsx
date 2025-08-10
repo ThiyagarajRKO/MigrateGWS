@@ -773,43 +773,80 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     }
   }, [selectedScenario, authSession, showCrossTenantAuth, isLoading, currentAuthType]);
 
-  // Auto-complete configuration for single super admin scenario - DISABLED FOR MANUAL MAPPING
+  // Auto-complete configuration for single super admin scenario - RE-ENABLED WITH DEFAULTS
   useEffect(() => {
     if (selectedScenario === 'single-super-admin' && 
         singleAuthStatus.authenticated && 
         singleAuthStatus.domains.length > 0) {
       
-      // DISABLED: Auto-create default domain mappings - users must manually configure
-      // if (domainMappings.length === 0) {
-      //   if (userMappingStrategy === 'one-to-many') {
-      //     // For one-to-many, create one mapping with first domain as source and all domains as targets
-      //     const defaultMappings = [{
-      //       source: singleAuthStatus.domains[0],
-      //       target: singleAuthStatus.domains
-      //     }];
-      //     setDomainMappings(defaultMappings);
-      //   } else if (userMappingStrategy === 'many-to-one') {
-      //     // For many-to-one, create one mapping with all domains as sources and first domain as target
-      //     const defaultMappings = [{
-      //       source: singleAuthStatus.domains,
-      //       target: singleAuthStatus.domains[0]
-      //     }];
-      //     setDomainMappings(defaultMappings);
-      //   } else {
-      //     // Default one-to-one mapping
-      //     const defaultMappings = singleAuthStatus.domains.map(domain => ({
-      //       source: domain,
-      //       target: domain
-      //     }));
-      //     setDomainMappings(defaultMappings);
-      //   }
-      // }
+      // Auto-create default domain mappings if none exist
+      if (domainMappings.length === 0) {
+        if (userMappingStrategy === 'one-to-many') {
+          // For one-to-many, create one mapping with first domain as source and all domains as targets
+          const defaultMappings = [{
+            source: singleAuthStatus.domains[0],
+            target: singleAuthStatus.domains
+          }];
+          setDomainMappings(defaultMappings);
+        } else if (userMappingStrategy === 'many-to-one') {
+          // For many-to-one, create one mapping with all domains as sources and first domain as target
+          const defaultMappings = [{
+            source: singleAuthStatus.domains,
+            target: singleAuthStatus.domains[0]
+          }];
+          setDomainMappings(defaultMappings);
+        } else {
+          // Default one-to-one mapping - each domain maps to itself
+          const defaultMappings = singleAuthStatus.domains.map(domain => ({
+            source: domain,
+            target: domain
+          }));
+          setDomainMappings(defaultMappings);
+        }
+      }
       
-      // For single super admin, don't auto-complete - let user configure domain mappings
-      // This allows users to set up different mapping strategies (one-to-one, one-to-many, etc.)
-      console.log('[AuthenticateAndConfigureDomains] Manual domain mapping required for single super admin scenario');
+      // For single super admin, auto-create sensible defaults but allow manual configuration
+      console.log('[AuthenticateAndConfigureDomains] Auto-created default domain mappings for single super admin scenario');
     }
   }, [selectedScenario, singleAuthStatus.authenticated, singleAuthStatus.domains, domainMappings.length, userMappingStrategy]);
+
+  // Auto-complete configuration for cross-tenant scenario
+  useEffect(() => {
+    if (selectedScenario === 'cross-tenant' && 
+        sourceAuthStatus.authenticated && 
+        targetAuthStatus.authenticated &&
+        sourceAuthStatus.domains.length > 0 &&
+        targetAuthStatus.domains.length > 0) {
+      
+      // Auto-create default domain mappings if none exist
+      if (domainMappings.length === 0) {
+        if (userMappingStrategy === 'one-to-many') {
+          // For one-to-many, create one mapping with first source domain to all target domains
+          const defaultMappings = [{
+            source: sourceAuthStatus.domains[0],
+            target: targetAuthStatus.domains
+          }];
+          setDomainMappings(defaultMappings);
+        } else if (userMappingStrategy === 'many-to-one') {
+          // For many-to-one, create one mapping with all source domains to first target domain
+          const defaultMappings = [{
+            source: sourceAuthStatus.domains,
+            target: targetAuthStatus.domains[0]
+          }];
+          setDomainMappings(defaultMappings);
+        } else {
+          // Default one-to-one mapping - first source to first target, second to second, etc.
+          const defaultMappings = sourceAuthStatus.domains.slice(0, targetAuthStatus.domains.length).map((sourceDomain, index) => ({
+            source: sourceDomain,
+            target: targetAuthStatus.domains[index] || targetAuthStatus.domains[0]
+          }));
+          setDomainMappings(defaultMappings);
+        }
+      }
+      
+      console.log('[AuthenticateAndConfigureDomains] Auto-created default domain mappings for cross-tenant scenario');
+    }
+  }, [selectedScenario, sourceAuthStatus.authenticated, targetAuthStatus.authenticated, sourceAuthStatus.domains, targetAuthStatus.domains, domainMappings.length, userMappingStrategy]);
 
   // Periodic authentication status check for Single Super Admin
   useEffect(() => {
@@ -1470,14 +1507,14 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             {domainMappings.length === 0 ? (
               <div className="text-center py-8">
                 <Globe className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-700 font-medium">Manual domain mapping required.</p>
+                <p className="text-gray-700 font-medium">Domain mappings will be configured automatically.</p>
                 <p className="text-gray-500 text-sm mb-3">
-                  Automatic domain generation has been disabled. You must manually configure your domain mappings.
+                  Default domain mappings will be created automatically after authentication. You can add custom mappings manually if needed.
                 </p>
                 <p className="text-gray-400 text-sm">
                   {selectedScenario === 'single-super-admin' 
-                    ? `Click "Add Mapping" to manually configure your ${userMappingStrategy || 'one-to-one'} domain migration strategy.`
-                    : 'Click "Add Mapping" to manually set up your cross-tenant domain mappings.'
+                    ? `Default ${userMappingStrategy || 'one-to-one'} domain mappings will be created automatically, or click "Add Mapping" to configure manually.`
+                    : 'Default cross-tenant domain mappings will be created automatically, or click "Add Mapping" to configure manually.'
                   }
                 </p>
               </div>

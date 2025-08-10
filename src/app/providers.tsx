@@ -14,8 +14,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       </div>}>
         <SessionProvider 
           basePath="/api/auth"
-          refetchInterval={5 * 60} // Refetch session every 5 minutes
-          refetchOnWindowFocus={true}
+          refetchInterval={30 * 60} // Refetch session every 30 minutes instead of 5
+          refetchOnWindowFocus={false} // Don't refetch on window focus to avoid interruptions
+          refetchWhenOffline={false}
         >
           <AuthProvider>
             <CrossTenantAuthProvider>

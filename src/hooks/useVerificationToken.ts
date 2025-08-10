@@ -1,7 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 
 export interface UseVerificationTokenOptions {
-  /** Token passed as prop (highest priority) */
+  /** Token passed  // Clear token from persistent storage
+  const clearToken = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        // Use localStorage instead of sessionStorage for persistent domain authentication
+        localStorage.removeItem(storageKey);
+        setStorageToken(null);
+        
+        if (debug) {
+          console.log(`[useVerificationToken:${componentName}] Token cleared from persistent storage:`, {
+            storageKey,
+            storage: 'localStorage'
+          });
+        }
+      } catch (error) {
+        if (debug) {
+          console.error(`[useVerificationToken:${componentName}] Storage clear error:`, error);
+        }
+      }
+    }
+  }, [storageKey, debug, componentName]);riority) */
   tokenProp?: string;
   /** Session storage key to read from (fallback) */
   storageKey?: string;
@@ -46,14 +66,16 @@ export function useVerificationToken(options: UseVerificationTokenOptions = {}):
   const loadFromStorage = useCallback(() => {
     if (typeof window !== 'undefined') {
       try {
-        const storedToken = sessionStorage.getItem(storageKey);
+        // Use localStorage instead of sessionStorage for persistent domain authentication
+        const storedToken = localStorage.getItem(storageKey);
         setStorageToken(storedToken);
         
         if (debug) {
-          console.log(`[useVerificationToken:${componentName}] Loaded from storage:`, {
+          console.log(`[useVerificationToken:${componentName}] Loaded from persistent storage:`, {
             storageKey,
             hasStoredToken: !!storedToken,
-            tokenLength: storedToken?.length || 0
+            tokenLength: storedToken?.length || 0,
+            storage: 'localStorage'
           });
         }
         
@@ -99,18 +121,20 @@ export function useVerificationToken(options: UseVerificationTokenOptions = {}):
   const effectiveToken = tokenProp || storageToken;
   const tokenSource: 'prop' | 'storage' | 'none' = tokenProp ? 'prop' : (storageToken ? 'storage' : 'none');
 
-  // Store token in session storage
+  // Store token in persistent storage
   const storeToken = useCallback((token: string) => {
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.setItem(storageKey, token);
+        // Use localStorage instead of sessionStorage for persistent domain authentication
+        localStorage.setItem(storageKey, token);
         setStorageToken(token);
         
         if (debug) {
-          console.log(`[useVerificationToken:${componentName}] Token stored:`, {
+          console.log(`[useVerificationToken:${componentName}] Token stored persistently:`, {
             storageKey,
             tokenLength: token.length,
-            tokenPreview: token.substring(0, 20) + '...'
+            tokenPreview: token.substring(0, 20) + '...',
+            storage: 'localStorage'
           });
         }
       } catch (error) {

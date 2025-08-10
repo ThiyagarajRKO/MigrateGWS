@@ -1053,17 +1053,29 @@ export const UserDiscovery = memo(function UserDiscovery({
       {/* User List */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="max-h-96 overflow-y-auto">
-          {filteredUsers.length === 0 ? (
-            <div className="p-8 text-center">
-              <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Users Found</h3>
-              <p className="text-gray-600">
-                {searchTerm ? 'Try adjusting your search or filters.' : 'No users found in this domain.'}
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-200">
-              {filteredUsers.map((user) => (
+          {(() => {
+            // If detailed mapping view is shown, exclude those users from the main list to avoid duplication
+            // Only hide users that are both selected AND have mappings (i.e., actually shown in mapping view)
+            const usersToShow = (showMappingView && isMappingRequired()) 
+              ? filteredUsers.filter(user => !(selectedUsers.has(user.id) && userMappings[user.id]))
+              : filteredUsers;
+            
+            return usersToShow.length === 0 ? (
+              <div className="p-8 text-center">
+                <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {(showMappingView && isMappingRequired()) ? 'All Users Shown Above' : 'No Users Found'}
+                </h3>
+                <p className="text-gray-600">
+                  {(showMappingView && isMappingRequired()) 
+                    ? 'All selected users are displayed in the mapping view above.' 
+                    : (searchTerm ? 'Try adjusting your search or filters.' : 'No users found in this domain.')
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-200">
+                {usersToShow.map((user) => (
                 <div
                   key={user.id}
                   className={`p-4 hover:bg-gray-50 transition-colors ${
@@ -1129,7 +1141,8 @@ export const UserDiscovery = memo(function UserDiscovery({
                 </div>
               ))}
             </div>
-          )}
+          );
+        })()}
         </div>
       </div>
 

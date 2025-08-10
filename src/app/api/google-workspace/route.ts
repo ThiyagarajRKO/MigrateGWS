@@ -497,6 +497,137 @@ export async function GET(request: NextRequest) {
           }, { status: 500 })
         }
 
+      case 'batch-check-users':
+        const userEmailsList = searchParams.get('userEmails')
+        
+        try {
+          if (!userEmailsList) {
+            return NextResponse.json({
+              error: 'User emails list is required',
+              message: 'userEmails parameter is required for batch checking'
+            }, { status: 400 })
+          }
+
+          const userEmails = userEmailsList.split(',').map(email => email.trim()).filter(Boolean)
+          
+          if (userEmails.length === 0) {
+            return NextResponse.json({
+              error: 'No valid user emails provided',
+              message: 'At least one valid email address is required'
+            }, { status: 400 })
+          }
+
+          // Create cache key for batch check
+          const batchCacheKey = `batch_check_${domain}_${userEmails.sort().join('_')}_${adminEmail}`
+          
+          // Check cache first
+          const cachedBatch = getCachedUsers(batchCacheKey)
+          if (cachedBatch) {
+            console.log('Returning cached batch check for domain:', domain, 'emails:', userEmails.length)
+            return NextResponse.json({
+              ...cachedBatch.data,
+              cached: true,
+              timestamp: new Date().toISOString()
+            })
+          }
+
+          console.log(`Batch checking ${userEmails.length} users in domain: ${domain}`)
+          
+          // Create a domain-specific service account if using service account auth
+          let domainSpecificGwsService = gwsService
+          if (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL) {
+            const domainAdminEmail = `admin@${domain}`
+            console.log(`Creating domain-specific service account for domain: ${domain}, impersonating: ${domainAdminEmail}`)
+            domainSpecificGwsService = createServiceAccountService(domainAdminEmail)
+          }
+
+          // Process emails in parallel with controlled concurrency
+          const concurrencyLimit = 5 // Check 5 users simultaneously
+          const chunks = []
+          let existingUsers: any[] = []
+          
+          for (let i = 0; i < userEmails.length; i += concurrencyLimit) {
+            chunks.push(userEmails.slice(i, i + concurrencyLimit))
+          }
+          
+          console.log(`Processing ${userEmails.length} emails in ${chunks.length} chunks of ${concurrencyLimit}`)
+          
+          for (const chunk of chunks) {
+            const chunkPromises = chunk.map(async (email, index) => {
+              // Add small staggered delay to prevent rate limiting
+              if (index > 0) {
+                await new Promise(resolve => setTimeout(resolve, 50 * index))
+              }
+              
+              try {
+                const user = await domainSpecificGwsService.getUser(email)
+                return user
+              } catch (error: any) {
+                // If user doesn't exist, return null (not an error)
+                if (error.code === 404 || error.message?.includes('not found') || error.message?.includes('does not exist')) {
+                  return null
+                }
+                
+                // Log other errors but don't fail the entire batch
+                console.warn(`Error checking user ${email}:`, error.message)
+                return null
+              }
+            })
+            
+            const chunkResults = await Promise.allSettled(chunkPromises)
+            
+            // Collect successful results
+            const chunkUsers = chunkResults
+              .filter(result => result.status === 'fulfilled' && result.value)
+              .map(result => (result as PromiseFulfilledResult<any>).value)
+            
+            existingUsers.push(...chunkUsers)
+            
+            // Small delay between chunks
+            if (chunks.indexOf(chunk) < chunks.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+          }
+
+          const result = {
+            existingUsers: existingUsers,
+            totalChecked: userEmails.length,
+            existingCount: existingUsers.length,
+            domain: domain,
+            timestamp: new Date().toISOString()
+          }
+          
+          // Cache the result
+          setCachedUsers(batchCacheKey, result)
+          
+          console.log(`Batch check completed for ${domain}: ${existingUsers.length}/${userEmails.length} users exist`)
+          
+          return NextResponse.json(result)
+          
+        } catch (error: any) {
+          console.error('Error in batch check users:', error)
+          
+          // Check for domain-wide delegation issues
+          if (error.message?.includes('Domain-wide delegation error') || 
+              error.message?.includes('unauthorized_client') ||
+              error.message?.includes('invalid_grant') ||
+              error.code === 401 || error.code === 400) {
+            return NextResponse.json({
+              error: 'Domain-wide delegation not configured',
+              message: `Unable to batch check users in domain ${domain}`,
+              domain: domain,
+              adminEmail: adminEmail
+            }, { status: 401 })
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to batch check users',
+            message: error.message || 'Unknown error occurred',
+            domain: domain,
+            adminEmail: adminEmail
+          }, { status: 500 })
+        }
+
       case 'get-user':
         const userEmail = searchParams.get('userEmail')
         
@@ -508,18 +639,33 @@ export async function GET(request: NextRequest) {
             }, { status: 400 })
           }
 
+          // Extract domain from user email to ensure we use the right service account
+          const userDomain = userEmail.split('@')[1]
+          
+          // Create a domain-specific service account if using service account auth
+          let domainSpecificGwsService = gwsService
+          if (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL) {
+            const userDomainAdminEmail = `admin@${userDomain}`
+            console.log(`Creating domain-specific service account for user domain: ${userDomain}, impersonating: ${userDomainAdminEmail}`)
+            domainSpecificGwsService = createServiceAccountService(userDomainAdminEmail)
+          }
+
           // Check if user exists in the specified domain
-          const user = await gwsService.getUser(userEmail)
+          const user = await domainSpecificGwsService.getUser(userEmail)
           
           return NextResponse.json({ 
             user: user,
             exists: !!user,
             userEmail: userEmail,
             domain: domain,
+            userDomain: userDomain,
             timestamp: new Date().toISOString()
           })
         } catch (error: any) {
           console.error('Error getting user:', userEmail, error)
+          
+          // Extract domain from user email for error responses
+          const userDomain = userEmail ? userEmail.split('@')[1] : 'unknown'
           
           // If user doesn't exist, return exists: false instead of error
           if (error.code === 404 || error.message?.includes('not found') || error.message?.includes('does not exist')) {
@@ -528,6 +674,7 @@ export async function GET(request: NextRequest) {
               exists: false,
               userEmail: userEmail,
               domain: domain,
+              userDomain: userDomain,
               timestamp: new Date().toISOString()
             })
           }
@@ -539,9 +686,10 @@ export async function GET(request: NextRequest) {
               error.code === 401 || error.code === 400) {
             return NextResponse.json({
               error: 'Domain-wide delegation not configured',
-              message: `Unable to access user ${userEmail || 'requested'} from ${domain || 'the domain'}`,
+              message: `Unable to access user ${userEmail || 'requested'} from ${userDomain || domain || 'the domain'}`,
               userEmail: userEmail,
               domain: domain,
+              userDomain: userDomain,
               adminEmail: adminEmail
             }, { status: 401 })
           }
@@ -551,6 +699,7 @@ export async function GET(request: NextRequest) {
             message: error.message || 'Unknown error occurred',
             userEmail: userEmail,
             domain: domain,
+            userDomain: userDomain,
             adminEmail: adminEmail
           }, { status: 500 })
         }

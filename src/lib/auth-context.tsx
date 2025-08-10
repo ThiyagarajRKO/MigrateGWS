@@ -106,9 +106,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null)
       setUser(null)
       
-      // Clear all cached data before signing out
+      // Clear all cached data AND persistent domain authentication tokens on explicit logout
+      // Note: Domain authentication tokens are kept in localStorage during normal session
+      // to persist until user explicitly logs out or closes browser session
       cacheManager.clearAll()
-      console.log('[Auth] Cleared all caches on logout')
+      
+      // Clear domain authentication tokens from localStorage
+      if (typeof window !== 'undefined') {
+        const keysToRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && (
+            key.startsWith('dwd_verification_token') ||
+            key.startsWith('gws-verification-status') ||
+            key.startsWith('gws-admin-tokens') ||
+            key.startsWith('gws-admin-info')
+          )) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key))
+        console.log('[Auth] Cleared persistent domain authentication tokens on logout:', keysToRemove)
+      }
+      
+      console.log('[Auth] Cleared all caches and persistent tokens on logout')
       
       await signOut({ callbackUrl: '/login' })
     } catch (err) {

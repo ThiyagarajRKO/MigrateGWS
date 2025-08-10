@@ -339,6 +339,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
   })
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
   const [showOverviewTooltip, setShowOverviewTooltip] = useState(false)
+  const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null)
   
   // Track initial props state to determine if we should show input section
   const [shouldShowInputSection] = useState(() => {
@@ -1364,6 +1365,30 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     setTimeout(() => setCopiedItem(null), 2000)
   }
 
+  const handleTooltipEnter = () => {
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout)
+      setTooltipTimeout(null)
+    }
+    setShowOverviewTooltip(true)
+  }
+
+  const handleTooltipLeave = () => {
+    const timeout = setTimeout(() => {
+      setShowOverviewTooltip(false)
+    }, 150) // 150ms delay to prevent rapid flickering
+    setTooltipTimeout(timeout)
+  }
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout)
+      }
+    }
+  }, [tooltipTimeout])
+
   const clearMessages = () => {
     setError(null)
     setSuccessMessage(null)
@@ -1949,16 +1974,22 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <h2 className="text-xl font-bold text-black">
                 Domain-wide Delegation Setup
               </h2>
-              <div className="relative">
-                <Info 
-                  className="w-4 h-4 text-blue-600 hover:text-black cursor-help transition-colors" 
-                  onMouseEnter={() => setShowOverviewTooltip(true)}
-                  onMouseLeave={() => setShowOverviewTooltip(false)}
-                />
+              <div className="relative inline-block">
+                <div 
+                  className="inline-block"
+                  onMouseEnter={handleTooltipEnter}
+                  onMouseLeave={handleTooltipLeave}
+                >
+                  <Info className="w-4 h-4 text-blue-600 hover:text-black cursor-help transition-colors" />
+                </div>
                 
                 {/* Overview Tooltip */}
                 {showOverviewTooltip && (
-                  <div className="absolute left-0 top-6 z-50 w-80 p-3 bg-white border border-blue-300 rounded-lg shadow-lg">
+                  <div 
+                    className="absolute left-0 top-6 z-50 w-80 p-3 bg-white border border-blue-300 rounded-lg shadow-lg"
+                    onMouseEnter={handleTooltipEnter}
+                    onMouseLeave={handleTooltipLeave}
+                  >
                     <div className="space-y-3 text-sm">
                       <div>
                         <h4 className="font-bold text-black mb-2">Domain-wide Delegation</h4>
