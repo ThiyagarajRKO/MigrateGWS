@@ -367,7 +367,7 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
                 <Target className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">User Mapping Configuration</h3>
+                <h3 className="text-2xl font-semibold text-gray-900">User Mapping Configuration</h3>
                 <p className="text-gray-600">
                   Configure how {sourceUsers.length} source users map to {targetDomains.length} target domain(s)
                 </p>
@@ -382,7 +382,7 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
                   <div>
                     <h4 className="font-medium text-yellow-800 mb-2">Advanced Mapping Strategy Active</h4>
                     {mappingType === 'one-to-many' && (
-                      <div className="text-sm text-yellow-700">
+                      <div className="text-base text-yellow-700">
                         <p className="mb-2"><strong>User Cloning:</strong> Each source user will be duplicated across all target domains.</p>
                         <ul className="list-disc list-inside space-y-1">
                           <li>Source user attributes (name, admin status, org unit) will be preserved</li>
@@ -393,7 +393,7 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
                       </div>
                     )}
                     {mappingType === 'many-to-one' && (
-                      <div className="text-sm text-yellow-700">
+                      <div className="text-base text-yellow-700">
                         <p className="mb-2"><strong>User Merging:</strong> Multiple source users with identical first name and last name will be consolidated.</p>
                         <ul className="list-disc list-inside space-y-1">
                           <li>Users are grouped by exact match of first name + last name (case-insensitive)</li>
@@ -569,7 +569,7 @@ export const UserMappingWithCreation = memo(function UserMappingWithCreation({
               )}
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Validation Results</h3>
+              <h3 className="text-2xl font-semibold text-gray-900">Validation Results</h3>
               <p className="text-gray-600">
                 {isValidating ? 'Checking target user existence...' : 'Validation complete'}
               </p>

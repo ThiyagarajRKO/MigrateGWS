@@ -708,6 +708,13 @@ export class GoogleWorkspaceService {
       })) || []
     } catch (error: any) {
       console.error('Error fetching users:', error)
+      console.error('Error details:', {
+        message: error?.message,
+        code: error?.code,
+        status: error?.status,
+        responseData: error?.response?.data,
+        domain: domain
+      })
       
       // Preserve original error details for proper error handling upstream
       if (error?.response?.data?.error === 'unauthorized_client' || 
@@ -721,7 +728,10 @@ export class GoogleWorkspaceService {
         throw delegationError
       }
       
-      throw new Error('Failed to fetch users from Google Workspace')
+      // Provide more detailed error information
+      const detailedError = new Error(`Failed to fetch users from Google Workspace: ${error?.message || 'Unknown error'}`)
+      detailedError.cause = error
+      throw detailedError
     }
   }
 
