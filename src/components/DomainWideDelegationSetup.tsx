@@ -160,6 +160,11 @@ const REQUIRED_SCOPES = [
   // Groups Migration and Settings
   'https://www.googleapis.com/auth/apps.groups.migration',
   'https://www.googleapis.com/auth/apps.groups.settings',
+  'https://www.googleapis.com/auth/admin.directory.group',
+  'https://www.googleapis.com/auth/admin.directory.group.member',
+  'https://www.googleapis.com/auth/apps.groups.settings',
+  'https://www.googleapis.com/auth/admin.directory.group.readonly',
+  'https://www.googleapis.com/auth/admin.directory.group.member.readonly',
   
   // Contacts API - Contact management
   'https://www.googleapis.com/auth/contacts',
