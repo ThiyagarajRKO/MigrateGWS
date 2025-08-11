@@ -2,6 +2,20 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Progress } from '@/components/ui/progress';
+import { 
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell
+} from '@/components/ui/table';
 import { 
   Database, 
   Plus, 
@@ -91,34 +105,34 @@ export default function MigrationsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
-        return <Clock className="h-5 w-5 text-blue-500" />;
+        return <Clock className="h-5 w-5 text-info-500" />;
       case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-success-500" />;
       case 'failed':
-        return <AlertTriangle className="h-5 w-5 text-red-500" />;
+        return <AlertTriangle className="h-5 w-5 text-danger-500" />;
       case 'pending':
-        return <Clock className="h-5 w-5 text-gray-500" />;
+        return <Clock className="h-5 w-5 text-secondary-500" />;
       case 'paused':
-        return <Clock className="h-5 w-5 text-yellow-500" />;
+        return <Clock className="h-5 w-5 text-warning-500" />;
       default:
-        return <Clock className="h-5 w-5 text-gray-500" />;
+        return <Clock className="h-5 w-5 text-secondary-500" />;
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case 'running':
-        return 'bg-blue-100 text-blue-800';
+        return 'info';
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'success';
       case 'failed':
-        return 'bg-red-100 text-red-800';
+        return 'danger';
       case 'pending':
-        return 'bg-gray-100 text-gray-800';
+        return 'secondary';
       case 'paused':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'warning';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'secondary';
     }
   };
 
@@ -131,210 +145,209 @@ export default function MigrationsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-secondary-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white shadow-sm border-b border-secondary-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
-              <Database className="h-8 w-8 text-blue-600 mr-3" />
+              <Database className="h-7 w-7 text-primary-600 mr-3" />
               <Link href="/">
-                <h1 className="text-2xl font-bold text-gray-900">MigrateGWS</h1>
+                <h1 className="text-lg font-bold text-secondary-900">MigrateGWS</h1>
               </Link>
             </div>
-            <nav className="flex space-x-8">
-              <Link href="/dashboard" className="text-gray-600 hover:text-blue-600">Dashboard</Link>
-              <Link href="/migrations" className="text-blue-600 font-semibold">Migrations</Link>
-              <Link href="/user-mapping" className="text-gray-600 hover:text-blue-600">User Mapping</Link>
-              <Link href="/settings" className="text-gray-600 hover:text-blue-600">Settings</Link>
+            <nav className="flex space-x-6">
+              <Link href="/dashboard" className="text-sm text-secondary-600 hover:text-primary-600">Dashboard</Link>
+              <Link href="/migrations" className="text-sm text-primary-600 font-semibold">Migrations</Link>
+              <Link href="/user-mapping" className="text-sm text-secondary-600 hover:text-primary-600">User Mapping</Link>
+              <Link href="/settings" className="text-sm text-secondary-600 hover:text-primary-600">Settings</Link>
             </nav>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Page Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Migrations</h1>
-            <p className="text-gray-600 mt-1">Manage your Google Workspace migrations</p>
+            <h1 className="text-2xl font-bold text-secondary-900">Migrations</h1>
+            <p className="text-xs text-secondary-600 mt-1">Manage your Google Workspace migrations</p>
           </div>
           <div className="flex items-center gap-3">
-            <Link 
-              href="/user-mapping"
-              className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold flex items-center"
-            >
-              <Users className="h-5 w-5 mr-2" />
-              User Mapping
+            <Link href="/user-mapping">
+              <Button variant="success" size="sm">
+                <Users className="h-4 w-4 mr-2" />
+                User Mapping
+              </Button>
             </Link>
-            <Link 
-              href="/migrations/new"
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-semibold flex items-center"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              New Migration
+            <Link href="/migrations/new">
+              <Button variant="primary" size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                New Migration
+              </Button>
             </Link>
           </div>
         </div>
 
         {/* Filters and Search */}
-        <div className="bg-white rounded-lg shadow mb-6 p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <Search className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search migrations..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div className="flex items-center space-x-2">
-                <Filter className="h-5 w-5 text-gray-400" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Status</option>
-                  <option value="running">Running</option>
-                  <option value="completed">Completed</option>
-                  <option value="failed">Failed</option>
-                  <option value="pending">Pending</option>
-                  <option value="paused">Paused</option>
-                </select>
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <Search className="h-4 w-4 text-secondary-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                  <Input
+                    type="text"
+                    placeholder="Search migrations..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9 w-48 text-sm"
+                  />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Filter className="h-4 w-4 text-secondary-400" />
+                  <Select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="text-sm"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="running">Running</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                    <option value="pending">Pending</option>
+                    <option value="paused">Paused</option>
+                  </Select>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Migrations List */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <thead className="bg-secondary-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Migration
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Source → Target
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Users & Services
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Progress
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
                     Last Updated
                   </th>
-                  <th className="relative px-6 py-3">
+                  <th className="relative px-4 py-3">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-secondary-200">
                 {filteredMigrations.map((migration) => (
-                  <tr key={migration.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                  <tr key={migration.id} className="hover:bg-secondary-50">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{migration.name}</div>
-                        <div className="text-sm text-gray-500">Created by {migration.createdBy}</div>
+                        <div className="text-sm font-medium text-secondary-900">{migration.name}</div>
+                        <div className="text-xs text-secondary-500">Created by {migration.createdBy}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-sm text-secondary-900">
                         <div>{migration.sourceOrg}</div>
-                        <div className="text-gray-500">↓</div>
+                        <div className="text-secondary-500">↓</div>
                         <div>{migration.targetOrg}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center text-sm text-secondary-900">
                         <Users className="h-4 w-4 mr-1" />
                         {migration.userCount}
                       </div>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {migration.services.map((service) => (
-                          <span
+                          <Badge
                             key={service}
-                            className="inline-flex px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded"
+                            variant="primary"
+                            className="text-xs"
                           >
                             {service}
-                          </span>
+                          </Badge>
                         ))}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center">
                         {getStatusIcon(migration.status)}
-                        <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(migration.status)}`}>
+                        <Badge
+                          variant={getStatusBadge(migration.status) as any}
+                          className="ml-2"
+                        >
                           {migration.status}
-                        </span>
+                        </Badge>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div 
-                            className="bg-blue-600 h-2 rounded-full" 
-                            style={{ width: `${migration.progress}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-900">{migration.progress}%</span>
+                        <Progress value={migration.progress} className="w-16 mr-2" />
+                        <span className="text-xs text-secondary-900">{migration.progress}%</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-secondary-500">
                       {new Date(migration.lastUpdated).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center space-x-2">
-                        <Link 
-                          href={`/migrations/${migration.id}`}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          View
+                        <Link href={`/migrations/${migration.id}`}>
+                          <Button variant="outline" size="sm">
+                            View
+                          </Button>
                         </Link>
-                        <button className="text-gray-400 hover:text-gray-600">
-                          <MoreHorizontal className="h-5 w-5" />
-                        </button>
+                        <Button variant="ghost" size="sm">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        </div>
+            </Table>
+          </CardContent>
+        </Card>
 
         {filteredMigrations.length === 0 && (
-          <div className="text-center py-12">
-            <Database className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No migrations found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {searchTerm || statusFilter !== 'all' 
-                ? 'Try adjusting your search or filter criteria.' 
-                : 'Get started by creating your first migration.'
-              }
-            </p>
-            {!searchTerm && statusFilter === 'all' && (
-              <div className="mt-6">
-                <Link 
-                  href="/migrations/new"
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium inline-flex items-center"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Migration
-                </Link>
-              </div>
-            )}
-          </div>
+          <Card>
+            <CardContent className="text-center py-8">
+              <Database className="mx-auto h-10 w-10 text-secondary-400" />
+              <h3 className="mt-2 text-sm font-medium text-secondary-900">No migrations found</h3>
+              <p className="mt-1 text-xs text-secondary-500">
+                {searchTerm || statusFilter !== 'all' 
+                  ? 'Try adjusting your search or filter criteria.' 
+                  : 'Get started by creating your first migration.'
+                }
+              </p>
+              {!searchTerm && statusFilter === 'all' && (
+                <div className="mt-4">
+                  <Link href="/migrations/new">
+                    <Button variant="primary" size="sm">
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Migration
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
       </main>
     </div>

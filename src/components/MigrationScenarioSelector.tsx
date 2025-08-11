@@ -30,7 +30,7 @@ export const DOMAIN_MAPPING_EXAMPLES = {
     preserveSourceAsAlias: true,
     allowCrossTenant: false,
     preserveStructure: true,
-    description: 'One-to-many migration from rrgokuldham.com to multiple target domains'
+    description: 'One source to multiple targets'
   },
 
   // Simple one-to-one scenario
@@ -42,7 +42,7 @@ export const DOMAIN_MAPPING_EXAMPLES = {
     preserveSourceAsAlias: true,
     allowCrossTenant: false,
     preserveStructure: true,
-    description: 'Simple one-to-one domain migration'
+    description: 'Direct domain migration'
   },
 
   // Cross-tenant one-to-many
@@ -71,7 +71,7 @@ export const DOMAIN_MAPPING_EXAMPLES = {
     preserveSourceAsAlias: false,
     allowCrossTenant: true,
     preserveStructure: false,
-    description: 'Cross-tenant one-to-many migration with department-based distribution'
+    description: 'Cross-tenant with dept distribution'
   }
 };
 
@@ -138,15 +138,12 @@ export const MigrationScenarioSelector: React.FC<MigrationScenarioSelectorProps>
     console.log('[MigrationScenarioSelector] User discovery ready:', data);
 
     // Show success message with details
-    const message = `🎉 User Discovery Ready!
+    const message = `🎉 Setup Complete!
 
-Migration Type: ${data.domainMapping?.type ?? currentDomainMapping.type}
-Source Domains: ${data.sourceDomains.join(', ')}
-Target Domains: ${data.targetDomains.join(', ')}
-Configured Domains: ${Object.keys(data.adminEmails).length}
-Verification Token: ${data.verificationToken ?? 'N/A'}
-
-Next Step: User enumeration will begin for source domains.`;
+Type: ${data.domainMapping?.type ?? currentDomainMapping.type}
+Sources: ${data.sourceDomains.join(', ')}
+Targets: ${data.targetDomains.join(', ')}
+Ready for user discovery.`;
 
     alert(message);
   }, [currentDomainMapping.type]);
@@ -161,9 +158,33 @@ Next Step: User enumeration will begin for source domains.`;
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       {/* Scenario Selector */}
       <div className="bg-white rounded-lg shadow-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">
-          Migration Scenario Configuration
-        </h1>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">
+              Migration Scenario
+            </h1>
+            <div className="flex items-center space-x-6 text-sm">
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-600">Scenario:</span>
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-medium">
+                  {migrationScenario === 'single-super-admin' ? 'Single Admin' : 'Cross-Tenant'}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-600">Strategy:</span>
+                <span className="px-2 py-1 bg-green-100 text-green-800 rounded font-medium">
+                  {currentDomainMapping.userMappingStrategy}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="text-right text-sm text-gray-500">
+            <div>{currentDomainMapping.type.replace('-', ' ')}</div>
+            <div className="text-xs mt-1">
+              {currentDomainMapping.sourceDomains.length} → {currentDomainMapping.targetDomains?.length || 0}
+            </div>
+          </div>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {Object.entries(DOMAIN_MAPPING_EXAMPLES).map(([key, config]) => (
@@ -176,19 +197,15 @@ Next Step: User enumeration will begin for source domains.`;
                   : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
               }`}
             >
-              <div className="font-semibold mb-2">{config.type.replace('-', ' to ').toUpperCase()}</div>
+              <div className="font-semibold mb-2">{config.type.replace('-', ' ').toUpperCase()}</div>
               <div className="text-sm opacity-75">{config.description}</div>
-              <div className="text-xs mt-2 space-y-1">
-                <div>Source: {config.sourceDomains.join(', ')}</div>
-                <div>Target: {config.targetDomains?.join(', ')}</div>
-              </div>
             </button>
           ))}
         </div>
 
         {/* Migration Scenario Toggle */}
         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Migration Scenario</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Auth Method</h3>
           <div className="flex space-x-4">
             <label className="flex items-center">
               <input
@@ -199,7 +216,7 @@ Next Step: User enumeration will begin for source domains.`;
                 onChange={(e) => setMigrationScenario(e.target.value as 'single-super-admin')}
                 className="mr-2"
               />
-              Single Super Admin
+              Single Admin
             </label>
             <label className="flex items-center">
               <input
@@ -218,52 +235,68 @@ Next Step: User enumeration will begin for source domains.`;
 
       {/* Current Configuration Display */}
       <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Current Configuration</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-          <div className="p-3 bg-blue-50 rounded-lg">
-            <div className="font-medium text-blue-900">Migration Type</div>
-            <div className="text-blue-700">{currentDomainMapping.type}</div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Configuration</h2>
+            <div className="flex items-center space-x-4 text-sm">
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-600">Status:</span>
+                <span className={`px-2 py-1 rounded font-medium ${
+                  verificationStatus 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {verificationStatus ? '✓ Ready' : '⚠ Setup Required'}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-600">Admins:</span>
+                <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded font-medium">
+                  {Object.keys(adminEmails).length} configured
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="p-3 bg-green-50 rounded-lg">
-            <div className="font-medium text-green-900">User Mapping</div>
-            <div className="text-green-700">{currentDomainMapping.userMappingStrategy}</div>
+          <div className="text-right text-sm text-gray-500">
+            <div className="font-medium">{currentDomainMapping.type}</div>
+            <div className="text-xs mt-1">
+              Cross-tenant: {currentDomainMapping.allowCrossTenant ? 'Yes' : 'No'}
+            </div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <div className="font-medium text-blue-900">Type</div>
+            <div className="text-blue-700 text-sm">{currentDomainMapping.type}</div>
           </div>
           <div className="p-3 bg-purple-50 rounded-lg">
             <div className="font-medium text-purple-900">Distribution</div>
-            <div className="text-purple-700">{'distributionStrategy' in currentDomainMapping && currentDomainMapping.distributionStrategy ? currentDomainMapping.distributionStrategy : 'N/A'}</div>
+            <div className="text-purple-700 text-sm">{'distributionStrategy' in currentDomainMapping && currentDomainMapping.distributionStrategy ? currentDomainMapping.distributionStrategy : 'Default'}</div>
           </div>
           <div className="p-3 bg-amber-50 rounded-lg">
-            <div className="font-medium text-amber-900">Cross-Tenant</div>
-            <div className="text-amber-700">{currentDomainMapping.allowCrossTenant ? 'Yes' : 'No'}</div>
-          </div>
-          <div className="p-3 bg-red-50 rounded-lg">
-            <div className="font-medium text-red-900">Verification</div>
-            <div className="text-red-700">{verificationStatus ? '✓ Verified' : '⚠ Pending'}</div>
-          </div>
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <div className="font-medium text-gray-900">Admin Emails</div>
-            <div className="text-gray-700">{Object.keys(adminEmails).length} configured</div>
+            <div className="font-medium text-amber-900">Preserve</div>
+            <div className="text-amber-700 text-sm">{currentDomainMapping.preserveStructure ? 'Structure' : 'Minimal'}</div>
           </div>
         </div>
 
         {/* Domain Lists */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div>
-            <h4 className="font-semibold text-gray-900 mb-2">Source Domains</h4>
+            <h4 className="font-semibold text-gray-900 mb-2">Sources</h4>
             <div className="space-y-1">
               {currentDomainMapping.sourceDomains.map((domain) => (
-                <div key={domain} className="px-3 py-2 bg-blue-100 text-blue-800 rounded">
+                <div key={domain} className="px-3 py-2 bg-blue-100 text-blue-800 rounded text-sm">
                   📤 {domain}
                 </div>
               ))}
             </div>
           </div>
           <div>
-            <h4 className="font-semibold text-gray-900 mb-2">Target Domains</h4>
+            <h4 className="font-semibold text-gray-900 mb-2">Targets</h4>
             <div className="space-y-1">
               {currentDomainMapping.targetDomains?.map((domain) => (
-                <div key={domain} className="px-3 py-2 bg-green-100 text-green-800 rounded">
+                <div key={domain} className="px-3 py-2 bg-green-100 text-green-800 rounded text-sm">
                   📥 {domain}
                 </div>
               ))}

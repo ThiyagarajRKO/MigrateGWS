@@ -1,5 +1,23 @@
 'use client';
 
+/*
+ * Typography Standards for MigrateGWS Platform:
+ * 
+ * Headers:
+ * - h1: text-3xl (1.875rem) - Main page titles
+ * - h2: text-2xl (1.5rem) - Section headers  
+ * - h3: text-xl (1.25rem) - Subsection headers
+ * - h4: text-lg (1.125rem) - Component titles
+ * 
+ * Text:
+ * - text-base (1rem) - Body text, form labels, buttons
+ * - text-sm (0.875rem) - Secondary information, captions
+ * - text-xs (0.75rem) - Badges, tags, minimal text
+ * 
+ * Font: Inter (defined in layout.tsx and globals.css)
+ * Font weights: light(300), normal(400), medium(500), semibold(600), bold(700)
+ */
+
 import { useState, useEffect, memo, useCallback } from 'react';
 import { useOAuth } from '@/hooks/useOAuth';
 import { useVerificationToken } from '@/hooks/useVerificationToken';
@@ -1094,7 +1112,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <div className="flex items-start space-x-4">
             {/* Single Source */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <label className="block text-base font-medium text-gray-700 mb-2 flex items-center">
                 <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                 Source Domain
               </label>
@@ -1113,8 +1131,8 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             
             {/* Multiple Targets */}
             <div className="flex-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+              <label className="block text-base font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                 Target Domains
               </label>
               <div className="space-y-2">
@@ -1150,7 +1168,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                       addTargetToDomainMapping(index, availableTargets[0]);
                     }
                   }}
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  className="text-blue-600 hover:text-blue-700 text-base font-medium"
                 >
                   + Add Target Domain
                 </button>
@@ -1172,7 +1190,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <div className="flex items-start space-x-4">
             {/* Multiple Sources */}
             <div className="flex-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <label className="block text-base font-medium text-gray-700 mb-2 flex items-center">
                 <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                 Source Domains
               </label>
@@ -1209,7 +1227,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                       addSourceToDomainMapping(index, availableSources[0]);
                     }
                   }}
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  className="text-blue-600 hover:text-blue-700 text-base font-medium"
                 >
                   + Add Source Domain
                 </button>
@@ -1220,8 +1238,8 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             
             {/* Single Target */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+              <label className="block text-base font-medium text-gray-700 mb-2 flex items-center">
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                 Target Domain
               </label>
               <select
@@ -1249,7 +1267,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
       return (
         <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+            <label className="block text-base font-medium text-gray-700 mb-1 flex items-center">
               <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
               Source
             </label>
@@ -1267,8 +1285,8 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <ArrowRight className="h-5 w-5 text-gray-400 mt-6" />
           
           <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
-              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+            <label className="block text-base font-medium text-gray-700 mb-1 flex items-center">
+              <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
               Target
             </label>
             <select
@@ -1375,55 +1393,41 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
     onConfigurationComplete(config);
   };
 
+  // Main component render
   return (
     <div className="space-y-6">
-      {/* Header with Compact Authentication Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-            Authenticate & Configure Domains
-          </h2>
-          <p className="text-gray-600 max-w-2xl">
-            {selectedScenario === 'cross-tenant' 
-              ? 'Authenticate with both source and target Google Workspace domains to discover and configure domain mappings.'
-              : 'Authenticate with your Google Workspace to discover available domains and configure migration settings.'
-            }
-          </p>
-        </div>
-        
-        {/* Compact Authentication Button */}
-        <div className="flex-shrink-0">
-          {isAuthenticationComplete() ? (
-            <div className="flex items-center space-x-2 text-green-600 bg-green-50 px-4 py-2 rounded-lg border border-green-200">
-              <CheckCircle className="h-5 w-5" />
-              <span className="text-sm font-medium">Authenticated</span>
-            </div>
-          ) : (
-            <button
-              onClick={initiateOAuth}
-              disabled={isLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
-            >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Authenticating...</span>
-                </>
-              ) : (
-                <>
-                  <Shield className="h-4 w-4" />
-                  <span>
-                    {selectedScenario === 'cross-tenant' 
-                      ? 'Authenticate Domains' 
-                      : 'Authenticate'
-                    }
-                  </span>
-                  <ExternalLink className="h-3 w-3" />
-                </>
-              )}
-            </button>
-          )}
-        </div>
+      {/* Authentication Button */}
+      <div className="flex justify-end mb-6">
+        {isAuthenticationComplete() ? (
+          <div className="flex items-center space-x-2 text-green-600 bg-green-50 px-4 py-2 rounded-lg border border-green-200">
+            <CheckCircle className="h-5 w-5" />
+            <span className="text-base font-medium">Authenticated</span>
+          </div>
+        ) : (
+          <button
+            onClick={initiateOAuth}
+            disabled={isLoading}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
+          >
+            {isLoading ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Authenticating...</span>
+              </>
+            ) : (
+              <>
+                <Shield className="h-4 w-4" />
+                <span>
+                  {selectedScenario === 'cross-tenant' 
+                    ? 'Authenticate Domains' 
+                    : 'Authenticate'
+                  }
+                </span>
+                <ExternalLink className="h-3 w-3" />
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Error Display */}
@@ -1431,7 +1435,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center space-x-2">
             <AlertCircle className="h-5 w-5 text-red-600" />
-            <span className="text-red-700">{error}</span>
+            <span className="text-red-700 text-base">{error}</span>
           </div>
         </div>
       )}
@@ -1443,29 +1447,29 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Source Domains */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-              <h3 className="text-lg font-medium text-blue-900 mb-4">
+              <h3 className="text-xl font-semibold text-blue-900 mb-4">
                 Source Domains
               </h3>
               <div className="space-y-2">
                 {getAvailableDomains().source.map((domain) => (
                   <div key={domain} className="flex items-center space-x-2">
                     <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span className="text-blue-700">{domain}</span>
+                    <span className="text-blue-700 text-base">{domain}</span>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Target Domains */}
-            <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-              <h3 className="text-lg font-medium text-green-900 mb-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+              <h3 className="text-xl font-semibold text-blue-900 mb-4">
                 Target Domains
               </h3>
               <div className="space-y-2">
                 {getAvailableDomains().target.map((domain) => (
                   <div key={domain} className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-green-700">{domain}</span>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span className="text-blue-700 text-base">{domain}</span>
                   </div>
                 ))}
               </div>
@@ -1476,8 +1480,8 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
           <div className="bg-white border border-gray-200 rounded-lg p-6">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">Domain Mappings</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <h3 className="text-xl font-semibold text-gray-900">Domain Mappings</h3>
+                <p className="text-base text-gray-600 mt-1">
                   {selectedScenario === 'single-super-admin' 
                     ? userMappingStrategy === 'one-to-many'
                       ? 'Configure how one source domain maps to multiple target domains'
@@ -1488,7 +1492,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                   }
                 </p>
                 {userMappingStrategy && (
-                  <div className="mt-2 inline-flex items-center px-3 py-1 bg-blue-100 border border-blue-200 text-blue-800 text-xs font-medium rounded-full">
+                  <div className="mt-2 inline-flex items-center px-3 py-1 bg-blue-100 border border-blue-200 text-blue-800 text-base font-medium rounded-full">
                     <Settings className="h-3 w-3 mr-1" />
                     Strategy: {userMappingStrategy === 'one-to-many' ? 'One-To-Many' : 
                               userMappingStrategy === 'many-to-one' ? 'Many-To-One' : 
@@ -1498,7 +1502,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
               </div>
               <button
                 onClick={addDomainMapping}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-base font-medium"
               >
                 Add Mapping
               </button>
@@ -1507,11 +1511,11 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
             {domainMappings.length === 0 ? (
               <div className="text-center py-8">
                 <Globe className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-700 font-medium">Domain mappings will be configured automatically.</p>
-                <p className="text-gray-500 text-sm mb-3">
+                <p className="text-gray-700 font-medium text-base">Domain mappings will be configured automatically.</p>
+                <p className="text-gray-500 text-base mb-3">
                   Default domain mappings will be created automatically after authentication. You can add custom mappings manually if needed.
                 </p>
-                <p className="text-gray-400 text-sm">
+                <p className="text-gray-400 text-base">
                   {selectedScenario === 'single-super-admin' 
                     ? `Default ${userMappingStrategy || 'one-to-one'} domain mappings will be created automatically, or click "Add Mapping" to configure manually.`
                     : 'Default cross-tenant domain mappings will be created automatically, or click "Add Mapping" to configure manually.'
@@ -1542,10 +1546,10 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
           <div className="text-center">
             <User className="h-8 w-8 text-gray-400 mx-auto mb-3" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
               Authentication Required
             </h3>
-            <p className="text-gray-600 text-sm">
+            <p className="text-gray-600 text-base">
               {selectedScenario === 'cross-tenant' 
                 ? 'Please authenticate with both source and target Google Workspace domains to discover available domains.'
                 : 'Please authenticate with Google Workspace to discover available domains.'
@@ -1653,7 +1657,7 @@ export const AuthenticateAndConfigureDomains = memo(function AuthenticateAndConf
                       <button
                         onClick={() => initiateCrossTenantOAuthCOOPSafe('target')}
                         disabled={isLoading && currentAuthType === 'target'}
-                        className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center space-x-2"
                       >
                         {isLoading && currentAuthType === 'target' ? (
                           <>
