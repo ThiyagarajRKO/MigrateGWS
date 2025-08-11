@@ -1928,7 +1928,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
     return (
       <div className={`p-5 rounded-xl border shadow-sm ${
         status.verified 
-          ? 'bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-300/60 shadow-blue-100/50' 
+          ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300/60 shadow-blue-100/50' 
           : status.configured 
           ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200/60 shadow-amber-100/50'
           : 'bg-gradient-to-br from-red-50 to-rose-50 border-red-200/60 shadow-red-100/50'
@@ -1971,7 +1971,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-black">
+              <h2 className="text-xl font-semibold text-slate-900">
                 Domain-wide Delegation Setup
               </h2>
               <div className="relative inline-block">
@@ -1980,7 +1980,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   onMouseEnter={handleTooltipEnter}
                   onMouseLeave={handleTooltipLeave}
                 >
-                  <Info className="w-4 h-4 text-blue-600 hover:text-black cursor-help transition-colors" />
+                  <Info className="w-4 h-4 text-blue-600 hover:text-slate-700 cursor-help transition-colors" />
                 </div>
                 
                 {/* Overview Tooltip */}
@@ -1992,15 +1992,15 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   >
                     <div className="space-y-3 text-sm">
                       <div>
-                        <h4 className="font-bold text-black mb-2">Domain-wide Delegation</h4>
-                        <p className="text-black">
+                        <h4 className="font-semibold text-slate-900 mb-2">Domain-wide Delegation</h4>
+                        <p className="text-slate-700">
                           Allows service account access to Google Workspace data across your domain without individual user consent.
                         </p>
                       </div>
                       
                       <div>
-                        <h4 className="font-bold text-black mb-2">Migration Benefits</h4>
-                        <ul className="text-black space-y-1">
+                        <h4 className="font-semibold text-slate-900 mb-2">Migration Benefits</h4>
+                        <ul className="text-slate-700 space-y-1">
                           <li>• Automated access to all user data</li>
                           <li>• No individual user authentication required</li>
                           <li>• Secure, auditable access control</li>
@@ -2009,8 +2009,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       
                       {getDomainMappingContext && (
                         <div>
-                          <h4 className="font-bold text-black mb-1">Migration Scenario</h4>
-                          <div className="text-black">
+                          <h4 className="font-semibold text-slate-900 mb-1">Migration Scenario</h4>
+                          <div className="text-slate-700">
                             <div className="font-medium">{getDomainMappingContext.description}</div>
                             
                             {/* Debug logging for domain display */}
@@ -2027,14 +2027,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             
                             {/* Enhanced domain mapping visualization */}
                             <div className="bg-blue-50 border border-blue-200 rounded p-2">
-                              <div className="text-xs font-bold text-black mb-2">Domain Mapping:</div>
+                              <div className="text-xs font-semibold text-slate-900 mb-2">Domain Mapping:</div>
                               
                               {/* Source Domains */}
                               <div className="flex items-start space-x-2 mb-2">
-                                <span className="text-xs font-medium text-black min-w-[50px]">Source:</span>
+                                <span className="text-xs font-medium text-slate-700 min-w-[50px]">Source:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {getDomainMappingContext.sourceDomains.map((domain, index) => (
-                                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
                                       {domain}
                                     </span>
                                   ))}
@@ -2043,17 +2043,17 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                               
                               {/* Target Domains */}
                               <div className="flex items-start space-x-2">
-                                <span className="text-xs font-medium text-black min-w-[50px]">Target:</span>
+                                <span className="text-xs font-medium text-slate-700 min-w-[50px]">Target:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {getDomainMappingContext.targetDomains.map((domain, index) => (
-                                    <span key={index} className="px-2 py-1 bg-blue-200 text-blue-900 rounded text-xs">
+                                    <span key={index} className="px-2 py-1 bg-blue-200 text-blue-900 rounded text-xs font-medium">
                                       {domain}
                                     </span>
                                   ))}
                                 </div>
                               </div>
                               
-                              <div className="text-xs text-blue-800 mt-2">
+                              <div className="text-xs text-blue-800 mt-2 font-medium">
                                 Complexity: {getDomainMappingContext.complexity}
                               </div>
                             </div>
@@ -2062,8 +2062,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       )}
                       
                       <div>
-                        <h4 className="font-bold text-black mb-1">Setup Requirements</h4>
-                        <ul className="text-black space-y-1 text-xs">
+                        <h4 className="font-semibold text-slate-900 mb-1">Setup Requirements</h4>
+                        <ul className="text-slate-700 space-y-1 text-xs">
                           <li>• Super Admin access to {getDomainMappingContext?.isCrossTenant ? 'source and target domains' : 'your domain'}</li>
                           <li>• Google Cloud Project with enabled APIs</li>
                           <li>• Service Account with Domain-wide Delegation</li>
@@ -2071,8 +2071,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       </div>
                       
                       <div>
-                        <h4 className="font-bold text-black mb-1">Security Notes</h4>
-                        <ul className="text-black space-y-1 text-xs">
+                        <h4 className="font-semibold text-slate-900 mb-1">Security Notes</h4>
+                        <ul className="text-slate-700 space-y-1 text-xs">
                           <li>• Only authorize trusted applications</li>
                           <li>• All API calls are logged and auditable</li>
                           <li>• Can be revoked anytime from Admin Console</li>
@@ -2083,13 +2083,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 )}
               </div>
             </div>
-            <p className="text-black mt-1 font-medium text-sm">
+            <p className="text-slate-700 mt-1 font-medium text-sm">
               Configure secure cross-domain access for Google Workspace migration
             </p>
           </div>
           <div className="text-right">
-            <div className="text-xs text-blue-600 font-bold">Progress</div>
-            <div className="text-lg font-bold text-black">
+            <div className="text-xs text-blue-600 font-semibold">Progress</div>
+            <div className="text-lg font-semibold text-slate-900">
               {completedCount}/{totalSteps}
             </div>
           </div>
@@ -2114,7 +2114,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
           
           return (hasAnyAdminInfo || domainMapping) && (
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="font-merriweather font-bold text-black mb-2 flex items-center gap-2">
+              <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
                 <Users className="h-4 w-4 text-blue-600" />
                 Migration Configuration
                 {effectiveAdminInfo.cachedInfo && (
@@ -2128,25 +2128,25 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               {domainMapping && getDomainMappingContext && (
                 <div className="mb-3 p-3 bg-white border border-blue-200 rounded">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-merriweather font-bold text-black text-sm">Domain Mapping Strategy</h4>
-                    <span className="px-2 py-1 text-xs rounded bg-blue-600 text-white font-bold">
+                    <h4 className="font-semibold text-slate-900 text-sm">Domain Mapping Strategy</h4>
+                    <span className="px-2 py-1 text-xs rounded bg-blue-600 text-white font-semibold">
                       {getDomainMappingContext.complexity}
                     </span>
                   </div>
-                  <p className="text-black text-sm mb-2">{getDomainMappingContext.description}</p>
+                  <p className="text-slate-700 text-sm mb-2">{getDomainMappingContext.description}</p>
                   
                   {/* Source and Target Domain Lists */}
                   <div className="space-y-2 text-sm">
                     {/* Source Domains */}
                     <div>
-                      <span className="text-black font-bold block mb-1">
+                      <span className="text-slate-900 font-semibold block mb-1">
                         Source ({getDomainMappingContext.sourceDomains.length}):
                       </span>
                       <div className="flex flex-wrap gap-1">
                         {getDomainMappingContext.sourceDomains.map((domain, index) => (
                           <span 
                             key={index}
-                            className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200"
+                            className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200 font-medium"
                           >
                             {domain}
                           </span>
@@ -2156,14 +2156,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     
                     {/* Target Domains */}
                     <div>
-                      <span className="text-black font-bold block mb-1">
+                      <span className="text-slate-900 font-semibold block mb-1">
                         Target ({getDomainMappingContext.targetDomains.length}):
                       </span>
                       <div className="flex flex-wrap gap-1">
                         {getDomainMappingContext.targetDomains.map((domain, index) => (
                           <span 
                             key={index}
-                            className="inline-block px-2 py-1 bg-blue-200 text-blue-900 text-xs rounded border border-blue-300"
+                            className="inline-block px-2 py-1 bg-blue-200 text-blue-900 text-xs rounded border border-blue-300 font-medium"
                           >
                             {domain}
                           </span>
@@ -2178,15 +2178,15 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 {/* Single Super Admin scenario */}
                 {migrationScenario === 'single-super-admin' && effectiveAdminInfo.adminEmail && (
                   <div>
-                    <div className="text-black font-bold">
+                    <div className="text-slate-900 font-semibold">
                       Super Admin
                       {effectiveAdminInfo.cachedInfo && (
-                        <span className="ml-2 text-xs text-blue-600">
+                        <span className="ml-2 text-xs text-blue-600 font-medium">
                           (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                         </span>
                       )}
                     </div>
-                    <div className="text-black">{effectiveAdminInfo.adminEmail}</div>
+                    <div className="text-slate-700">{effectiveAdminInfo.adminEmail}</div>
                   </div>
                 )}
 
@@ -2196,27 +2196,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     {/* Single source domain */}
                     {effectiveAdminInfo.sourceAccount && Object.keys(effectiveAdminInfo.sourceAccounts || {}).length === 0 && (
                       <div>
-                        <div className="text-black font-bold">
+                        <div className="text-slate-900 font-semibold">
                           Source Domain Admin
                           {effectiveAdminInfo.cachedInfo && (
-                            <span className="ml-2 text-xs text-blue-600">
+                            <span className="ml-2 text-xs text-blue-600 font-medium">
                               (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                             </span>
                           )}
                         </div>
-                        <div className="text-black">{effectiveAdminInfo.sourceAccount}</div>
+                        <div className="text-slate-700">{effectiveAdminInfo.sourceAccount}</div>
                       </div>
                     )}
                     
                     {/* Multiple source domains */}
                     {Object.keys(effectiveAdminInfo.sourceAccounts || {}).length > 0 && (
                       <div>
-                        <div className="text-black font-bold mb-2">Source Domain Admins</div>
+                        <div className="text-slate-900 font-semibold mb-2">Source Domain Admins</div>
                         <div className="space-y-1">
                           {Object.entries(effectiveAdminInfo.sourceAccounts).map(([domain, email]) => (
                             <div key={domain} className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded">
-                              <span className="text-blue-800 text-sm font-bold">{domain}</span>
-                              <span className="text-black text-sm">{email}</span>
+                              <span className="text-blue-800 text-sm font-semibold">{domain}</span>
+                              <span className="text-slate-700 text-sm">{email}</span>
                             </div>
                           ))}
                         </div>
@@ -2226,27 +2226,27 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     {/* Single destination domain */}
                     {effectiveAdminInfo.destAccount && Object.keys(effectiveAdminInfo.destAccounts || {}).length === 0 && (
                       <div>
-                        <div className="text-black font-bold">
+                        <div className="text-slate-900 font-semibold">
                           Destination Domain Admin
                           {effectiveAdminInfo.cachedInfo && (
-                            <span className="ml-2 text-xs text-blue-600">
+                            <span className="ml-2 text-xs text-blue-600 font-medium">
                               (Verified {new Date(effectiveAdminInfo.cachedInfo.timestamp).toLocaleDateString()})
                             </span>
                           )}
                         </div>
-                        <div className="text-black">{effectiveAdminInfo.destAccount}</div>
+                        <div className="text-slate-700">{effectiveAdminInfo.destAccount}</div>
                       </div>
                     )}
                     
                     {/* Multiple destination domains */}
                     {Object.keys(effectiveAdminInfo.destAccounts || {}).length > 0 && (
                       <div>
-                        <div className="text-black font-bold mb-2">Destination Domain Admins</div>
+                        <div className="text-slate-900 font-semibold mb-2">Destination Domain Admins</div>
                         <div className="space-y-1">
                           {Object.entries(effectiveAdminInfo.destAccounts).map(([domain, email]) => (
                             <div key={domain} className="flex items-center justify-between p-2 bg-blue-100 border border-blue-200 rounded">
-                              <span className="text-blue-900 text-sm font-bold">{domain}</span>
-                              <span className="text-black text-sm">{email}</span>
+                              <span className="text-blue-900 text-sm font-semibold">{domain}</span>
+                              <span className="text-slate-700 text-sm">{email}</span>
                             </div>
                           ))}
                         </div>
@@ -2268,10 +2268,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               <Settings className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h3 className="heading-primary text-lg text-black">
+              <h3 className="text-lg font-semibold text-slate-900">
                 Domain-wide Delegation Setup
               </h3>
-              <p className="text-sm text-black">
+              <p className="text-sm text-slate-700">
                 {getDomainMappingContext ? (
                   <>
                     Configure delegation for your <strong>{getMigrationScenarioDisplayText()}</strong> migration.
@@ -2299,9 +2299,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
                   <div className="flex items-center gap-2 mb-1">
                     <CheckCircle className="h-4 w-4 text-blue-600" />
-                    <h5 className="heading-secondary font-bold text-black">Using Cached Configuration</h5>
+                    <h5 className="font-semibold text-slate-900">Using Cached Configuration</h5>
                   </div>
-                  <p className="text-sm text-black">
+                  <p className="text-sm text-slate-700">
                     Previously verified admin emails loaded. Review and modify if needed.
                   </p>
                   <button
@@ -2327,8 +2327,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 </div>
               )}
               
-              <h4 className="heading-secondary font-bold text-gray-800 mb-4 text-lg">Domain Administrator Configuration</h4>
-              <p className="text-base text-gray-700 mb-4 leading-relaxed">
+              <h4 className="font-semibold text-slate-800 mb-4 text-lg">Domain Administrator Configuration</h4>
+              <p className="text-base text-slate-700 mb-4 leading-relaxed">
                 {getDomainMappingContext ? (
                   <>
                     For your <strong>{getMigrationScenarioDisplayText()}</strong> migration scenario:
@@ -2370,7 +2370,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
               
               {/* Domain mapping specific guidance */}
               {getDomainMappingContext && (
-                <div className="mb-4 p-4 bg-gradient-to-r from-gray-100 to-gray-100 border border-gray-300/60 rounded-lg text-sm text-gray-700 shadow-sm font-medium leading-relaxed">
+                <div className="mb-4 p-4 bg-gradient-to-r from-slate-100 to-slate-100 border border-slate-300/60 rounded-lg text-sm text-slate-700 shadow-sm font-medium leading-relaxed">
                   <div className="mb-3">
                     <strong>Migration Strategy:</strong> {getDomainMappingContext.description}
                   </div>
@@ -2383,7 +2383,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           <span className="font-semibold text-blue-700">Source Domains:</span>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {getDomainMappingContext.sourceDomains.map((domain, index) => (
-                              <span key={index} className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200">
+                              <span key={index} className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200 font-medium">
                                 {domain}
                               </span>
                             ))}
@@ -2393,10 +2393,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       
                       {getDomainMappingContext.isMultiTarget && (
                         <div>
-                          <span className="font-semibold text-green-700">Target Domains:</span>
+                          <span className="font-semibold text-blue-700">Target Domains:</span>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {getDomainMappingContext.targetDomains.map((domain, index) => (
-                              <span key={index} className="inline-block px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded border border-green-200">
+                              <span key={index} className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded border border-blue-200 font-medium">
                                 {domain}
                               </span>
                             ))}
@@ -2423,7 +2423,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 {/* Single Super Admin Option - only show for single super admin scenario */}
                 {migrationScenario === 'single-super-admin' && (
                   <div>
-                    <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
+                    <label className="block text-base font-semibold text-slate-800 mb-2 flex items-center gap-2">
                       Super Admin Email *
                       {inputAdminEmail && isAdminEmailFromCache() && (
                         <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
@@ -2443,7 +2443,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                       }`}
                       required
                     />
-                    <p className="text-sm text-gray-700 mt-2 font-medium leading-relaxed">
+                    <p className="text-sm text-slate-700 mt-2 font-medium leading-relaxed">
                       Required: Super admin with access to all domains in the workspace
                     </p>
                   </div>
@@ -2455,7 +2455,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     {/* Cross-Tenant Options */}
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
-                        <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
+                        <label className="block text-base font-semibold text-slate-800 mb-2 flex items-center gap-2">
                           Source Domain Admin Email *
                           {inputsourceAdminEmail && isAdminEmailFromCache() && (
                             <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
@@ -2480,7 +2480,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         />
                       </div>
                       <div>
-                        <label className="block text-base font-bold text-gray-800 mb-2 flex items-center gap-2">
+                        <label className="block text-base font-semibold text-slate-800 mb-2 flex items-center gap-2">
                           Destination Domain Admin Email *
                           {inputdestAdminEmail && isAdminEmailFromCache() && (
                             <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
@@ -2505,7 +2505,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         />
                       </div>
                     </div>
-                    <p className="text-sm text-gray-700 font-medium leading-relaxed">
+                    <p className="text-sm text-slate-700 font-medium leading-relaxed">
                       {getDomainMappingContext ? 
                         'Both emails are required for cross-tenant migration scenarios' :
                         'Use these for cross-tenant migration scenarios where you need admin access to both source and destination domains'
@@ -2521,7 +2521,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             <button
               onClick={setupDomainWideDelegation}
               disabled={delegationSetupLoading}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30 font-semibold transform hover:scale-105"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30 font-semibold transform hover:scale-105"
             >
               {delegationSetupLoading ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
@@ -2546,9 +2546,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
             )}
 
             {successMessage && (
-              <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-300/60 rounded-xl shadow-sm">
-                <div className="flex items-center gap-2 text-blue-800">
-                  <CheckCircle className="h-5 w-5 text-blue-600" />
+              <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/60 rounded-xl shadow-sm">
+                <div className="flex items-center gap-2 text-blue-800 text-sm">
+                  <CheckCircle className="h-4 w-4 text-blue-600" />
                   <span className="font-semibold">Success:</span>
                   <span className="font-medium">{successMessage}</span>
                 </div>
@@ -2562,13 +2562,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                   <div className="p-2 bg-green-600 rounded-lg">
                     <Key className="h-4 w-4 text-white" />
                   </div>
-                  <h3 className="text-lg font-bold text-black">Domain-wide Delegation Setup Instructions</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">Domain-wide Delegation Setup Instructions</h3>
                 </div>
 
                 {/* Single Super Admin Instructions */}
                 {delegationSetupData.setupInstructions.domain && (
                   <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-300/60 rounded-xl shadow-sm">
-                    <h4 className="font-bold text-green-800 mb-3 flex items-center gap-2">
+                    <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
                       <Shield className="h-5 w-5" />
                       {delegationSetupData.setupInstructions.domain.title}
                     </h4>
@@ -2589,9 +2589,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                     <div className="space-y-4">
                       {/* Client ID */}
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">Service Account Client ID:</label>
                         <div className="flex items-center gap-2 p-3 bg-white border border-green-200 rounded-lg">
-                          <code className="flex-1 text-sm text-gray-800 font-mono">
+                          <code className="flex-1 text-sm text-slate-800 font-mono">
                             {delegationSetupData.setupInstructions.domain?.clientId || 'N/A'}
                           </code>
                           <button
@@ -2606,10 +2606,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
                       {/* OAuth Scopes */}
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">OAuth Scopes:</label>
                         <div className="p-3 bg-white border border-green-200 rounded-lg">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-gray-600">
+                            <span className="text-sm text-slate-600">
                               {delegationSetupData.setupInstructions.domain?.scopes?.length || 0} scopes required
                             </span>
                             <button
@@ -2623,24 +2623,24 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           
                           {/* Scopes in chunks of 15 for easier copying */}
                           <div className="space-y-3">
-                            <div className="text-xs text-gray-500 font-medium mb-2">
+                            <div className="text-xs text-slate-500 font-medium mb-2">
                                Scopes are grouped in chunks of 15 for easier copying and pasting
                             </div>
                             {chunkScopes(delegationSetupData.setupInstructions.domain?.scopes || [], 15).map((chunk, index) => (
-                              <div key={index} className="border border-gray-200 rounded-lg p-2">
+                              <div key={index} className="border border-slate-200 rounded-lg p-2">
                                 <div className="flex items-center justify-between mb-1">
-                                  <span className="text-xs font-medium text-gray-500">
+                                  <span className="text-xs font-medium text-slate-500">
                                     Chunk {index + 1} ({chunk.length} scopes)
                                   </span>
                                   <button
                                     onClick={() => copyToClipboard(chunk.join(','), `domainChunk${index}`)}
-                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-500 text-white rounded hover:bg-slate-600 transition-colors"
                                   >
                                     {copiedItem === `domainChunk${index}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                     {copiedItem === `domainChunk${index}` ? 'Copied' : 'Copy Chunk'}
                                   </button>
                                 </div>
-                                <code className="text-xs text-gray-700 font-mono block bg-gray-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
+                                <code className="text-xs text-slate-700 font-mono block bg-slate-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
                                   {chunk.join(',')}
                                 </code>
                               </div>
@@ -2651,11 +2651,11 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
                       {/* Setup Steps - Integrated directly */}
                       <div className="p-3 bg-white border border-green-200 rounded-lg">
-                        <h5 className="font-bold text-green-800 mb-2 flex items-center gap-2">
+                        <h5 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
                           <Settings className="h-4 w-4" />
                           Setup Steps
                         </h5>
-                        <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+                        <ol className="list-decimal list-inside space-y-1 text-sm text-slate-700">
                           <li>Copy the <strong>Client ID</strong> above</li>
                           <li>Click <strong>Open Google Admin Console</strong> below</li>
                           <li>Navigate to <strong>Security → Access and data control → API controls</strong></li>
@@ -2674,12 +2674,12 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 {(delegationSetupData.setupInstructions.source || delegationSetupData.setupInstructions.destination) && (
                   <div className="space-y-4">
                     {/* Setup Steps for Cross-Tenant - Before domain sections */}
-                    <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-50 border border-gray-300/60 rounded-xl shadow-sm">
-                      <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                    <div className="p-4 bg-gradient-to-r from-slate-50 to-slate-50 border border-slate-300/60 rounded-xl shadow-sm">
+                      <h4 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
                         <Settings className="h-5 w-5" />
                         Cross-Tenant Setup Steps
                       </h4>
-                      <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+                      <ol className="list-decimal list-inside space-y-2 text-sm text-slate-700">
                         <li><strong>For each domain</strong> (source and destination):</li>
                         <li className="ml-4">Copy the <strong>Service Account Client ID</strong> from the respective section below</li>
                         <li className="ml-4">Click the <strong>Admin Console</strong> link for that domain</li>
@@ -2694,8 +2694,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
                     {/* Source Domain Instructions */}
                     {delegationSetupData.setupInstructions.source && (
-                      <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-300/60 rounded-xl shadow-sm">
-                        <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
+                      <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/60 rounded-xl shadow-sm">
+                        <h4 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
                           <Database className="h-5 w-5" />
                           {delegationSetupData.setupInstructions.source.title}
                         </h4>
@@ -2716,9 +2716,9 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                         <div className="space-y-4">
                           {/* Client ID */}
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">Service Account Client ID:</label>
                             <div className="flex items-center gap-2 p-3 bg-white border border-blue-200 rounded-lg">
-                              <code className="flex-1 text-sm text-gray-800 font-mono">
+                              <code className="flex-1 text-sm text-slate-800 font-mono">
                                 {delegationSetupData.setupInstructions.source?.clientId || 'N/A'}
                               </code>
                               <button
@@ -2733,10 +2733,10 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
                           {/* OAuth Scopes */}
                           <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">OAuth Scopes:</label>
                             <div className="p-3 bg-white border border-blue-200 rounded-lg">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-gray-600">
+                                <span className="text-sm text-slate-600">
                                   {delegationSetupData.setupInstructions.source?.scopes?.length || 0} scopes required
                                 </span>
                                 <button
@@ -2750,24 +2750,24 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                               
                               {/* Scopes in chunks of 15 for easier copying */}
                               <div className="space-y-3">
-                                <div className="text-xs text-gray-500 font-medium mb-2">
-                                  ✨ Scopes are grouped in chunks of 15 for easier copying and pasting
+                                <div className="text-xs text-slate-500 font-medium mb-2">
+                                   Scopes are grouped in chunks of 15 for easier copying and pasting
                                 </div>
                                 {chunkScopes(delegationSetupData.setupInstructions.source?.scopes || [], 15).map((chunk, index) => (
-                                  <div key={index} className="border border-gray-200 rounded-lg p-2">
+                                  <div key={index} className="border border-slate-200 rounded-lg p-2">
                                     <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs font-medium text-gray-500">
+                                      <span className="text-xs font-medium text-slate-500">
                                         Chunk {index + 1} ({chunk.length} scopes)
                                       </span>
                                       <button
                                         onClick={() => copyToClipboard(chunk.join(','), `sourceChunk${index}`)}
-                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-500 text-white rounded hover:bg-slate-600 transition-colors"
                                       >
                                         {copiedItem === `sourceChunk${index}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                         {copiedItem === `sourceChunk${index}` ? 'Copied' : 'Copy Chunk'}
                                       </button>
                                     </div>
-                                    <code className="text-xs text-gray-700 font-mono block bg-gray-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
+                                    <code className="text-xs text-slate-700 font-mono block bg-slate-50 p-2 rounded border whitespace-nowrap overflow-x-auto">
                                       {chunk.join(',')}
                                     </code>
                                   </div>
@@ -2781,8 +2781,8 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
 
                     {/* Destination Domain Instructions */}
                     {delegationSetupData.setupInstructions.destination && (
-                      <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300/60 rounded-xl shadow-sm">
-                        <h4 className="font-bold text-purple-800 mb-3 flex items-center gap-2">
+                      <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/60 rounded-xl shadow-sm">
+                        <h4 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
                           <Target className="h-5 w-5" />
                           {delegationSetupData.setupInstructions.destination.title}
                         </h4>
@@ -2793,7 +2793,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                             href={delegationSetupData.setupInstructions.destination?.adminConsoleUrl || '#'}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
                             Open Destination Admin Console
@@ -2804,13 +2804,13 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           {/* Client ID */}
                           <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">Service Account Client ID:</label>
-                            <div className="flex items-center gap-2 p-3 bg-white border border-purple-200 rounded-lg">
+                            <div className="flex items-center gap-2 p-3 bg-white border border-blue-200 rounded-lg">
                               <code className="flex-1 text-sm text-gray-800 font-mono">
                                 {delegationSetupData.setupInstructions.destination?.clientId || 'N/A'}
                               </code>
                               <button
                                 onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.clientId || '', 'destClientId')}
-                                className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                               >
                                 {copiedItem === 'destClientId' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                 {copiedItem === 'destClientId' ? 'Copied' : 'Copy'}
@@ -2821,14 +2821,14 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                           {/* OAuth Scopes */}
                           <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">OAuth Scopes:</label>
-                            <div className="p-3 bg-white border border-purple-200 rounded-lg">
+                            <div className="p-3 bg-white border border-blue-200 rounded-lg">
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-sm text-gray-600">
                                   {delegationSetupData.setupInstructions.destination?.scopes?.length || 0} scopes required
                                 </span>
                                 <button
                                   onClick={() => copyToClipboard(delegationSetupData.setupInstructions?.destination?.scopes.join(',') || '', 'destScopes')}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                                 >
                                   {copiedItem === 'destScopes' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                   {copiedItem === 'destScopes' ? 'Copied' : 'Copy All'}
@@ -2838,7 +2838,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                               {/* Scopes in chunks of 15 for easier copying */}
                               <div className="space-y-3">
                                 <div className="text-xs text-gray-500 font-medium mb-2">
-                                  ✨ Scopes are grouped in chunks of 15 for easier copying and pasting
+                                   Scopes are grouped in chunks of 15 for easier copying and pasting
                                 </div>
                                 {chunkScopes(delegationSetupData.setupInstructions.destination?.scopes || [], 15).map((chunk, index) => (
                                   <div key={index} className="border border-gray-200 rounded-lg p-2">

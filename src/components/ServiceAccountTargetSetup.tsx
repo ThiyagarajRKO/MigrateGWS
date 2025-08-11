@@ -3,12 +3,51 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertCircle, RefreshCw, Settings, Key } from 'lucide-react';
 import { 
-  setupTargetDomainsWithServiceAccount,
   autoConfigureTargetDomains,
   validateTargetDomainConfig,
   type TargetDomainConfig,
   type ServiceAccountConfig 
-} from '@/utils/targetDomainConfig';
+} from '@/types/targetDomainConfig';
+
+// Server-side function that needs to be called via API
+async function setupTargetDomainsWithServiceAccount(
+  targetDomains: string[],
+  serviceAccountConfig: ServiceAccountConfig,
+  customAdminEmails?: TargetDomainConfig
+): Promise<{
+  success: boolean;
+  configuredDomains: string[];
+  errors: string[];
+  targetAdminEmails: TargetDomainConfig;
+}> {
+  try {
+    const response = await fetch('/api/target-domain-config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        targetDomains,
+        serviceAccountConfig,
+        customAdminEmails
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to setup target domains: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error setting up target domains:', error);
+    return {
+      success: false,
+      configuredDomains: [],
+      errors: [error instanceof Error ? error.message : 'Unknown error'],
+      targetAdminEmails: {}
+    };
+  }
+}
 
 interface ServiceAccountTargetSetupProps {
   targetDomains: string[];
@@ -29,6 +68,13 @@ export const ServiceAccountTargetSetup: React.FC<ServiceAccountTargetSetupProps>
     targetAdminEmails: TargetDomainConfig;
   } | null>(null);
   const [serviceAccountConfig, setServiceAccountConfig] = useState<ServiceAccountConfig>({
+    credentialsPath: '',
+    scopes: [
+      'https://www.googleapis.com/auth/admin.directory.user',
+      'https://www.googleapis.com/auth/admin.directory.group',
+      'https://www.googleapis.com/auth/admin.directory.domain'
+    ],
+    delegatedAdminEmail: '',
     clientEmail: '',
     privateKey: '',
     clientId: ''
@@ -41,12 +87,18 @@ export const ServiceAccountTargetSetup: React.FC<ServiceAccountTargetSetupProps>
   useEffect(() => {
     const loadServiceAccountConfig = () => {
       const config: ServiceAccountConfig = {
+        credentialsPath: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || '',
+        scopes: [
+          'https://www.googleapis.com/auth/admin.directory.user',
+          'https://www.googleapis.com/auth/admin.directory.group',
+          'https://www.googleapis.com/auth/admin.directory.domain'
+        ],
+        delegatedAdminEmail: process.env.GOOGLE_ADMIN_EMAIL || '',
         clientEmail: process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 
                     process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 
                     'gws-permission@gws-migration-463208.iam.gserviceaccount.com',
         privateKey: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '',
-        clientId: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || '114333598950671892438',
-        projectId: 'gws-migration-463208'
+        clientId: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID || '114333598950671892438'
       };
       setServiceAccountConfig(config);
     };

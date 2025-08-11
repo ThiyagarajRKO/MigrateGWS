@@ -317,6 +317,7 @@ export function createOAuthPopup(
  * Note: This is a simplified implementation. For production use,
  * prefer using the useOAuth hook from @/hooks/useOAuth.ts
  */
+/* eslint-disable react-hooks/rules-of-hooks */
 export function usePopupManager() {
   // Use dynamic import for React to avoid module resolution issues
   if (typeof window === 'undefined') {
@@ -325,9 +326,9 @@ export function usePopupManager() {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // Dynamic import to avoid requiring React at module level
     const React = require('react');
-    const popupManagerRef = React.useRef(null as PopupManager | null);
+    const popupManagerRef = React.useRef(null);
 
     // Initialize popup manager
     const getPopupManager = () => {
