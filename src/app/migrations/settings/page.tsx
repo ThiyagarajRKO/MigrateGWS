@@ -370,7 +370,7 @@ export default function MigrationSettingsPage() {
                   
                   <div className="space-y-6">
                     {settings.services.map((service) => {
-                      const Icon = service.icon;
+                      const Icon = service.icon as React.ComponentType<{ className?: string }>;
                       return (
                         <div key={service.id} className="border border-gray-200 rounded-lg p-4">
                           <div className="flex items-center justify-between mb-4">

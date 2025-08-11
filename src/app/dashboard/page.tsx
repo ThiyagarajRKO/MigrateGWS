@@ -4,6 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { 
   BarChart3, 
   Users, 
@@ -102,185 +106,192 @@ export default function Dashboard() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'running':
-        return <Clock className="h-4 w-4 text-blue-600" />;
+        return <Clock className="h-4 w-4 text-info-600" />;
       case 'completed':
-        return <CheckCircle className="h-4 w-4 text-blue-600" />;
+        return <CheckCircle className="h-4 w-4 text-success-600" />;
       case 'failed':
-        return <AlertTriangle className="h-4 w-4 text-blue-600" />;
+        return <AlertTriangle className="h-4 w-4 text-danger-600" />;
       default:
-        return <Clock className="h-4 w-4 text-blue-600" />;
+        return <Clock className="h-4 w-4 text-secondary-600" />;
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case 'running':
-        return 'bg-blue-100 text-blue-800';
+        return 'info';
       case 'completed':
-        return 'bg-blue-100 text-blue-800';
+        return 'success';
       case 'failed':
-        return 'bg-blue-100 text-blue-800';
+        return 'danger';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'primary';
     }
   };
 
   const getServiceIcon = (service: string) => {
     switch (service.toLowerCase()) {
       case 'gmail':
-        return <Mail className="h-3 w-3 text-blue-600" />;
+        return <Mail className="h-3 w-3 text-primary-600" />;
       case 'drive':
-        return <FolderOpen className="h-3 w-3 text-blue-600" />;
+        return <FolderOpen className="h-3 w-3 text-primary-600" />;
       case 'calendar':
-        return <Calendar className="h-3 w-3 text-blue-600" />;
+        return <Calendar className="h-3 w-3 text-primary-600" />;
       case 'contacts':
-        return <UserCheck className="h-3 w-3 text-blue-600" />;
+        return <UserCheck className="h-3 w-3 text-primary-600" />;
       case 'photos':
-        return <Camera className="h-3 w-3 text-blue-600" />;
+        return <Camera className="h-3 w-3 text-primary-600" />;
       case 'chat':
-        return <MessageSquare className="h-3 w-3 text-blue-600" />;
+        return <MessageSquare className="h-3 w-3 text-primary-600" />;
       default:
-        return <Settings className="h-3 w-3 text-blue-600" />;
+        return <Settings className="h-3 w-3 text-primary-600" />;
     }
   };
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+      <div className="min-h-screen bg-secondary-50">
         {/* Header */}
-        <header className="bg-white/80 backdrop-blur-sm shadow-sm border-b border-gray-200/50">
+        <header className="bg-white shadow-sm border-b border-secondary-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-6">
+            <div className="flex justify-between items-center py-4">
               <div className="flex items-center">
-                <div className="p-2 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl mr-4 shadow-lg">
-                  <Database className="h-6 w-6 text-white" />
+                <div className="p-2 bg-primary-500 rounded-lg mr-3">
+                  <Database className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-semibold text-gray-900">Migration Dashboard</h1>
-                  <p className="text-gray-700 font-medium">Monitor and manage your workspace migrations</p>
+                  <h1 className="text-lg font-semibold text-secondary-900">Migration Dashboard</h1>
+                  <p className="text-xs text-secondary-600">Monitor and manage your workspace migrations</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <User className="h-4 w-4 text-blue-600" />
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 bg-primary-100 rounded-full flex items-center justify-center">
+                    <User className="h-3 w-3 text-primary-600" />
                   </div>
-                  <span className="text-sm font-medium text-gray-700">{user?.name || 'Admin User'}</span>
+                  <span className="text-xs font-medium text-secondary-700">{user?.name || 'Admin User'}</span>
                 </div>
-                <button
-                  onClick={signOut}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                  title="Sign out"
-                >
-                  <LogOut className="h-5 w-5" />
-                </button>
+                <Button variant="ghost" size="sm" onClick={signOut} title="Sign out">
+                  <LogOut className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Start Migration Button */}
-          <div className="mb-8">
-            <Link 
-              href="/migrations/new"
-              className="inline-flex items-center bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all font-medium space-x-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              <Plus className="h-5 w-5" />
-              <span>Start Migration</span>
+          <div className="mb-6">
+            <Link href="/migrations/new">
+              <Button size="lg">
+                <Plus className="h-4 w-4 mr-2" />
+                Start Migration
+              </Button>
             </Link>
           </div>
 
           {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-            <div className="bg-white/70 backdrop-blur-sm rounded-xl shadow-sm border border-white/50 p-6 hover:shadow-lg transition-all">
-              <div className="flex items-center">
-                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-md">
-                  <BarChart3 className="h-6 w-6 text-white" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <Card className="hover:shadow-lg transition-all duration-200">
+              <CardContent className="p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-primary-500 rounded-lg">
+                    <BarChart3 className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-xl font-bold text-secondary-900">{stats.total}</p>
+                    <p className="text-xs text-secondary-600">Total Migrations</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-                  <p className="text-sm text-gray-700 font-medium">Total Migrations</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
-            <div className="bg-white/70 backdrop-blur-sm rounded-xl shadow-sm border border-white/50 p-6 hover:shadow-lg transition-all">
-              <div className="flex items-center">
-                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-md">
-                  <Activity className="h-6 w-6 text-white" />
+            <Card className="hover:shadow-lg transition-all duration-200">
+              <CardContent className="p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-info-500 rounded-lg">
+                    <Activity className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-xl font-bold text-secondary-900">{stats.active}</p>
+                    <p className="text-xs text-secondary-600">Active Migrations</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-gray-900">{stats.active}</p>
-                  <p className="text-sm text-gray-700 font-medium">Active Migrations</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
-            <div className="bg-white/70 backdrop-blur-sm rounded-xl shadow-sm border border-white/50 p-6 hover:shadow-lg transition-all">
-              <div className="flex items-center">
-                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-md">
-                  <CheckCircle className="h-6 w-6 text-white" />
+            <Card className="hover:shadow-lg transition-all duration-200">
+              <CardContent className="p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-success-500 rounded-lg">
+                    <CheckCircle className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-xl font-bold text-secondary-900">{stats.completed}</p>
+                    <p className="text-xs text-secondary-600">Completed</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-gray-900">{stats.completed}</p>
-                  <p className="text-sm text-gray-700 font-medium">Completed</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
-            <div className="bg-white/70 backdrop-blur-sm rounded-xl shadow-sm border border-white/50 p-6 hover:shadow-lg transition-all">
-              <div className="flex items-center">
-                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-md">
-                  <AlertTriangle className="h-6 w-6 text-white" />
+            <Card className="hover:shadow-lg transition-all duration-200">
+              <CardContent className="p-4">
+                <div className="flex items-center">
+                  <div className="p-2 bg-danger-500 rounded-lg">
+                    <AlertTriangle className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-xl font-bold text-secondary-900">{stats.failed}</p>
+                    <p className="text-xs text-secondary-600">Failed</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-gray-900">{stats.failed}</p>
-                  <p className="text-sm text-gray-700 font-medium">Failed</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Quick Actions for non-Google users */}
           {user?.provider !== 'google' && (
-            <div className="bg-blue-50 rounded-lg p-5 mb-8 border border-blue-200">
-              <div className="flex items-center">
-                <Shield className="h-6 w-6 text-blue-600 mr-3" />
-                <div>
-                  <h3 className="text-base font-medium text-gray-900">Google Workspace Required</h3>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    To use migration features, please sign in with a Google Workspace account that has admin privileges.
-                  </p>
-                </div>
-              </div>
+            <div className="mb-8">
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center">
+                    <Shield className="h-6 w-6 text-primary-600 mr-3" />
+                    <div>
+                      <h3 className="text-base font-medium text-secondary-900">Google Workspace Required</h3>
+                      <p className="text-secondary-600 text-sm leading-relaxed">
+                        To use migration features, please sign in with a Google Workspace account that has admin privileges.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
           {/* Recent Migrations */}
-          <div className="bg-white/70 backdrop-blur-sm rounded-xl shadow-sm border border-white/50">
-            <div className="px-6 py-5 border-b border-gray-100">
+          <Card>
+            <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg">
+                  <div className="p-2 bg-primary-500 rounded-lg">
                     <TrendingUp className="h-5 w-5 text-white" />
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Migrations</h3>
+                  <CardTitle>Recent Migrations</CardTitle>
                 </div>
                 <Link 
                   href="/migrations" 
-                  className="text-sm text-blue-600 hover:text-blue-700 font-semibold transition-colors"
+                  className="text-sm text-primary-600 hover:text-primary-700 font-semibold transition-colors"
                 >
                   View All
                 </Link>
               </div>
-            </div>
-            <div className="p-6">
+            </CardHeader>
+            <CardContent>
               <div className="space-y-4">
                 {recentMigrations.map((migration) => (
                   <div 
                     key={migration.id} 
-                    className="border border-gray-100 rounded-xl p-5 hover:shadow-md hover:border-blue-200 transition-all bg-gradient-to-r from-white to-gray-50/50"
+                    className="border border-secondary-200 rounded-lg p-5 hover:shadow-md hover:border-primary-200 transition-all bg-secondary-50/50"
                   >
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-3">
@@ -288,19 +299,19 @@ export default function Dashboard() {
                           {getStatusIcon(migration.status)}
                         </div>
                         <div>
-                          <h4 className="text-sm font-semibold text-gray-900">{migration.name}</h4>
-                          <p className="text-xs text-gray-600 font-medium">
+                          <h4 className="text-sm font-semibold text-secondary-900">{migration.name}</h4>
+                          <p className="text-xs text-secondary-600 font-medium">
                             {migration.source} → {migration.target}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center space-x-3">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(migration.status)}`}>
+                        <Badge variant={getStatusBadge(migration.status) as any}>
                           {migration.status}
-                        </span>
+                        </Badge>
                         <Link 
                           href={migration.logUrl}
-                          className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center space-x-1 bg-blue-50 px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors"
+                          className="text-primary-600 hover:text-primary-800 text-xs font-medium flex items-center space-x-1 bg-primary-50 px-2 py-1 rounded-lg hover:bg-primary-100 transition-colors"
                         >
                           <FileText className="h-3 w-3" />
                           <span>Logs</span>
@@ -333,13 +344,14 @@ export default function Dashboard() {
                     </div>
                     
                     <div className="flex items-center justify-between">
-                      <div className="text-xs text-gray-700 font-semibold">
+                      <div className="text-xs text-secondary-700 font-semibold">
                         Progress: {migration.progress}% complete
                       </div>
-                      <div className="w-32 bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                          style={{ width: `${migration.progress}%` }}
+                      <div className="w-32">
+                        <Progress 
+                          value={migration.progress} 
+                          variant={migration.status === 'failed' ? 'danger' : migration.status === 'completed' ? 'success' : 'default'}
+                          size="sm"
                         />
                       </div>
                     </div>
@@ -349,22 +361,21 @@ export default function Dashboard() {
               
               {recentMigrations.length === 0 && (
                 <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center mx-auto mb-4">
-                    <Database className="h-8 w-8 text-blue-600" />
+                  <div className="w-16 h-16 bg-primary-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                    <Database className="h-8 w-8 text-primary-600" />
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No migrations yet</h3>
-                  <p className="text-gray-600 mb-6">Get started by creating your first migration</p>
-                  <Link 
-                    href="/migrations/new"
-                    className="inline-flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Migration
-                  </Link>
+                  <h3 className="text-lg font-semibold text-secondary-900 mb-2">No migrations yet</h3>
+                  <p className="text-secondary-600 mb-6">Get started by creating your first migration</p>
+                  <Button size="lg" className="shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                    <Link href="/migrations/new" className="flex items-center space-x-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Create Migration</span>
+                    </Link>
+                  </Button>
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </main>
       </div>
     </ProtectedRoute>

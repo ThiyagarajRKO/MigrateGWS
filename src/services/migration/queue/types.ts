@@ -22,6 +22,7 @@ export interface MigrationJob {
   startedAt?: string;
   completedAt?: string;
   failedAt?: string;
+  error?: string;
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'retrying';
   metadata?: {
     estimatedItems?: number;

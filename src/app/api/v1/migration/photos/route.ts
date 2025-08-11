@@ -4,6 +4,9 @@ import { createServiceAccountService } from '@/lib/google-workspace'
 import { authOptions } from '@/lib/auth-options'
 import { google } from 'googleapis'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 interface PhotosMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
@@ -67,13 +70,13 @@ export async function POST(request: NextRequest) {
 
     if (scenario === 'single-super-admin') {
       const gwsService = createServiceAccountService(sourceAdminEmail)
-      sourcePhotosService = google.photoslibrary({ version: 'v1', auth: gwsService['jwtClient'] })
+      sourcePhotosService = (google as any).photoslibrary({ version: 'v1', auth: gwsService['jwtClient'] })
       targetPhotosService = sourcePhotosService
     } else {
       const sourceService = createServiceAccountService(sourceAdminEmail)
       const targetService = createServiceAccountService(targetAdminEmail)
-      sourcePhotosService = google.photoslibrary({ version: 'v1', auth: sourceService['jwtClient'] })
-      targetPhotosService = google.photoslibrary({ version: 'v1', auth: targetService['jwtClient'] })
+      sourcePhotosService = (google as any).photoslibrary({ version: 'v1', auth: sourceService['jwtClient'] })
+      targetPhotosService = (google as any).photoslibrary({ version: 'v1', auth: targetService['jwtClient'] })
     }
 
     const migrationId = `photos-${Date.now()}-${sourceUserEmail}`

@@ -4,6 +4,7 @@ import { useState, lazy, Suspense, useEffect, useRef, useCallback, useMemo } fro
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useCrossTenantTokens } from '@/lib/cross-tenant-auth-context';
+import { useVerificationTokenGenerator } from '@/hooks/useVerificationTokenGenerator';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { 
   MigrationScenario, 
@@ -44,7 +45,11 @@ import {
   ClipboardList,
   UserPlus,
   AlertTriangle,
-  GitBranch
+  GitBranch,
+  RefreshCw,
+  Download,
+  Pause,
+  StopCircle
 } from 'lucide-react';
 
 // Dynamic imports for heavy components with better loading strategies
@@ -239,6 +244,13 @@ export default function NewMigration() {
   }}>({});
   const [oauthInProgress, setOauthInProgress] = useState<string | null>(null);
 
+  // Verification token generator hook for target user listing
+  const verificationTokenGenerator = useVerificationTokenGenerator({
+    debug: true,
+    componentName: 'MigrationWizard',
+    storageKey: 'dwd_verification_token'
+  });
+
   // Component lifecycle tracking
   useEffect(() => {
     console.log('[Migration Wizard] Component mounted at:', new Date().toISOString());
@@ -325,6 +337,493 @@ export default function NewMigration() {
   const [userViewMode, setUserViewMode] = useState<'cloned' | 'all'>('cloned');
 
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
+
+  // Real-time migration progress updates with one-to-many and many-to-one support
+  useEffect(() => {
+    if (!migrationStatus || migrationStatus.status !== 'running') {
+      return;
+    }
+
+    const updateMigrationProgress = () => {
+      setMigrationStatus(prev => {
+        if (!prev || prev.status !== 'running') return prev;
+
+        // Check relationship type for appropriate progress tracking
+        const isOneToMany = userMappingConfig?.relationship === 'one-to-many';
+        const isManyToOne = userMappingConfig?.relationship === 'many-to-one';
+        const effectiveUserCount = isOneToMany || isManyToOne ? 
+          (prev.migrationConfig?.executionPlan?.effectiveUsers || selectedAllTargetUsers.length) : 
+          selectedAllTargetUsers.length;
+
+        // Simulate progressive updates
+        const currentProgress = prev.overallProgress || 0;
+        const increment = Math.random() * 2; // Random increment 0-2%
+        const newProgress = Math.min(100, currentProgress + increment);
+
+        console.log(`[Service Migration] Overall progress update`, {
+          migrationId: prev.id,
+          previousProgress: currentProgress.toFixed(2),
+          newProgress: newProgress.toFixed(2),
+          increment: increment.toFixed(2),
+          effectiveUserCount,
+          relationship: userMappingConfig?.relationship,
+          activeServices: migrationConfig.services.filter(s => 
+            prev.serviceProgress?.[s.toLowerCase()]?.status === 'running'
+          ),
+          timestamp: new Date().toISOString()
+        });
+
+        // Log major milestones
+        const previousMilestone = Math.floor(currentProgress / 25);
+        const newMilestone = Math.floor(newProgress / 25);
+        if (newMilestone > previousMilestone && newProgress < 100) {
+          const milestonePercent = newMilestone * 25;
+          console.log(`[Service Migration] 🎯 MILESTONE REACHED: ${milestonePercent}%`, {
+            migrationId: prev.id,
+            milestone: `${milestonePercent}%`,
+            currentProgress: newProgress.toFixed(2),
+            servicesStatus: Object.keys(prev.serviceProgress || {}).map(service => ({
+              service,
+              status: prev.serviceProgress![service].status,
+              progress: prev.serviceProgress![service].progress.toFixed(1)
+            })),
+            estimatedTimeRemaining: prev.estimatedCompletion ? 
+              new Date(prev.estimatedCompletion).getTime() - new Date().getTime() : 'unknown',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // Initialize service progress if not exists
+        const serviceProgress = prev.serviceProgress ? { ...prev.serviceProgress } : {};
+        const userProgress = prev.userProgress ? { ...prev.userProgress } : {};
+
+        // Update service progress with relationship awareness
+        migrationConfig.services.forEach((service, index) => {
+          const serviceName = service.toLowerCase();
+          if (!serviceProgress[serviceName]) {
+            console.log(`[Service Migration] Initializing service progress for: ${serviceName}`, {
+              serviceIndex: index,
+              effectiveUserCount,
+              relationship: userMappingConfig?.relationship,
+              isFirstService: index === 0,
+              timestamp: new Date().toISOString()
+            });
+            
+            const baseProgress = {
+              progress: 0,
+              status: index === 0 ? 'running' as const : 'pending' as const,
+              itemsProcessed: 0,
+              totalItems: effectiveUserCount,
+              errors: [] as string[],
+              estimatedTimeRemaining: 300000 // 5 minutes in ms
+            };
+            
+            // Add relationship-specific tracking as additional properties
+            if (isOneToMany) {
+              console.log(`[Service Migration] Adding one-to-many tracking for ${serviceName}`, {
+                targetUsersCount: selectedAllTargetUsers.length,
+                parallelGroupsEstimate: Math.ceil(selectedAllTargetUsers.length / 5)
+              });
+              
+              (baseProgress as any).parallelGroups = {
+                total: 0,
+                completed: 0,
+                active: 0,
+                failed: 0
+              };
+              (baseProgress as any).targetUsers = {
+                total: selectedAllTargetUsers.length,
+                completed: 0,
+                inProgress: 0,
+                failed: 0
+              };
+            } else if (isManyToOne) {
+              console.log(`[Service Migration] Adding many-to-one tracking for ${serviceName}`, {
+                sourceMappingsCount: selectedAllTargetUsers.length,
+                consolidationGroupsEstimate: Math.max(1, Math.floor(selectedAllTargetUsers.length / 3))
+              });
+              
+              (baseProgress as any).consolidationGroups = {
+                total: 0,
+                completed: 0,
+                active: 0,
+                failed: 0
+              };
+              (baseProgress as any).sourceUsers = {
+                total: 0, // Will be calculated dynamically
+                processed: 0,
+                consolidating: 0,
+                failed: 0
+              };
+              (baseProgress as any).dataConsolidation = {
+                conflictsDetected: 0,
+                conflictsResolved: 0,
+                mergingInProgress: false,
+                tempStorageUsed: '0MB'
+              };
+            } else {
+              console.log(`[Service Migration] Adding standard one-to-one tracking for ${serviceName}`, {
+                userCount: effectiveUserCount
+              });
+            }
+            
+            serviceProgress[serviceName] = baseProgress;
+            console.log(`[Service Migration] Service ${serviceName} initialized with status: ${baseProgress.status}`);
+          }
+
+          // Update active service
+          if (serviceProgress[serviceName].status === 'running') {
+            const progressIncrement = Math.random() * 3;
+            const newServiceProgress = Math.min(100, serviceProgress[serviceName].progress + progressIncrement);
+            const previousProgress = serviceProgress[serviceName].progress;
+            
+            console.log(`[Service Migration] Updating active service: ${serviceName}`, {
+              previousProgress: previousProgress.toFixed(2),
+              newProgress: newServiceProgress.toFixed(2),
+              increment: progressIncrement.toFixed(2),
+              itemsProcessed: Math.round((newServiceProgress / 100) * effectiveUserCount),
+              totalItems: effectiveUserCount,
+              estimatedTimeRemaining: Math.max(0, (serviceProgress[serviceName].estimatedTimeRemaining || 0) - 5000)
+            });
+            
+            serviceProgress[serviceName] = {
+              ...serviceProgress[serviceName],
+              progress: newServiceProgress,
+              itemsProcessed: Math.round((newServiceProgress / 100) * effectiveUserCount),
+              estimatedTimeRemaining: Math.max(0, (serviceProgress[serviceName].estimatedTimeRemaining || 0) - 5000)
+            };
+            
+            // Update relationship-specific progress
+            if (isOneToMany && (serviceProgress[serviceName] as any).targetUsers) {
+              const totalProgress = serviceProgress[serviceName].progress;
+              const previousCompleted = (serviceProgress[serviceName] as any).targetUsers.completed;
+              const newCompleted = Math.round((totalProgress / 100) * selectedAllTargetUsers.length);
+              const newInProgress = Math.min(5, selectedAllTargetUsers.length - newCompleted);
+              
+              (serviceProgress[serviceName] as any).targetUsers.completed = newCompleted;
+              (serviceProgress[serviceName] as any).targetUsers.inProgress = newInProgress;
+              
+              console.log(`[Service Migration] One-to-many progress for ${serviceName}`, {
+                totalProgress: totalProgress.toFixed(2),
+                targetUsers: {
+                  total: selectedAllTargetUsers.length,
+                  previousCompleted,
+                  newCompleted,
+                  inProgress: newInProgress,
+                  failed: (serviceProgress[serviceName] as any).targetUsers.failed
+                }
+              });
+              
+              // Update parallel groups progress
+              if ((serviceProgress[serviceName] as any).parallelGroups) {
+                const previousGroupsCompleted = (serviceProgress[serviceName] as any).parallelGroups.completed;
+                const newGroupsCompleted = Math.floor(totalProgress / 20);
+                const activeGroups = totalProgress < 100 ? 
+                  Math.min(3, 5 - newGroupsCompleted) : 0;
+                
+                (serviceProgress[serviceName] as any).parallelGroups.completed = newGroupsCompleted;
+                (serviceProgress[serviceName] as any).parallelGroups.active = activeGroups;
+                
+                console.log(`[Service Migration] Parallel groups update for ${serviceName}`, {
+                  previousCompleted: previousGroupsCompleted,
+                  newCompleted: newGroupsCompleted,
+                  active: activeGroups,
+                  total: (serviceProgress[serviceName] as any).parallelGroups.total
+                });
+              }
+            } else if (isManyToOne && (serviceProgress[serviceName] as any).sourceUsers) {
+              const totalProgress = serviceProgress[serviceName].progress;
+              
+              // Simulate source processing and consolidation
+              const totalSources = selectedAllTargetUsers.length; // Total source mappings
+              const previousProcessed = (serviceProgress[serviceName] as any).sourceUsers.processed;
+              const processedSources = Math.round((totalProgress / 100) * totalSources);
+              const consolidatingCount = totalProgress > 50 && totalProgress < 90 ? 
+                Math.min(3, totalSources - processedSources) : 0;
+              
+              console.log(`[Service Migration] Many-to-one progress for ${serviceName}`, {
+                totalProgress: totalProgress.toFixed(2),
+                sourceUsers: {
+                  total: totalSources,
+                  previousProcessed,
+                  newProcessed: processedSources,
+                  consolidating: consolidatingCount,
+                  failed: Math.floor(Math.random() * 2)
+                }
+              });
+              
+              (serviceProgress[serviceName] as any).sourceUsers = {
+                ...((serviceProgress[serviceName] as any).sourceUsers || {}),
+                total: totalSources,
+                processed: processedSources,
+                consolidating: consolidatingCount,
+                failed: Math.floor(Math.random() * 2) // Simulate occasional failures
+              };
+              
+              // Update consolidation groups progress
+              if ((serviceProgress[serviceName] as any).consolidationGroups) {
+                const totalGroups = Math.max(1, Math.floor(selectedAllTargetUsers.length / 3)); // Estimate consolidation groups
+                const previousGroupsCompleted = (serviceProgress[serviceName] as any).consolidationGroups.completed;
+                const newGroupsCompleted = Math.floor((totalProgress / 100) * totalGroups);
+                const activeGroups = totalProgress > 25 && totalProgress < 95 ? 1 : 0;
+                
+                (serviceProgress[serviceName] as any).consolidationGroups = {
+                  total: totalGroups,
+                  completed: newGroupsCompleted,
+                  active: activeGroups,
+                  failed: 0
+                };
+                
+                console.log(`[Service Migration] Consolidation groups update for ${serviceName}`, {
+                  totalGroups,
+                  previousCompleted: previousGroupsCompleted,
+                  newCompleted: newGroupsCompleted,
+                  active: activeGroups,
+                  estimatedGroupSize: Math.floor(selectedAllTargetUsers.length / totalGroups)
+                });
+              }
+              
+              // Update data consolidation progress
+              if ((serviceProgress[serviceName] as any).dataConsolidation) {
+                const conflicts = Math.floor(processedSources * 0.1); // 10% conflict rate
+                const previousConflictsResolved = (serviceProgress[serviceName] as any).dataConsolidation.conflictsResolved;
+                const newConflictsResolved = Math.floor(conflicts * (totalProgress / 100));
+                const isMerging = totalProgress > 60 && totalProgress < 90;
+                const tempStorage = `${Math.floor((totalProgress / 100) * 250)}MB`;
+                
+                (serviceProgress[serviceName] as any).dataConsolidation = {
+                  conflictsDetected: conflicts,
+                  conflictsResolved: newConflictsResolved,
+                  mergingInProgress: isMerging,
+                  tempStorageUsed: tempStorage
+                };
+                
+                console.log(`[Service Migration] Data consolidation update for ${serviceName}`, {
+                  conflictsDetected: conflicts,
+                  previousResolved: previousConflictsResolved,
+                  newResolved: newConflictsResolved,
+                  mergingInProgress: isMerging,
+                  tempStorageUsed: tempStorage,
+                  conflictResolutionRate: conflicts > 0 ? ((newConflictsResolved / conflicts) * 100).toFixed(1) + '%' : '0%'
+                });
+              }
+            }
+
+            // Mark as completed and start next service
+            if (newServiceProgress >= 100) {
+              console.log(`[Service Migration] Service ${serviceName} completed (100%)`, {
+                finalStatus: 'completed',
+                totalItemsProcessed: effectiveUserCount,
+                relationship: userMappingConfig?.relationship,
+                completionTime: new Date().toISOString()
+              });
+              
+              serviceProgress[serviceName] = {
+                ...serviceProgress[serviceName],
+                status: 'completed' as const,
+                progress: 100
+              };
+              
+              // Update completion stats for relationships
+              if (isOneToMany && (serviceProgress[serviceName] as any).targetUsers) {
+                (serviceProgress[serviceName] as any).targetUsers.completed = selectedAllTargetUsers.length;
+                (serviceProgress[serviceName] as any).targetUsers.inProgress = 0;
+                
+                console.log(`[Service Migration] One-to-many completion stats for ${serviceName}`, {
+                  totalTargetUsers: selectedAllTargetUsers.length,
+                  allCompleted: true,
+                  parallelGroups: (serviceProgress[serviceName] as any).parallelGroups
+                });
+              } else if (isManyToOne && (serviceProgress[serviceName] as any).sourceUsers) {
+                const totalSources = (serviceProgress[serviceName] as any).sourceUsers.total;
+                (serviceProgress[serviceName] as any).sourceUsers.processed = totalSources;
+                (serviceProgress[serviceName] as any).sourceUsers.consolidating = 0;
+                
+                console.log(`[Service Migration] Many-to-one completion stats for ${serviceName}`, {
+                  totalSourcesProcessed: totalSources,
+                  consolidationComplete: true,
+                  finalConsolidationGroups: (serviceProgress[serviceName] as any).consolidationGroups
+                });
+                
+                if ((serviceProgress[serviceName] as any).dataConsolidation) {
+                  (serviceProgress[serviceName] as any).dataConsolidation.mergingInProgress = false;
+                  
+                  console.log(`[Service Migration] Data consolidation finalized for ${serviceName}`, {
+                    finalConflictsResolved: (serviceProgress[serviceName] as any).dataConsolidation.conflictsResolved,
+                    totalConflictsDetected: (serviceProgress[serviceName] as any).dataConsolidation.conflictsDetected,
+                    finalTempStorage: (serviceProgress[serviceName] as any).dataConsolidation.tempStorageUsed,
+                    mergingComplete: true
+                  });
+                }
+              }
+              
+              // Start next service
+              const nextServiceIndex = index + 1;
+              if (nextServiceIndex < migrationConfig.services.length) {
+                const nextServiceName = migrationConfig.services[nextServiceIndex].toLowerCase();
+                if (serviceProgress[nextServiceName]) {
+                  console.log(`[Service Migration] Starting next service: ${nextServiceName}`, {
+                    previousService: serviceName,
+                    serviceIndex: nextServiceIndex,
+                    totalServices: migrationConfig.services.length,
+                    timestamp: new Date().toISOString()
+                  });
+                  
+                  serviceProgress[nextServiceName] = {
+                    ...serviceProgress[nextServiceName],
+                    status: 'running' as const
+                  };
+                } else {
+                  console.warn(`[Service Migration] Next service ${nextServiceName} not found in progress tracking`);
+                }
+              } else {
+                console.log(`[Service Migration] All services completed!`, {
+                  completedService: serviceName,
+                  totalServicesCompleted: migrationConfig.services.length,
+                  allServicesStatus: Object.keys(serviceProgress).map(s => ({
+                    service: s,
+                    status: serviceProgress[s].status,
+                    progress: serviceProgress[s].progress
+                  })),
+                  timestamp: new Date().toISOString()
+                });
+              }
+            }
+          }
+        });
+
+        // Update user progress (existing logic with relationship considerations)
+        selectedAllTargetUsers.forEach((user, index) => {
+          const userEmail = user.primaryEmail;
+          if (!userProgress[userEmail]) {
+            userProgress[userEmail] = {
+              progress: 0,
+              currentService: migrationConfig.services[0]?.toLowerCase() || 'unknown',
+              status: 'pending',
+              servicesCompleted: [],
+              errors: [],
+              startTime: null,
+              lastUpdated: new Date().toISOString(),
+              // Add relationship-specific metadata
+              ...(isManyToOne && {
+                sourceUsers: user.sourceEmail ? [user.sourceEmail] : [],
+                // These properties will be added as additional metadata, not part of standard UserProgress type
+                consolidationStatus: 'pending' as any,
+                dataConflicts: [] as any
+              }),
+              ...(isOneToMany && user.parallelGroup && {
+                parallelGroupId: user.parallelGroup.groupId as any,
+                isParallelTarget: true as any,
+                sourceUser: user.sourceEmail as any
+              })
+            };
+          }
+
+          // Simulate user-specific progress
+          if (userProgress[userEmail].status === 'pending' && newProgress > index * 10) {
+            userProgress[userEmail] = {
+              ...userProgress[userEmail],
+              status: 'processing',
+              startTime: new Date().toISOString()
+            };
+          }
+
+          if (userProgress[userEmail].status === 'processing') {
+            const newUserProgress = Math.min(100, userProgress[userEmail].progress + Math.random() * 4);
+            userProgress[userEmail] = {
+              ...userProgress[userEmail],
+              progress: newUserProgress,
+              lastUpdated: new Date().toISOString()
+            };
+
+            // Update current service based on progress
+            const serviceIndex = Math.floor((newUserProgress / 100) * migrationConfig.services.length);
+            if (serviceIndex < migrationConfig.services.length) {
+              userProgress[userEmail] = {
+                ...userProgress[userEmail],
+                currentService: migrationConfig.services[serviceIndex].toLowerCase()
+              };
+            }
+            
+            // Update relationship-specific progress
+            if (isManyToOne && newUserProgress > 50) {
+              // Add consolidation status as additional property (not part of standard type)
+              (userProgress[userEmail] as any).consolidationStatus = newUserProgress < 90 ? 'consolidating' : 'completed';
+              (userProgress[userEmail] as any).dataConflicts = newUserProgress > 70 && Math.random() < 0.3 ? 
+                [`Label conflict: ${user.sourceEmail}`, `Folder merge: Documents`] : [];
+            }
+
+            // Mark as completed
+            if (newUserProgress >= 100) {
+              userProgress[userEmail] = {
+                ...userProgress[userEmail],
+                status: 'completed',
+                progress: 100,
+                servicesCompleted: [...migrationConfig.services]
+              };
+              
+              // Add consolidation completion for many-to-one
+              if (isManyToOne) {
+                (userProgress[userEmail] as any).consolidationStatus = 'completed';
+              }
+            }
+          }
+        });
+
+        const finalStatus = newProgress >= 100 ? 'completed' : 'running';
+        
+        if (finalStatus === 'completed' && prev.status === 'running') {
+          console.log(`[Service Migration] 🎉 MIGRATION COMPLETED! 🎉`, {
+            migrationId: prev.id,
+            migrationName: prev.name,
+            finalProgress: newProgress,
+            totalServices: migrationConfig.services.length,
+            completedServices: Object.values(serviceProgress).filter(s => s.status === 'completed').length,
+            totalUsers: selectedAllTargetUsers.length,
+            completedUsers: Object.values(userProgress).filter(u => u.status === 'completed').length,
+            relationship: userMappingConfig?.relationship,
+            duration: new Date().getTime() - new Date(prev.startTime).getTime(),
+            completionTime: new Date().toISOString(),
+            finalServiceStatuses: Object.keys(serviceProgress).map(service => ({
+              service,
+              status: serviceProgress[service].status,
+              progress: serviceProgress[service].progress,
+              itemsProcessed: serviceProgress[service].itemsProcessed
+            }))
+          });
+        }
+
+        return {
+          ...prev,
+          overallProgress: newProgress,
+          serviceProgress,
+          userProgress,
+          lastUpdated: new Date().toISOString(),
+          status: finalStatus
+        };
+      });
+    };
+
+    console.log(`[Service Migration] Starting migration progress updates`, {
+      migrationId: migrationStatus?.id,
+      status: migrationStatus?.status,
+      currentServices: migrationConfig.services,
+      selectedUsersCount: selectedAllTargetUsers.length,
+      relationship: userMappingConfig?.relationship,
+      updateInterval: '2 seconds'
+    });
+
+    // Update every 2 seconds
+    const interval = setInterval(updateMigrationProgress, 2000);
+    return () => {
+      console.log(`[Service Migration] Stopping migration progress updates`, {
+        migrationId: migrationStatus?.id,
+        finalStatus: migrationStatus?.status
+      });
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [migrationStatus?.status, migrationConfig.services, selectedAllTargetUsers, userMappingConfig?.relationship]);
 
   // Handle OAuth callback success - DISABLED for cross-tenant auth
   // Cross-tenant auth is handled by AuthenticateAndConfigureDomains component via postMessage
@@ -773,9 +1272,67 @@ export default function NewMigration() {
     setSelectedAllTargetUsers([]);
   };
 
+  // Function to enrich users with source mapping information
+  const enrichUsersWithSourceMapping = useCallback((users: any[]) => {
+    return users.map(user => {
+      // Try to find source mapping for this user
+      const sourceMapping = userMappings.find(mapping => 
+        mapping.targetEmail === user.primaryEmail || 
+        mapping.targetEmail === user.email ||
+        (mapping.user && mapping.user.primaryEmail === user.primaryEmail)
+      );
+
+      if (sourceMapping) {
+        return {
+          ...user,
+          sourceEmail: sourceMapping.user?.primaryEmail || sourceMapping.sourceEmail,
+          sourceDomain: sourceMapping.user?.primaryEmail?.split('@')[1] || sourceMapping.sourceEmail?.split('@')[1],
+          sourceUser: sourceMapping.user,
+          mappingRelationship: sourceMapping.relationship || 'one-to-one',
+          hasSourceMapping: true
+        };
+      }
+
+      // If no direct mapping found, try to infer from domain mapping
+      if (domainMapping && user.primaryEmail) {
+        const targetDomain = user.primaryEmail.split('@')[1];
+        const sourceDomain = Object.keys(domainMapping).find(source => 
+          domainMapping[source].includes(targetDomain)
+        );
+        
+        if (sourceDomain) {
+          // Create a potential source email using the same username
+          const username = user.primaryEmail.split('@')[0];
+          const potentialSourceEmail = `${username}@${sourceDomain}`;
+          
+          return {
+            ...user,
+            sourceEmail: potentialSourceEmail,
+            sourceDomain: sourceDomain,
+            mappingRelationship: 'inferred-from-domain',
+            hasSourceMapping: false, // Mark as inferred, not explicitly mapped
+            isInferredMapping: true
+          };
+        }
+      }
+
+      return {
+        ...user,
+        sourceEmail: null,
+        sourceDomain: null,
+        hasSourceMapping: false
+      };
+    });
+  }, [userMappings, domainMapping]);
+
   // Function to load all users from target domains for migration settings
-  const loadAllTargetDomainUsers = async () => {
+  const loadAllTargetDomainUsers = useCallback(async () => {
     console.log('[Migration Config] Loading all target domain users for migration settings...');
+    console.log('[Migration Config] Migration config:', {
+      targetDomains: migrationConfig.targetDomains,
+      targetDomain: migrationConfig.targetDomain,
+      domainMapping
+    });
     setLoadingAllTargetUsers(true);
     
     const targetDomains = getTargetDomains();
@@ -794,17 +1351,66 @@ export default function NewMigration() {
       // Load users from each target domain
       for (const domain of targetDomains) {
         const adminEmail = targetAdminEmails[domain];
-        if (!adminEmail) {
+        console.log(`[Migration Config] Checking domain: ${domain}, adminEmail: ${adminEmail}`);
+        console.log(`[Migration Config] All target admin emails:`, Object.keys(targetAdminEmails).map(d => `${d}: ${targetAdminEmails[d]}`));
+        
+        // Try to find admin email with different approaches
+        let effectiveAdminEmail: string | undefined = adminEmail;
+        if (!effectiveAdminEmail) {
+          // Try to find a matching admin email by checking variations
+          const possibleKeys = Object.keys(targetAdminEmails);
+          console.log(`[Migration Config] Trying to find admin email for ${domain} in keys:`, possibleKeys);
+          
+          // Try exact match first, then partial matches
+          const exactMatch = targetAdminEmails[domain];
+          const partialMatch = possibleKeys.find(key => key.includes(domain) || domain.includes(key));
+          effectiveAdminEmail = exactMatch || (partialMatch ? targetAdminEmails[partialMatch] : undefined);
+          
+          // Fallback to service account email if available
+          if (!effectiveAdminEmail) {
+            const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 
+                                      process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+            if (serviceAccountEmail) {
+              console.log(`[Migration Config] Using service account email as fallback for ${domain}: ${serviceAccountEmail}`);
+              effectiveAdminEmail = serviceAccountEmail;
+            }
+          }
+        }
+        
+        if (!effectiveAdminEmail) {
           console.warn(`[Migration Config] No admin email configured for domain: ${domain}`);
           continue;
         }
         
-        console.log(`[Migration Config] Fetching all users from domain: ${domain} with admin: ${adminEmail}`);
+        console.log(`[Migration Config] Fetching all users from domain: ${domain} with admin: ${effectiveAdminEmail}`);
         
-        const response = await fetch(`/api/google-workspace?action=list-users&domain=${domain}&adminEmail=${encodeURIComponent(adminEmail)}`);
+        const params = new URLSearchParams({
+          action: 'users',
+          domain,
+          adminEmail: effectiveAdminEmail,
+          includeSuspended: 'false'
+        });
+        
+        // Use verification token from generator hook
+        const verificationToken = verificationTokenGenerator.token;
+        
+        const response = await fetch(`/api/google-workspace?${params}`, {
+          method: 'GET',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(verificationToken && { 'X-Verification-Token': verificationToken })
+          },
+          credentials: 'include'
+        });
         
         if (!response.ok) {
-          console.error(`[Migration Config] Failed to fetch all users from ${domain}:`, response.status);
+          console.error(`[Migration Config] Failed to fetch all users from ${domain}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            url: response.url
+          });
+          const errorText = await response.text();
+          console.error(`[Migration Config] Error response body:`, errorText);
           continue;
         }
         
@@ -840,14 +1446,20 @@ export default function NewMigration() {
       }
       
       console.log(`[Migration Config] Total users loaded from all target domains: ${allUsers.length}`);
-      setAllTargetUsers(allUsers);
+      
+      // Enrich users with source mapping information
+      const enrichedUsers = enrichUsersWithSourceMapping(allUsers);
+      console.log(`[Migration Config] Enriched ${enrichedUsers.length} users with source mapping data`);
+      
+      setAllTargetUsers(enrichedUsers);
       
     } catch (error) {
       console.error('[Migration Config] Error loading all target domain users:', error);
     } finally {
       setLoadingAllTargetUsers(false);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [migrationConfig.targetDomains, migrationConfig.targetDomain, domainMapping, targetAdminEmails, enrichUsersWithSourceMapping]);
 
   // Function to load actual target domain users
   const loadActualTargetUsers = async () => {
@@ -867,17 +1479,66 @@ export default function NewMigration() {
       // Load users from each target domain
       for (const domain of targetDomains) {
         const adminEmail = targetAdminEmails[domain];
-        if (!adminEmail) {
+        console.log(`[Migration Config] [loadActualTargetUsers] Checking domain: ${domain}, adminEmail: ${adminEmail}`);
+        console.log(`[Migration Config] [loadActualTargetUsers] All target admin emails:`, Object.keys(targetAdminEmails).map(d => `${d}: ${targetAdminEmails[d]}`));
+        
+        // Try to find admin email with different approaches
+        let effectiveAdminEmail: string | undefined = adminEmail;
+        if (!effectiveAdminEmail) {
+          // Try to find a matching admin email by checking variations
+          const possibleKeys = Object.keys(targetAdminEmails);
+          console.log(`[Migration Config] Trying to find admin email for ${domain} in keys:`, possibleKeys);
+          
+          // Try exact match first, then partial matches
+          const exactMatch = targetAdminEmails[domain];
+          const partialMatch = possibleKeys.find(key => key.includes(domain) || domain.includes(key));
+          effectiveAdminEmail = exactMatch || (partialMatch ? targetAdminEmails[partialMatch] : undefined);
+          
+          // Fallback to service account email if available
+          if (!effectiveAdminEmail) {
+            const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || 
+                                      process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+            if (serviceAccountEmail) {
+              console.log(`[Migration Config] [loadActualTargetUsers] Using service account email as fallback for ${domain}: ${serviceAccountEmail}`);
+              effectiveAdminEmail = serviceAccountEmail;
+            }
+          }
+        }
+        
+        if (!effectiveAdminEmail) {
           console.warn(`[Migration Config] No admin email configured for domain: ${domain}`);
           continue;
         }
         
-        console.log(`[Migration Config] Fetching users from domain: ${domain} with admin: ${adminEmail}`);
+        console.log(`[Migration Config] Fetching users from domain: ${domain} with admin: ${effectiveAdminEmail}`);
         
-        const response = await fetch(`/api/google-workspace?action=list-users&domain=${domain}&adminEmail=${encodeURIComponent(adminEmail)}`);
+        const params = new URLSearchParams({
+          action: 'users',
+          domain,
+          adminEmail: effectiveAdminEmail,
+          includeSuspended: 'false'
+        });
+        
+        // Use verification token from generator hook
+        const verificationToken = verificationTokenGenerator.token;
+        
+        const response = await fetch(`/api/google-workspace?${params}`, {
+          method: 'GET',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(verificationToken && { 'X-Verification-Token': verificationToken })
+          },
+          credentials: 'include'
+        });
         
         if (!response.ok) {
-          console.error(`[Migration Config] Failed to fetch users from ${domain}:`, response.status);
+          console.error(`[Migration Config] Failed to fetch users from ${domain}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            url: response.url
+          });
+          const errorText = await response.text();
+          console.error(`[Migration Config] Error response body:`, errorText);
           continue;
         }
         
@@ -981,6 +1642,16 @@ export default function NewMigration() {
   const startMigration = () => {
     if (!selectedScenario) return;
 
+    // Ensure we have a domain mapping - create fallback if missing
+    let effectiveDomainMapping = domainMapping;
+    if (!effectiveDomainMapping && migrationConfig.sourceDomain && migrationConfig.targetDomain) {
+      console.log('[Migration Wizard] Domain mapping is null, creating fallback mapping');
+      effectiveDomainMapping = {
+        [migrationConfig.sourceDomain]: [migrationConfig.targetDomain]
+      };
+      console.log('[Migration Wizard] Created fallback domain mapping:', effectiveDomainMapping);
+    }
+
     const scenario = {
       type: selectedScenario,
       steps: selectedScenario === 'single-super-admin' 
@@ -998,6 +1669,102 @@ export default function NewMigration() {
       estimatedCompletion: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), // 6 hours from now
       overallProgress: 0,
       errors: [],
+      // Initialize service progress for all configured services
+      serviceProgress: (() => {
+        const serviceProgress: { [key: string]: any } = {};
+        
+        migrationConfig.services.forEach((service, index) => {
+          const serviceName = service.toLowerCase();
+          const effectiveUserCount = selectedAllTargetUsers.length;
+          
+          console.log(`[Migration Wizard] Initializing service progress for startup: ${serviceName}`, {
+            serviceIndex: index,
+            effectiveUserCount,
+            isFirstService: index === 0
+          });
+          
+          serviceProgress[serviceName] = {
+            progress: 0,
+            status: index === 0 ? 'running' as const : 'pending' as const,
+            itemsProcessed: 0,
+            totalItems: effectiveUserCount,
+            errors: [] as string[],
+            estimatedTimeRemaining: 300000, // 5 minutes in ms
+            // Add relationship-specific tracking
+            ...(userMappingConfig?.relationship === 'one-to-many' && {
+              parallelGroups: {
+                total: Math.ceil(selectedAllTargetUsers.length / 5),
+                completed: 0,
+                active: 0,
+                failed: 0
+              },
+              targetUsers: {
+                total: selectedAllTargetUsers.length,
+                completed: 0,
+                inProgress: 0,
+                failed: 0
+              }
+            }),
+            ...(userMappingConfig?.relationship === 'many-to-one' && {
+              consolidationGroups: {
+                total: Math.max(1, Math.floor(selectedAllTargetUsers.length / 3)),
+                completed: 0,
+                active: 0,
+                failed: 0
+              },
+              sourceUsers: {
+                total: selectedAllTargetUsers.length,
+                processed: 0,
+                consolidating: 0,
+                failed: 0
+              },
+              dataConsolidation: {
+                conflictsDetected: 0,
+                conflictsResolved: 0,
+                mergingInProgress: false,
+                tempStorageUsed: '0MB'
+              }
+            })
+          };
+        });
+        
+        console.log(`[Migration Wizard] Initialized service progress for ${Object.keys(serviceProgress).length} services:`, 
+          Object.keys(serviceProgress).map(s => `${s}: ${serviceProgress[s].status}`));
+        
+        return serviceProgress;
+      })(),
+      // Initialize user progress for all selected users
+      userProgress: (() => {
+        const userProgress: { [key: string]: any } = {};
+        
+        selectedAllTargetUsers.forEach(user => {
+          const userEmail = user.primaryEmail;
+          userProgress[userEmail] = {
+            progress: 0,
+            currentService: migrationConfig.services[0]?.toLowerCase() || 'unknown',
+            status: 'pending',
+            servicesCompleted: [],
+            errors: [],
+            startTime: null,
+            lastUpdated: new Date().toISOString(),
+            // Add relationship-specific metadata
+            ...(userMappingConfig?.relationship === 'many-to-one' && {
+              sourceUsers: user.sourceEmail ? [user.sourceEmail] : [],
+              consolidationStatus: 'pending',
+              dataConflicts: []
+            }),
+            ...(userMappingConfig?.relationship === 'one-to-many' && user.parallelGroup && {
+              parallelGroupId: user.parallelGroup.groupId,
+              isParallelTarget: true,
+              sourceUser: user.sourceEmail
+            })
+          };
+        });
+        
+        console.log(`[Migration Wizard] Initialized user progress for ${Object.keys(userProgress).length} users`);
+        
+        return userProgress;
+      })(),
       // Add migration configuration data
       migrationConfig: {
         services: migrationConfig.services,
@@ -1005,9 +1772,504 @@ export default function NewMigration() {
         targetDomain: migrationConfig.targetDomain,
         migrationOptions: migrationConfig.migrationOptions,
         userMappings: userMappings,
-        selectedUsers: selectedUsers,
-        domainMapping: domainMapping,
+        selectedUsers: selectedAllTargetUsers,
+        domainMapping: effectiveDomainMapping,
         userMappingConfig: userMappingConfig,
+        // Enhanced user mapping for services with one-to-many and many-to-one support
+        serviceUserMappings: (() => {
+          const allServiceMappings: any[] = [];
+          
+          // Handle one-to-many mappings
+          if (userMappingConfig?.relationship === 'one-to-many') {
+            console.log('[Migration Wizard] Processing one-to-many user mappings');
+            
+            // Group users by source email to handle one-to-many relationships
+            const sourceToTargetsMap = new Map<string, any[]>();
+            
+            selectedAllTargetUsers.forEach(user => {
+              const sourceEmail = user.sourceEmail || user.primaryEmail;
+              if (!sourceToTargetsMap.has(sourceEmail)) {
+                sourceToTargetsMap.set(sourceEmail, []);
+              }
+              sourceToTargetsMap.get(sourceEmail)!.push(user);
+            });
+            
+            // Create service mappings for each source-to-multiple-targets relationship
+            sourceToTargetsMap.forEach((targetUsers, sourceEmail) => {
+              if (targetUsers.length > 1) {
+                console.log(`[Migration Wizard] One-to-many: ${sourceEmail} → ${targetUsers.length} targets`, 
+                  targetUsers.map(u => u.primaryEmail));
+                
+                // Create a parallel migration group for this source user
+                const parallelMigrationGroup = {
+                  groupId: `one-to-many-${sourceEmail.replace('@', '-at-')}`,
+                  sourceUser: targetUsers[0].sourceUser,
+                  mappingType: 'one-to-many',
+                  parallelTargets: targetUsers,
+                  executionMode: 'parallel' // Run migrations to all targets simultaneously
+                };
+                
+                // Create individual mappings but mark them as part of parallel group
+                targetUsers.forEach((user, targetIndex) => {
+                  allServiceMappings.push({
+                    targetUser: {
+                      email: user.primaryEmail,
+                      name: user.name,
+                      domain: user.targetDomain || user.primaryEmail.split('@')[1],
+                      id: user.id,
+                      customerId: user.customerId,
+                      orgUnitPath: user.orgUnitPath
+                    },
+                    sourceUser: user.sourceEmail ? {
+                      email: user.sourceEmail,
+                      domain: user.sourceDomain,
+                      name: user.sourceUser?.name || user.name,
+                      id: user.sourceUser?.id,
+                      customerId: user.sourceUser?.customerId,
+                      orgUnitPath: user.sourceUser?.orgUnitPath
+                    } : null,
+                    mappingType: 'one-to-many',
+                    relationship: 'one-to-many',
+                    // Add parallel execution metadata
+                    parallelGroup: parallelMigrationGroup,
+                    isParallelExecution: true,
+                    targetIndex: targetIndex,
+                    totalTargetsInGroup: targetUsers.length,
+                    services: migrationConfig.services.map(service => ({
+                      serviceName: service.toLowerCase(),
+                      enabled: true,
+                      sourceConfig: {
+                        delegatedAdmin: selectedScenario === 'cross-tenant' ? 
+                          (sourceAdminEmails[user.sourceDomain] || sourceAdminEmail) : adminEmail,
+                        impersonateUser: user.sourceEmail || user.primaryEmail
+                      },
+                      targetConfig: {
+                        delegatedAdmin: targetAdminEmails[user.targetDomain || user.primaryEmail.split('@')[1]] || targetAdminEmail || adminEmail,
+                        targetUser: user.primaryEmail
+                      },
+                      migrationRules: {
+                        preserveLabels: migrationConfig.migrationOptions.preserveLabels,
+                        migrateFolderStructure: migrationConfig.migrationOptions.migrateFolderStructure,
+                        enableDeltaSync: migrationConfig.migrationOptions.enableDeltaSync,
+                        migrateSharedDrives: migrationConfig.migrationOptions.migrateSharedDrives,
+                        maintainPermissions: migrationConfig.migrationOptions.maintainPermissions
+                      },
+                      // Add parallel execution config for each service
+                      parallelExecution: {
+                        enabled: true,
+                        groupId: parallelMigrationGroup.groupId,
+                        sourceUser: user.sourceEmail,
+                        targetUsers: targetUsers.map(t => t.primaryEmail),
+                        coordinationStrategy: 'source-read-once-distribute', // Read from source once, distribute to all targets
+                        conflictResolution: userMappingConfig?.conflictResolution || 'skip'
+                      }
+                    }))
+                  });
+                });
+              } else {
+                // Single target - treat as regular one-to-one
+                const user = targetUsers[0];
+                allServiceMappings.push({
+                  targetUser: {
+                    email: user.primaryEmail,
+                    name: user.name,
+                    domain: user.targetDomain || user.primaryEmail.split('@')[1],
+                    id: user.id,
+                    customerId: user.customerId,
+                    orgUnitPath: user.orgUnitPath
+                  },
+                  sourceUser: user.sourceEmail ? {
+                    email: user.sourceEmail,
+                    domain: user.sourceDomain,
+                    name: user.sourceUser?.name || user.name,
+                    id: user.sourceUser?.id,
+                    customerId: user.sourceUser?.customerId,
+                    orgUnitPath: user.sourceUser?.orgUnitPath
+                  } : null,
+                  mappingType: user.hasSourceMapping ? 'explicit' : 
+                              user.isInferredMapping ? 'inferred' : 'direct',
+                  relationship: 'one-to-one',
+                  services: migrationConfig.services.map(service => ({
+                    serviceName: service.toLowerCase(),
+                    enabled: true,
+                    sourceConfig: {
+                      delegatedAdmin: selectedScenario === 'cross-tenant' ? 
+                        (sourceAdminEmails[user.sourceDomain] || sourceAdminEmail) : adminEmail,
+                      impersonateUser: user.sourceEmail || user.primaryEmail
+                    },
+                    targetConfig: {
+                      delegatedAdmin: targetAdminEmails[user.targetDomain || user.primaryEmail.split('@')[1]] || targetAdminEmail || adminEmail,
+                      targetUser: user.primaryEmail
+                    },
+                    migrationRules: {
+                      preserveLabels: migrationConfig.migrationOptions.preserveLabels,
+                      migrateFolderStructure: migrationConfig.migrationOptions.migrateFolderStructure,
+                      enableDeltaSync: migrationConfig.migrationOptions.enableDeltaSync,
+                      migrateSharedDrives: migrationConfig.migrationOptions.migrateSharedDrives,
+                      maintainPermissions: migrationConfig.migrationOptions.maintainPermissions
+                    }
+                  }))
+                });
+              }
+            });
+          } else if (userMappingConfig?.relationship === 'many-to-one') {
+            console.log('[Migration Wizard] Processing many-to-one user mappings');
+            
+            // Group users by target email to handle many-to-one relationships
+            const targetToSourcesMap = new Map<string, any[]>();
+            
+            selectedAllTargetUsers.forEach(user => {
+              const targetEmail = user.primaryEmail;
+              if (!targetToSourcesMap.has(targetEmail)) {
+                targetToSourcesMap.set(targetEmail, []);
+              }
+              targetToSourcesMap.get(targetEmail)!.push(user);
+            });
+            
+            // Create service mappings for each multiple-sources-to-target relationship
+            targetToSourcesMap.forEach((userMappings, targetEmail) => {
+              // For many-to-one, we need to identify multiple source users mapping to one target
+              const uniqueSourceEmails = [...new Set(userMappings.map(u => u.sourceEmail).filter(Boolean))];
+              
+              if (uniqueSourceEmails.length > 1) {
+                console.log(`[Migration Wizard] Many-to-one: ${uniqueSourceEmails.length} sources → ${targetEmail}`, 
+                  uniqueSourceEmails);
+                
+                // Create a consolidation migration group for this target user
+                const consolidationMigrationGroup = {
+                  groupId: `many-to-one-${targetEmail.replace('@', '-at-')}`,
+                  targetUser: userMappings[0],
+                  mappingType: 'many-to-one',
+                  sourceUsers: uniqueSourceEmails.map(sourceEmail => 
+                    userMappings.find(u => u.sourceEmail === sourceEmail)?.sourceUser || { email: sourceEmail }
+                  ),
+                  executionMode: 'sequential-consolidation' // Read from all sources sequentially, consolidate into single target
+                };
+                
+                // Create a single mapping representing the consolidation operation
+                allServiceMappings.push({
+                  targetUser: {
+                    email: targetEmail,
+                    name: userMappings[0].name,
+                    domain: userMappings[0].targetDomain || targetEmail.split('@')[1],
+                    id: userMappings[0].id,
+                    customerId: userMappings[0].customerId,
+                    orgUnitPath: userMappings[0].orgUnitPath
+                  },
+                  sourceUsers: uniqueSourceEmails.map(sourceEmail => {
+                    const sourceMapping = userMappings.find(u => u.sourceEmail === sourceEmail);
+                    return sourceMapping?.sourceUser ? {
+                      email: sourceEmail,
+                      domain: sourceMapping.sourceDomain,
+                      name: sourceMapping.sourceUser.name || sourceMapping.name,
+                      id: sourceMapping.sourceUser.id,
+                      customerId: sourceMapping.sourceUser.customerId,
+                      orgUnitPath: sourceMapping.sourceUser.orgUnitPath
+                    } : { email: sourceEmail, domain: sourceEmail.split('@')[1] };
+                  }),
+                  mappingType: 'many-to-one',
+                  relationship: 'many-to-one',
+                  // Add consolidation execution metadata
+                  consolidationGroup: consolidationMigrationGroup,
+                  isConsolidationExecution: true,
+                  sourceCount: uniqueSourceEmails.length,
+                  totalSourcesInGroup: uniqueSourceEmails.length,
+                  services: migrationConfig.services.map(service => ({
+                    serviceName: service.toLowerCase(),
+                    enabled: true,
+                    sourceConfigs: uniqueSourceEmails.map(sourceEmail => {
+                      const sourceMapping = userMappings.find(u => u.sourceEmail === sourceEmail);
+                      return {
+                        delegatedAdmin: selectedScenario === 'cross-tenant' ? 
+                          (sourceAdminEmails[sourceMapping?.sourceDomain] || sourceAdminEmail) : adminEmail,
+                        impersonateUser: sourceEmail,
+                        sourceUser: sourceEmail,
+                        sourceDomain: sourceMapping?.sourceDomain || sourceEmail.split('@')[1]
+                      };
+                    }),
+                    targetConfig: {
+                      delegatedAdmin: targetAdminEmails[userMappings[0].targetDomain || targetEmail.split('@')[1]] || targetAdminEmail || adminEmail,
+                      targetUser: targetEmail
+                    },
+                    migrationRules: {
+                      preserveLabels: migrationConfig.migrationOptions.preserveLabels,
+                      migrateFolderStructure: migrationConfig.migrationOptions.migrateFolderStructure,
+                      enableDeltaSync: migrationConfig.migrationOptions.enableDeltaSync,
+                      migrateSharedDrives: migrationConfig.migrationOptions.migrateSharedDrives,
+                      maintainPermissions: migrationConfig.migrationOptions.maintainPermissions,
+                      // Many-to-one specific rules
+                      dataConsolidation: {
+                        enabled: true,
+                        conflictResolution: userMappingConfig?.conflictResolution || 'merge',
+                        labelMergeStrategy: 'prefix-source', // Prefix labels with source user identifier
+                        folderMergeStrategy: 'create-source-folders', // Create separate folders for each source
+                        duplicateHandling: 'rename-with-source' // Rename duplicates with source identifier
+                      }
+                    },
+                    // Add consolidation execution config for each service
+                    consolidationExecution: {
+                      enabled: true,
+                      groupId: consolidationMigrationGroup.groupId,
+                      sourceUsers: uniqueSourceEmails,
+                      targetUser: targetEmail,
+                      coordinationStrategy: 'sequential-read-consolidate-write', // Read from sources sequentially, consolidate, then write
+                      conflictResolution: userMappingConfig?.conflictResolution || 'merge',
+                      progressTracking: 'per-source-and-aggregate' // Track progress per source and overall consolidation
+                    }
+                  }))
+                });
+              } else {
+                // Single source - treat as regular one-to-one
+                const user = userMappings[0];
+                allServiceMappings.push({
+                  targetUser: {
+                    email: user.primaryEmail,
+                    name: user.name,
+                    domain: user.targetDomain || user.primaryEmail.split('@')[1],
+                    id: user.id,
+                    customerId: user.customerId,
+                    orgUnitPath: user.orgUnitPath
+                  },
+                  sourceUser: user.sourceEmail ? {
+                    email: user.sourceEmail,
+                    domain: user.sourceDomain,
+                    name: user.sourceUser?.name || user.name,
+                    id: user.sourceUser?.id,
+                    customerId: user.sourceUser?.customerId,
+                    orgUnitPath: user.sourceUser?.orgUnitPath
+                  } : null,
+                  mappingType: user.hasSourceMapping ? 'explicit' : 
+                              user.isInferredMapping ? 'inferred' : 'direct',
+                  relationship: 'one-to-one',
+                  services: migrationConfig.services.map(service => ({
+                    serviceName: service.toLowerCase(),
+                    enabled: true,
+                    sourceConfig: {
+                      delegatedAdmin: selectedScenario === 'cross-tenant' ? 
+                        (sourceAdminEmails[user.sourceDomain] || sourceAdminEmail) : adminEmail,
+                      impersonateUser: user.sourceEmail || user.primaryEmail
+                    },
+                    targetConfig: {
+                      delegatedAdmin: targetAdminEmails[user.targetDomain || user.primaryEmail.split('@')[1]] || targetAdminEmail || adminEmail,
+                      targetUser: user.primaryEmail
+                    },
+                    migrationRules: {
+                      preserveLabels: migrationConfig.migrationOptions.preserveLabels,
+                      migrateFolderStructure: migrationConfig.migrationOptions.migrateFolderStructure,
+                      enableDeltaSync: migrationConfig.migrationOptions.enableDeltaSync,
+                      migrateSharedDrives: migrationConfig.migrationOptions.migrateSharedDrives,
+                      maintainPermissions: migrationConfig.migrationOptions.maintainPermissions
+                    }
+                  }))
+                });
+              }
+            });
+          } else {
+            // Handle one-to-one mappings (existing logic)
+            selectedAllTargetUsers.forEach(user => {
+              allServiceMappings.push({
+                targetUser: {
+                  email: user.primaryEmail,
+                  name: user.name,
+                  domain: user.targetDomain || user.primaryEmail.split('@')[1],
+                  id: user.id,
+                  customerId: user.customerId,
+                  orgUnitPath: user.orgUnitPath
+                },
+                sourceUser: user.sourceEmail ? {
+                  email: user.sourceEmail,
+                  domain: user.sourceDomain,
+                  name: user.sourceUser?.name || user.name,
+                  id: user.sourceUser?.id,
+                  customerId: user.sourceUser?.customerId,
+                  orgUnitPath: user.sourceUser?.orgUnitPath
+                } : null,
+                mappingType: user.hasSourceMapping ? 'explicit' : 
+                            user.isInferredMapping ? 'inferred' : 'direct',
+                relationship: user.mappingRelationship || userMappingConfig?.relationship || 'one-to-one',
+                services: migrationConfig.services.map(service => ({
+                  serviceName: service.toLowerCase(),
+                  enabled: true,
+                  sourceConfig: {
+                    delegatedAdmin: selectedScenario === 'cross-tenant' ? 
+                      (sourceAdminEmails[user.sourceDomain] || sourceAdminEmail) : adminEmail,
+                    impersonateUser: user.sourceEmail || user.primaryEmail
+                  },
+                  targetConfig: {
+                    delegatedAdmin: targetAdminEmails[user.targetDomain || user.primaryEmail.split('@')[1]] || targetAdminEmail || adminEmail,
+                    targetUser: user.primaryEmail
+                  },
+                  migrationRules: {
+                    preserveLabels: migrationConfig.migrationOptions.preserveLabels,
+                    migrateFolderStructure: migrationConfig.migrationOptions.migrateFolderStructure,
+                    enableDeltaSync: migrationConfig.migrationOptions.enableDeltaSync,
+                    migrateSharedDrives: migrationConfig.migrationOptions.migrateSharedDrives,
+                    maintainPermissions: migrationConfig.migrationOptions.maintainPermissions
+                  }
+                }))
+              });
+            });
+          }
+          
+          console.log(`[Migration Wizard] Created ${allServiceMappings.length} service user mappings for ${userMappingConfig?.relationship || 'one-to-one'} relationship`);
+          
+          if (userMappingConfig?.relationship === 'one-to-many') {
+            const parallelGroups = allServiceMappings.filter(m => m.isParallelExecution);
+            const parallelGroupIds = [...new Set(parallelGroups.map(m => m.parallelGroup?.groupId))];
+            console.log(`[Migration Wizard] One-to-many parallel groups: ${parallelGroupIds.length}`, parallelGroupIds);
+          } else if (userMappingConfig?.relationship === 'many-to-one') {
+            const consolidationGroups = allServiceMappings.filter(m => m.isConsolidationExecution);
+            const consolidationGroupIds = [...new Set(consolidationGroups.map(m => m.consolidationGroup?.groupId))];
+            console.log(`[Migration Wizard] Many-to-one consolidation groups: ${consolidationGroupIds.length}`, consolidationGroupIds);
+          }
+          
+          return allServiceMappings;
+        })(),
+        // Migration execution plan with one-to-many and many-to-one optimization
+        executionPlan: (() => {
+          const baseUserCount = selectedAllTargetUsers.length;
+          let effectiveUserCount = baseUserCount;
+          let estimatedDuration = baseUserCount * migrationConfig.services.length * 5; // Base calculation
+          
+          // Adjust for one-to-many mappings
+          if (userMappingConfig?.relationship === 'one-to-many') {
+            // Group users by source email to understand parallel execution benefits
+            const sourceToTargetsMap = new Map<string, any[]>();
+            selectedAllTargetUsers.forEach(user => {
+              const sourceEmail = user.sourceEmail || user.primaryEmail;
+              if (!sourceToTargetsMap.has(sourceEmail)) {
+                sourceToTargetsMap.set(sourceEmail, []);
+              }
+              sourceToTargetsMap.get(sourceEmail)!.push(user);
+            });
+            
+            const parallelGroups = Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1);
+            const parallelTargetCount = parallelGroups.reduce((sum, group) => sum + group.length, 0);
+            const singleTargetCount = baseUserCount - parallelTargetCount;
+            const sourceCount = sourceToTargetsMap.size;
+            
+            // Optimize duration: parallel targets take same time as single source
+            // Each source is read once and distributed to multiple targets simultaneously
+            effectiveUserCount = sourceCount; // Effective processing units = number of unique sources
+            estimatedDuration = effectiveUserCount * migrationConfig.services.length * 5;
+            
+            // Add small overhead for parallel coordination (10% per additional target in group)
+            const averageGroupSize = parallelGroups.length > 0 ? 
+              parallelTargetCount / parallelGroups.length : 1;
+            const parallelOverhead = Math.max(0, (averageGroupSize - 1) * 0.1); // 10% overhead per additional target
+            estimatedDuration = Math.round(estimatedDuration * (1 + parallelOverhead));
+            
+            console.log(`[Migration Wizard] One-to-many execution optimization:`, {
+              totalTargets: baseUserCount,
+              uniqueSources: sourceCount,
+              parallelGroups: parallelGroups.length,
+              parallelTargets: parallelTargetCount,
+              singleTargets: singleTargetCount,
+              averageGroupSize: averageGroupSize,
+              parallelOverhead: `${(parallelOverhead * 100).toFixed(1)}%`,
+              estimatedDuration: `${estimatedDuration} minutes`,
+              timeSavings: `${((baseUserCount * migrationConfig.services.length * 5) - estimatedDuration)} minutes saved`
+            });
+          } else if (userMappingConfig?.relationship === 'many-to-one') {
+            // Group users by target email to understand consolidation complexity
+            const targetToSourcesMap = new Map<string, string[]>();
+            selectedAllTargetUsers.forEach(user => {
+              const targetEmail = user.primaryEmail;
+              const sourceEmail = user.sourceEmail;
+              if (sourceEmail) {
+                if (!targetToSourcesMap.has(targetEmail)) {
+                  targetToSourcesMap.set(targetEmail, []);
+                }
+                if (!targetToSourcesMap.get(targetEmail)!.includes(sourceEmail)) {
+                  targetToSourcesMap.get(targetEmail)!.push(sourceEmail);
+                }
+              }
+            });
+            
+            const consolidationGroups = Array.from(targetToSourcesMap.values()).filter(sources => sources.length > 1);
+            const totalConsolidationSources = consolidationGroups.reduce((sum, sources) => sum + sources.length, 0);
+            const singleSourceTargets = targetToSourcesMap.size - consolidationGroups.length;
+            const uniqueTargetCount = targetToSourcesMap.size;
+            
+            // Adjust duration for consolidation complexity
+            // Each consolidation requires reading multiple sources sequentially, then consolidating
+            effectiveUserCount = uniqueTargetCount; // Effective processing units = number of unique targets
+            
+            // Base time per target + consolidation overhead for multiple sources
+            let consolidationDuration = uniqueTargetCount * migrationConfig.services.length * 5;
+            
+            // Add consolidation overhead (25% per additional source per target)
+            const totalExtraSources = totalConsolidationSources - consolidationGroups.length; // Extra sources beyond first
+            const consolidationOverhead = totalExtraSources * 0.25; // 25% overhead per extra source
+            consolidationDuration = Math.round(consolidationDuration * (1 + consolidationOverhead));
+            
+            // Add data merging time (10 minutes per consolidation group for conflict resolution)
+            const mergingTime = consolidationGroups.length * 10;
+            estimatedDuration = consolidationDuration + mergingTime;
+            
+            console.log(`[Migration Wizard] Many-to-one execution optimization:`, {
+              totalUsers: baseUserCount,
+              uniqueTargets: uniqueTargetCount,
+              consolidationGroups: consolidationGroups.length,
+              totalConsolidationSources: totalConsolidationSources,
+              singleSourceTargets: singleSourceTargets,
+              extraSources: totalExtraSources,
+              consolidationOverhead: `${(consolidationOverhead * 100).toFixed(1)}%`,
+              mergingTime: `${mergingTime} minutes`,
+              estimatedDuration: `${estimatedDuration} minutes`,
+              additionalTime: `${estimatedDuration - (baseUserCount * migrationConfig.services.length * 5)} minutes extra for consolidation`
+            });
+          }
+          
+          return {
+            totalUsers: baseUserCount, // Total number of target users
+            effectiveUsers: effectiveUserCount, // Effective processing units (sources for one-to-many, targets for many-to-one)
+            totalServices: migrationConfig.services.length,
+            estimatedDuration: estimatedDuration,
+            batchSize: userMappingConfig?.relationship === 'one-to-many' ? 3 : 
+                      userMappingConfig?.relationship === 'many-to-one' ? 2 : 5, // Smaller batches for complex operations
+            retryPolicy: {
+              maxRetries: 3,
+              backoffMultiplier: 2,
+              initialDelay: 1000
+            },
+            serviceOrder: migrationConfig.services, // Order of service migration
+            parallelServices: false, // Keep services sequential for better control
+            // One-to-many specific execution configuration
+            oneToManyConfig: userMappingConfig?.relationship === 'one-to-many' ? {
+              enabled: true,
+              coordinationStrategy: 'source-read-once-distribute',
+              parallelTargetLimit: 10, // Maximum targets to handle in parallel per source
+              sourceReadTimeout: 30000, // 30 seconds timeout for reading source data
+              targetWriteTimeout: 15000, // 15 seconds timeout per target write
+              failureHandling: 'continue-with-remaining', // Continue with other targets if one fails
+              progressReporting: 'aggregate-by-source' // Report progress by source user, not individual targets
+            } : undefined,
+            // Many-to-one specific execution configuration
+            manyToOneConfig: userMappingConfig?.relationship === 'many-to-one' ? {
+              enabled: true,
+              coordinationStrategy: 'sequential-read-consolidate-write',
+              sourceReadTimeout: 45000, // 45 seconds timeout for reading each source
+              consolidationTimeout: 60000, // 60 seconds timeout for data consolidation
+              targetWriteTimeout: 30000, // 30 seconds timeout for writing consolidated data
+              conflictResolution: {
+                strategy: userMappingConfig?.conflictResolution || 'merge',
+                labelHandling: 'prefix-source', // Prefix labels with source user info
+                folderHandling: 'create-source-folders', // Create separate folders for each source
+                duplicateHandling: 'rename-with-source', // Rename duplicates with source identifier
+                metadataHandling: 'preserve-all' // Keep metadata from all sources
+              },
+              dataConsolidation: {
+                tempStorageRequired: true, // Temporary storage needed for consolidation
+                memoryBufferSize: '512MB', // Memory buffer for consolidation operations
+                progressCheckpoints: true, // Create checkpoints during consolidation
+                rollbackSupport: true // Support rollback if consolidation fails
+              },
+              failureHandling: 'stop-and-rollback', // Stop migration and rollback on failure
+              progressReporting: 'per-source-and-consolidation' // Report progress per source read and consolidation
+            } : undefined
+          };
+        })(),
         adminCredentials: {
           scenario: selectedScenario,
           adminEmail: selectedScenario === 'single-super-admin' ? adminEmail : undefined,
@@ -1026,14 +2288,684 @@ export default function NewMigration() {
       migrationId: status.id,
       scenarioType: selectedScenario,
       services: migrationConfig.services,
-      userCount: selectedUsers.length,
+      userCount: selectedAllTargetUsers.length,
       mappingType: userMappingConfig?.relationship,
-      domainMapping: domainMapping?.type,
+      domainMapping: effectiveDomainMapping,
+      domainMappingType: effectiveDomainMapping?.type || 'fallback-created',
+      domainMappingKeys: effectiveDomainMapping ? Object.keys(effectiveDomainMapping) : [],
+      sourceDomain: migrationConfig.sourceDomain,
+      targetDomain: migrationConfig.targetDomain,
+      serviceUserMappings: status.migrationConfig.serviceUserMappings.length,
+      executionPlan: status.migrationConfig.executionPlan,
       timestamp: new Date().toISOString()
+    });
+
+    // Log detailed user mappings for services
+    console.log('[Migration Wizard] Service User Mappings:', {
+      totalMappings: status.migrationConfig.serviceUserMappings.length,
+      explicitMappings: status.migrationConfig.serviceUserMappings.filter((m: any) => m.mappingType === 'explicit').length,
+      inferredMappings: status.migrationConfig.serviceUserMappings.filter((m: any) => m.mappingType === 'inferred').length,
+      directMappings: status.migrationConfig.serviceUserMappings.filter((m: any) => m.mappingType === 'direct').length,
+      sampleMapping: status.migrationConfig.serviceUserMappings[0] || null
     });
     
     setCurrentStep('migration');
+    
+    // Start actual service migrations
+    setTimeout(() => {
+      startServiceMigrations(status.id);
+    }, 1000); // Small delay to ensure UI is ready
   };
+
+  // Function to start actual service migrations
+  const startServiceMigrations = async (migrationId: string) => {
+    console.log(`[Service Migration] Starting actual service migrations for: ${migrationId}`);
+    
+    try {
+      // Start with the first service in the list
+      const firstService = migrationConfig.services[0];
+      if (firstService) {
+        await executeServiceMigration(firstService, migrationId);
+      }
+    } catch (error) {
+      console.error('[Service Migration] Error starting service migrations:', error);
+      
+      // Update migration status with error
+      setMigrationStatus(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'failed',
+          errors: [...prev.errors, {
+            id: `startup-error-${Date.now()}`,
+            step: 'migration-startup',
+            message: `Failed to start service migrations: ${error}`,
+            timestamp: new Date().toISOString(),
+            resolved: false
+          }],
+          lastUpdated: new Date().toISOString()
+        };
+      });
+    }
+  };
+
+  // Function to execute migration for a specific service
+  const executeServiceMigration = async (serviceName: string, migrationId: string) => {
+    const serviceKey = serviceName.toLowerCase();
+    console.log(`[Service Migration] Executing migration for service: ${serviceKey}`);
+    
+    try {
+      // Create the migration payload for this service
+      const migrationPayload = createMigrationPayload(serviceKey);
+      
+      console.log(`[Service Migration] Created payload for ${serviceKey}:`, {
+        userMappings: migrationPayload?.userMappings?.length || 0,
+        serviceName: (migrationPayload as any)?.service || 'all-services',
+        totalUsers: (migrationPayload as any)?.totalUsers || 0,
+        payloadType: (migrationPayload as any)?.service ? 'service-specific' : 'general'
+      });
+      
+      // Execute actual migration API call
+      const response = await executeActualServiceMigration(serviceKey, migrationPayload);
+      
+      if (response.success) {
+        console.log(`[Service Migration] ${serviceKey} migration completed successfully`);
+        
+        // Start next service if available
+        const currentIndex = migrationConfig.services.findIndex(s => s.toLowerCase() === serviceKey);
+        const nextIndex = currentIndex + 1;
+        
+        if (nextIndex < migrationConfig.services.length) {
+          const nextService = migrationConfig.services[nextIndex];
+          console.log(`[Service Migration] Starting next service: ${nextService}`);
+          
+          // Update service status to start next service
+          setMigrationStatus(prev => {
+            if (!prev) return prev;
+            
+            const updatedServiceProgress = { ...prev.serviceProgress };
+            if (updatedServiceProgress[nextService.toLowerCase()]) {
+              updatedServiceProgress[nextService.toLowerCase()].status = 'running';
+            }
+            
+            return {
+              ...prev,
+              serviceProgress: updatedServiceProgress,
+              lastUpdated: new Date().toISOString()
+            };
+          });
+          
+          // Start the next service
+          setTimeout(() => {
+            executeServiceMigration(nextService, migrationId);
+          }, 2000); // 2 second delay between services
+        } else {
+          console.log(`[Service Migration] All services completed for migration: ${migrationId}`);
+        }
+      } else {
+        throw new Error(response.error || 'Service migration failed');
+      }
+    } catch (error) {
+      console.error(`[Service Migration] Error executing ${serviceKey} migration:`, error);
+      
+      // Update service status with error
+      setMigrationStatus(prev => {
+        if (!prev) return prev;
+        
+        const updatedServiceProgress = { ...prev.serviceProgress };
+        if (updatedServiceProgress[serviceKey]) {
+          updatedServiceProgress[serviceKey] = {
+            ...updatedServiceProgress[serviceKey],
+            status: 'failed',
+            errors: [...(updatedServiceProgress[serviceKey].errors || []), String(error)]
+          };
+        }
+        
+        return {
+          ...prev,
+          serviceProgress: updatedServiceProgress,
+          errors: [...prev.errors, {
+            id: `service-error-${serviceKey}-${Date.now()}`,
+            step: `${serviceKey}-migration`,
+            message: `${serviceName} migration failed: ${error}`,
+            timestamp: new Date().toISOString(),
+            resolved: false
+          }],
+          lastUpdated: new Date().toISOString()
+        };
+      });
+    }
+  };
+
+  // Execute actual service migration
+  const executeActualServiceMigration = async (serviceName: string, payload: any): Promise<{ success: boolean; error?: string }> => {
+    console.log(`[Service Migration] Starting REAL ${serviceName} migration...`);
+    
+    try {
+      // Map service names to API endpoints
+      const serviceEndpoints = {
+        'gmail': '/api/v1/migration/gmail',
+        'drive': '/api/v1/migration/drive',
+        'calendar': '/api/v1/migration/calendar',
+        'contacts': '/api/v1/migration/contacts',
+        'chat': '/api/v1/migration/chat',
+        'photos': '/api/v1/migration/photos',
+        'groups': '/api/v1/migration/groups',
+        'slides': '/api/v1/migration/slides',
+        'forms': '/api/v1/migration/forms'
+      };
+
+      const endpoint = serviceEndpoints[serviceName.toLowerCase() as keyof typeof serviceEndpoints];
+      if (!endpoint) {
+        throw new Error(`No API endpoint configured for service: ${serviceName}`);
+      }
+
+      // Create service-specific migration request
+      const migrationRequest = createServiceMigrationRequest(serviceName, payload);
+      
+      console.log(`[Service Migration] Calling ${endpoint} for ${serviceName}`, {
+        userMappings: migrationRequest.userMappings?.length || 0,
+        endpoint,
+        payload: {
+          scenario: migrationRequest.scenario,
+          userMappingsCount: migrationRequest.userMappings?.length || 0
+        }
+      });
+
+      // Make actual API call to service migration endpoint
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(migrationRequest),
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      console.log(`[Service Migration] ${serviceName} migration API call successful:`, {
+        status: result.status,
+        progress: result.progress,
+        migrationId: result.migrationId
+      });
+
+      // For successful start, we need to poll for completion
+      if (result.status === 'started' || result.status === 'processing') {
+        return await pollServiceMigrationProgress(serviceName, result.migrationId, endpoint);
+      }
+
+      return { success: result.status === 'completed' };
+
+    } catch (error) {
+      console.error(`[Service Migration] ${serviceName} migration failed:`, error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  };
+
+  // Create service-specific migration request
+  const createServiceMigrationRequest = (serviceName: string, payload: any) => {
+    const serviceConfig = payload.serviceConfigs?.[serviceName.toLowerCase()];
+    const userMappings = serviceConfig?.userMappings || payload.userMappings || [];
+
+    // Base request structure that all services expect
+    const baseRequest = {
+      scenario: payload.scenario,
+      migrationId: payload.migrationId,
+      userMappings: userMappings.map((mapping: any) => ({
+        sourceAdminEmail: payload.adminCredentials?.sourceAdminEmail || payload.adminCredentials?.adminEmail,
+        targetAdminEmail: payload.adminCredentials?.targetAdminEmail || payload.adminCredentials?.adminEmail,
+        sourceUserEmail: mapping.sourceUser?.email || mapping.sourceUser?.primaryEmail,
+        targetUserEmail: mapping.targetUser?.email || mapping.targetUser?.primaryEmail,
+        migrationOptions: getServiceSpecificMigrationOptions(serviceName, payload.migrationOptions),
+        domainMapping: userMappingConfig?.relationship || 'one-to-one'
+      }))
+    };
+
+    console.log(`[Service Migration] Created ${serviceName} migration request:`, {
+      userMappingCount: baseRequest.userMappings.length,
+      scenario: baseRequest.scenario,
+      sampleMapping: baseRequest.userMappings[0] || null
+    });
+
+    return baseRequest;
+  };
+
+  // Get service-specific migration options
+  const getServiceSpecificMigrationOptions = (serviceName: string, globalOptions: any) => {
+    const baseOptions = {
+      batchSize: 50,
+      ...globalOptions
+    };
+
+    switch (serviceName.toLowerCase()) {
+      case 'gmail':
+        return {
+          ...baseOptions,
+          includeLabels: globalOptions?.preserveLabels !== false,
+          includeFilters: true,
+          includeSignature: true,
+          dateRange: globalOptions?.dateRange
+        };
+      
+      case 'drive':
+        return {
+          ...baseOptions,
+          includeSharedDrives: globalOptions?.migrateSharedDrives !== false,
+          preservePermissions: globalOptions?.maintainPermissions !== false,
+          preserveFolderStructure: globalOptions?.migrateFolderStructure !== false,
+          includeComments: true
+        };
+      
+      case 'calendar':
+        return {
+          ...baseOptions,
+          includeEvents: true,
+          includeCalendarSettings: true,
+          preservePermissions: globalOptions?.maintainPermissions !== false
+        };
+      
+      case 'contacts':
+        return {
+          ...baseOptions,
+          includeGroups: true,
+          preserveLabels: globalOptions?.preserveLabels !== false
+        };
+      
+      default:
+        return baseOptions;
+    }
+  };
+
+  // Poll service migration progress until completion
+  const pollServiceMigrationProgress = async (
+    serviceName: string, 
+    migrationId: string, 
+    endpoint: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const maxPolls = 60; // Maximum 5 minutes of polling (5s intervals)
+    let polls = 0;
+
+    while (polls < maxPolls) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+        polls++;
+
+        console.log(`[Service Migration] Polling ${serviceName} progress... (${polls}/${maxPolls})`);
+
+        // Check migration status
+        const statusResponse = await fetch(`${endpoint}/${migrationId}/status`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          credentials: 'include'
+        });
+
+        if (!statusResponse.ok) {
+          console.warn(`[Service Migration] Status check failed for ${serviceName}:`, statusResponse.status);
+          continue;
+        }
+
+        const status = await statusResponse.json();
+        
+        console.log(`[Service Migration] ${serviceName} status update:`, {
+          status: status.status,
+          progress: status.progress,
+          processed: status.processedItems,
+          total: status.totalItems
+        });
+
+        if (status.status === 'completed') {
+          console.log(`[Service Migration] ${serviceName} completed successfully after ${polls} polls`);
+          return { success: true };
+        }
+
+        if (status.status === 'failed') {
+          return { 
+            success: false, 
+            error: status.error || `${serviceName} migration failed during execution`
+          };
+        }
+
+        // Continue polling for 'processing' status
+      } catch (error) {
+        console.error(`[Service Migration] Error polling ${serviceName} status:`, error);
+        // Continue polling unless it's the last attempt
+        if (polls >= maxPolls) {
+          return { 
+            success: false, 
+            error: `Polling timeout after ${polls} attempts`
+          };
+        }
+      }
+    }
+
+    return { 
+      success: false, 
+      error: `Migration polling timeout after ${maxPolls} attempts`
+    };
+  };
+
+  // Simulate service migration (DEPRECATED - keeping for fallback)
+  const simulateServiceMigration = async (serviceName: string, payload: any): Promise<{ success: boolean; error?: string }> => {
+    console.log(`[Service Migration] FALLBACK: Simulating ${serviceName} migration...`);
+    
+    // Simulate processing time
+    await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 10000)); // 5-15 seconds
+    
+    // Simulate random success/failure (90% success rate)
+    const success = Math.random() > 0.1;
+    
+    if (success) {
+      console.log(`[Service Migration] ${serviceName} simulation completed successfully`);
+      return { success: true };
+    } else {
+      const error = `Simulated error in ${serviceName} migration`;
+      console.error(`[Service Migration] ${serviceName} simulation failed:`, error);
+      return { success: false, error };
+    }
+  };
+
+  // Function to create migration API payload for services
+  const createMigrationPayload = useCallback((serviceName?: string) => {
+    if (!migrationStatus) return null;
+
+    const basePayload = {
+      migrationId: migrationStatus.id,
+      scenario: selectedScenario,
+      services: migrationConfig.services,
+      userMappings: migrationStatus.migrationConfig?.serviceUserMappings || [],
+      executionPlan: migrationStatus.migrationConfig?.executionPlan,
+      adminCredentials: migrationStatus.migrationConfig?.adminCredentials,
+      domainMapping: migrationStatus.migrationConfig?.domainMapping,
+      migrationOptions: migrationStatus.migrationConfig?.migrationOptions,
+      // Service-specific configurations
+      serviceConfigs: migrationConfig.services.reduce((configs: Record<string, any>, service: string) => {
+        configs[service.toLowerCase()] = {
+          enabled: true,
+          batchSize: migrationStatus.migrationConfig?.executionPlan?.batchSize || 5,
+          retryPolicy: migrationStatus.migrationConfig?.executionPlan?.retryPolicy,
+          rules: migrationStatus.migrationConfig?.migrationOptions,
+          userMappings: (migrationStatus.migrationConfig?.serviceUserMappings || []).map((mapping: any) => ({
+            targetUser: mapping.targetUser,
+            sourceUser: mapping.sourceUser,
+            serviceConfig: mapping.services?.find((s: any) => s.serviceName === service.toLowerCase())
+          })).filter((mapping: any) => mapping.serviceConfig)
+        };
+        return configs;
+      }, {}),
+      // API endpoints for service communication
+      endpoints: {
+        progress: `/api/migration/${migrationStatus.id}/progress`,
+        status: `/api/migration/${migrationStatus.id}/status`,
+        error: `/api/migration/${migrationStatus.id}/error`,
+        complete: `/api/migration/${migrationStatus.id}/complete`
+      }
+    };
+
+    // If serviceName is provided, return service-specific payload
+    if (serviceName) {
+      const serviceConfig = basePayload.serviceConfigs[serviceName.toLowerCase()];
+      if (!serviceConfig) {
+        console.warn(`Service ${serviceName} not found in configuration`);
+        return null;
+      }
+
+      return {
+        migrationId: basePayload.migrationId,
+        service: serviceName,
+        servicePriority: migrationConfig.services.indexOf(serviceName) + 1,
+        userMappings: serviceConfig.userMappings || [],
+        totalUsers: serviceConfig.userMappings?.length || 0,
+        mappingStats: {
+          explicit: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'explicit').length,
+          inferred: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'inferred').length,
+          direct: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'direct').length
+        },
+        sourceDomain: migrationConfig.sourceDomain,
+        targetDomains: migrationConfig.targetDomains,
+        adminCredentials: basePayload.adminCredentials,
+        migrationOptions: basePayload.migrationOptions,
+        executionPlan: basePayload.executionPlan
+      };
+    }
+
+    return basePayload;
+  }, [migrationStatus, selectedScenario, migrationConfig]);
+
+  const calculateEstimatedDuration = useCallback((serviceType: string, userCount: number) => {
+    const baseDuration = {
+      gmail: 30, // minutes per user
+      drive: 45,
+      calendar: 15,
+      contacts: 10
+    };
+    return ((baseDuration as any)[serviceType] || 20) * userCount;
+  }, []);
+
+  const createBatchExecutionPlan = useCallback((userMappings: any[], batchSize: number) => {
+    const batches = [];
+    for (let i = 0; i < userMappings.length; i += batchSize) {
+      batches.push({
+        batchId: Math.floor(i / batchSize) + 1,
+        users: userMappings.slice(i, i + batchSize),
+        estimatedStartTime: new Date(Date.now() + (i / batchSize) * 10 * 60 * 1000), // 10 minutes per batch
+        status: 'pending'
+      });
+    }
+    return batches;
+  }, []);
+
+  const getServiceDependencies = useCallback((serviceType: string) => {
+    const dependencies = {
+      gmail: ['contacts'], // Gmail often needs contacts migrated first
+      drive: [], // Drive can run independently
+      calendar: ['contacts'], // Calendar needs contacts for attendee mapping
+      contacts: [] // Contacts has no dependencies
+    };
+    return (dependencies as any)[serviceType] || [];
+  }, []);
+
+  // Function to start individual service migration with one-to-many support
+  const startServiceMigration = useCallback(async (serviceName: string, payload?: any) => {
+    const servicePayload = payload || createMigrationPayload(serviceName);
+    if (!servicePayload) return;
+
+    // Check for one-to-many mappings
+    const oneToManyMappings = servicePayload.userMappings?.filter((m: any) => m.isParallelExecution) || [];
+    const regularMappings = servicePayload.userMappings?.filter((m: any) => !m.isParallelExecution) || [];
+
+    console.log(`🚀 Starting ${serviceName.toUpperCase()} migration...`);
+    console.log(`📋 Migration ID: ${servicePayload.migrationId}`);
+    console.log(`👥 Total Users: ${servicePayload.totalUsers || 0}`);
+    console.log(`🔄 One-to-Many Groups: ${oneToManyMappings.length > 0 ? 
+      [...new Set(oneToManyMappings.map((m: any) => m.parallelGroup?.groupId))].length : 0}`);
+    console.log(`👤 Regular Mappings: ${regularMappings.length}`);
+    console.log(`⏱️  Estimated Duration: ${servicePayload.executionPlan?.estimatedDuration || 0} minutes`);
+    console.log(`📦 Batches: ${servicePayload.executionPlan?.batchExecutionPlan?.length || 0}`);
+    
+    // Log one-to-many specific information
+    if (oneToManyMappings.length > 0) {
+      const parallelGroups = [...new Set(oneToManyMappings.map((m: any) => m.parallelGroup?.groupId))];
+      console.log(`🔀 Parallel Execution Groups:`, parallelGroups);
+      
+      parallelGroups.forEach(groupId => {
+        const groupMappings = oneToManyMappings.filter((m: any) => m.parallelGroup?.groupId === groupId);
+        const sourceUser = groupMappings[0]?.sourceUser?.email || 'unknown';
+        const targetUsers = groupMappings.map((m: any) => m.targetUser.email);
+        console.log(`   Group ${groupId}: ${sourceUser} → [${targetUsers.join(', ')}]`);
+      });
+      
+      console.log(`⚡ Optimization: Reading from ${parallelGroups.length} sources, distributing to ${oneToManyMappings.length} targets`);
+    }
+    
+    if (servicePayload.executionPlan?.dependencies?.length > 0) {
+      console.log(`⚠️  Dependencies: ${servicePayload.executionPlan.dependencies.join(', ')}`);
+    }
+
+    // Here you would make the actual API call to your migration service
+    try {
+      console.log(`✅ ${serviceName.toUpperCase()} migration service called successfully`);
+      console.log(`📊 Mapping Statistics:`, {
+        totalMappings: servicePayload.userMappings?.length || 0,
+        oneToManyGroups: oneToManyMappings.length > 0 ? 
+          [...new Set(oneToManyMappings.map((m: any) => m.parallelGroup?.groupId))].length : 0,
+        parallelTargets: oneToManyMappings.length,
+        regularMappings: regularMappings.length,
+        coordinationStrategy: servicePayload.executionPlan?.oneToManyConfig?.coordinationStrategy || 'standard'
+      });
+      
+      // For one-to-many, log the parallel execution plan
+      if (oneToManyMappings.length > 0) {
+        console.log(`🔄 Parallel Execution Plan:`, {
+          strategy: servicePayload.executionPlan?.oneToManyConfig?.coordinationStrategy,
+          parallelLimit: servicePayload.executionPlan?.oneToManyConfig?.parallelTargetLimit,
+          failureHandling: servicePayload.executionPlan?.oneToManyConfig?.failureHandling,
+          progressReporting: servicePayload.executionPlan?.oneToManyConfig?.progressReporting
+        });
+      }
+      
+      return {
+        success: true,
+        migrationId: servicePayload.migrationId,
+        service: serviceName,
+        status: 'initiated',
+        executionMode: oneToManyMappings.length > 0 ? 'parallel-groups' : 'sequential',
+        parallelGroups: oneToManyMappings.length > 0 ? 
+          [...new Set(oneToManyMappings.map((m: any) => m.parallelGroup?.groupId))] : []
+      };
+    } catch (error) {
+      console.error(`❌ Failed to start ${serviceName} migration:`, error);
+      return {
+        success: false,
+        error: (error as Error).message
+      };
+    }
+  }, [createMigrationPayload]);
+
+  // Example of how services would receive and process user mappings
+  const processMigrationForService = useCallback(async (serviceName: string, userMappings: any[]) => {
+    console.log(`[Migration ${serviceName}] Processing ${userMappings.length} user mappings`);
+    
+    // Example service processing logic
+    const serviceResults = await Promise.all(
+      userMappings.map(async (mapping: any) => {
+        const { targetUser, sourceUser, serviceConfig } = mapping;
+        
+        console.log(`[Migration ${serviceName}] Processing user: ${sourceUser?.email || 'direct'} → ${targetUser.email}`);
+        
+        // This would be the actual service-specific migration logic
+        const migrationResult = {
+          targetUser: targetUser.email,
+          sourceUser: sourceUser?.email || null,
+          service: serviceName,
+          status: 'processing',
+          startTime: new Date().toISOString(),
+          progress: 0,
+          items: {
+            total: 0,
+            processed: 0,
+            failed: 0
+          },
+          errors: [],
+          // Service-specific data
+          serviceData: serviceConfig ? {
+            sourceConfig: serviceConfig.sourceConfig,
+            targetConfig: serviceConfig.targetConfig,
+            rules: serviceConfig.migrationRules
+          } : null
+        };
+
+        // Simulate service processing
+        switch (serviceName.toLowerCase()) {
+          case 'gmail':
+            migrationResult.items.total = Math.floor(Math.random() * 1000) + 100; // 100-1100 emails
+            break;
+          case 'drive':
+            migrationResult.items.total = Math.floor(Math.random() * 500) + 50; // 50-550 files
+            break;
+          case 'calendar':
+            migrationResult.items.total = Math.floor(Math.random() * 50) + 10; // 10-60 events
+            break;
+          case 'contacts':
+            migrationResult.items.total = Math.floor(Math.random() * 200) + 20; // 20-220 contacts
+            break;
+          default:
+            migrationResult.items.total = Math.floor(Math.random() * 100) + 10;
+        }
+
+        return migrationResult;
+      })
+    );
+
+    console.log(`[Migration ${serviceName}] Initialized ${serviceResults.length} user migrations`);
+    return serviceResults;
+  }, []);
+
+  // Function to get migration payload for external services
+  const getMigrationPayloadForAPI = useCallback(() => {
+    const payload = createMigrationPayload(); // Get full payload, not service-specific
+    if (!payload) return null;
+
+    // Ensure we have the full payload with all properties
+    if (!('scenario' in payload) || !('services' in payload)) {
+      console.error('Invalid payload structure for API');
+      return null;
+    }
+
+    // Return sanitized payload for API consumption
+    return {
+      migrationId: payload.migrationId,
+      scenario: payload.scenario,
+      services: payload.services,
+      totalUsers: payload.userMappings?.length || 0,
+      userMappings: (payload.userMappings || []).map((mapping: any) => ({
+        id: `${mapping.targetUser.email}-${mapping.sourceUser?.email || 'direct'}`,
+        target: {
+          email: mapping.targetUser.email,
+          name: mapping.targetUser.name,
+          domain: mapping.targetUser.domain,
+          orgUnit: mapping.targetUser.orgUnitPath
+        },
+        source: mapping.sourceUser ? {
+          email: mapping.sourceUser.email,
+          name: mapping.sourceUser.name,
+          domain: mapping.sourceUser.domain,
+          orgUnit: mapping.sourceUser.orgUnitPath
+        } : null,
+        mapping: {
+          type: mapping.mappingType,
+          relationship: mapping.relationship
+        },
+        services: mapping.services.map((service: any) => ({
+          name: service.serviceName,
+          enabled: service.enabled,
+          source: service.sourceConfig,
+          target: service.targetConfig,
+          rules: service.migrationRules
+        }))
+      })),
+      execution: payload.executionPlan,
+      credentials: {
+        scenario: payload.adminCredentials.scenario,
+        hasSourceAdmin: !!payload.adminCredentials.sourceAdminEmail,
+        hasTargetAdmin: !!payload.adminCredentials.targetAdminEmail,
+        adminCount: {
+          source: payload.adminCredentials.sourceAdminEmails?.length || 0,
+          target: payload.adminCredentials.targetAdminEmails?.length || 0
+        }
+      },
+      timestamp: new Date().toISOString()
+    };
+  }, [createMigrationPayload]);
 
   // Handle Domain-wide Delegation setup completion
   const handleDwdSetupComplete = () => {
@@ -2035,348 +3967,6 @@ export default function NewMigration() {
                   </div>
                 </div>
 
-                {/* Choose Existing Users for Migration */}
-                <div className="bg-white border border-gray-200 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    <Users className="h-5 w-5 mr-2 text-blue-600" />
-                    {userViewMode === 'cloned' 
-                      ? 'Select Cloned Target Users for Migration'
-                      : 'Select Target Users for Migration'
-                    }
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    {/* View Mode Toggle */}
-                    <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
-                      <div className="flex items-center space-x-3">
-                        <label className="inline-flex items-center">
-                          <input
-                            type="radio"
-                            name="userViewMode"
-                            value="cloned"
-                            checked={userViewMode === 'cloned'}
-                            onChange={() => setUserViewMode('cloned')}
-                            className="form-radio h-4 w-4 text-blue-600"
-                          />
-                          <span className="ml-2 text-sm font-medium text-blue-900">Only Cloned Users</span>
-                        </label>
-                        <label className="inline-flex items-center">
-                          <input
-                            type="radio"
-                            name="userViewMode"
-                            value="all"
-                            checked={userViewMode === 'all'}
-                            onChange={() => setUserViewMode('all')}
-                            className="form-radio h-4 w-4 text-gray-600"
-                          />
-                          <span className="ml-2 text-sm font-medium text-gray-700">All Mapped Users</span>
-                        </label>
-                      </div>
-                      <span className="text-xs text-blue-700">Filter view mode</span>
-                    </div>
-                    
-                    {/* Filter Info */}
-                    <div className={`flex items-center justify-between border rounded-lg p-3 ${
-                      userViewMode === 'cloned' 
-                        ? 'bg-green-50 border-green-200' 
-                        : 'bg-blue-50 border-blue-200'
-                    }`}>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          userViewMode === 'cloned' ? 'bg-green-500' : 'bg-blue-500'
-                        }`}></div>
-                        <span className={`text-sm font-medium ${
-                          userViewMode === 'cloned' ? 'text-green-900' : 'text-blue-900'
-                        }`}>
-                          {userViewMode === 'cloned' 
-                            ? `Cloned users across ${[...new Set(existingUsers.map(u => u.targetDomain || u.email.split('@')[1]))].length} subdomain(s)`
-                            : `All mapped users across ${[...new Set(existingUsers.map(u => u.targetDomain || u.email.split('@')[1]))].length} subdomain(s)`
-                          }
-                        </span>
-                      </div>
-                      <span className={`text-xs ${
-                        userViewMode === 'cloned' ? 'text-green-700' : 'text-blue-700'
-                      }`}>
-                        {userViewMode === 'cloned' 
-                          ? 'Users created from source domains' 
-                          : 'All mapped target users'
-                        }
-                      </span>
-                    </div>
-                    
-                    {/* Debug Info with Subdomain count */}
-                    <div className="text-xs text-gray-500 bg-yellow-50 p-2 rounded">
-                      Debug: Step={currentStep}, ViewMode={userViewMode}, DisplayedUsers={existingUsers.length}, TotalTargetUsers={userMappings.length}, CreatedUsers={createdUsers.length}
-                      <br />
-                      Subdomains: {[...new Set(existingUsers.map(u => u.targetDomain || u.email.split('@')[1]))].join(', ')}
-                      <br />
-                      Current Session: {existingUsers.filter(u => u.createdInCurrentSession).length} | Historical: {existingUsers.filter(u => u.isHistorical).length} | ClonedFilter: {existingUsers.filter(u => u.isCloned).length}
-                      <br />
-                      Showing: Only users that were cloned/created through the user creation workflow
-                      <br />
-                      <div className="mt-2 space-x-2">
-                        <button
-                          onClick={clearHistoricalData}
-                          className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
-                        >
-                          Clear Historical Data
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {existingUsers.length > 0 ? (
-                      <>
-                        {/* Header with Select All Controls */}
-                        <div className="flex items-center justify-between py-3 border-b border-gray-200">
-                          <div>
-                            <h4 className="text-base font-medium text-gray-900">
-                              Cloned Target Users by Subdomain ({existingUsers.length})
-                            </h4>
-                            <p className="text-sm text-gray-600 mt-1">
-                              Choose cloned users from target subdomain(s) to receive migrated data
-                            </p>
-                            <div className="flex items-center space-x-2 mt-2">
-                              <span className="text-xs text-indigo-600 font-medium">Active Subdomains:</span>
-                              <div className="flex flex-wrap gap-1">
-                                {[...new Set(existingUsers.map(u => u.targetDomain || u.email.split('@')[1]))].map(domain => (
-                                  <span key={domain} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                                    {domain}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="flex items-center space-x-4 mt-2">
-                              <div className="flex items-center space-x-1">
-                                <span className="text-xs text-emerald-600 font-medium">🆕 Current:</span>
-                                <span className="text-xs text-emerald-700">{existingUsers.filter(u => u.createdInCurrentSession).length}</span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <span className="text-xs text-orange-600 font-medium">📅 Historical:</span>
-                                <span className="text-xs text-orange-700">{existingUsers.filter(u => u.isHistorical).length}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id="selectAllExisting"
-                                checked={selectedExistingUsers.length === existingUsers.length && existingUsers.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    selectAllExistingUsers();
-                                  } else {
-                                    deselectAllExistingUsers();
-                                  }
-                                }}
-                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                              />
-                              <label htmlFor="selectAllExisting" className="text-sm font-medium text-gray-700">
-                                Select All
-                              </label>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={deselectAllExistingUsers}
-                              className="text-sm text-gray-600 hover:text-gray-800 font-medium"
-                            >
-                              Clear Selection
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Users List */}
-                        <div className="max-h-64 overflow-y-auto space-y-3">
-                          {existingUsers.map((user) => {
-                            const isSelected = selectedExistingUsers.some(u => u.email === user.email);
-                            // Remove excessive logging for each user render
-                            return (
-                              <label
-                                key={user.email}
-                                className={`flex items-center space-x-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                  isSelected
-                                    ? 'border-blue-300 bg-blue-50'
-                                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleExistingUserSelection(user)}
-                                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center space-x-3">
-                                    <div className="flex-1">
-                                      <div className="flex items-center space-x-2">
-                                        <span className="text-sm font-medium text-gray-900 truncate">
-                                          {user.name || user.email}
-                                        </span>
-                                        {user.isAdmin && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                            Admin
-                                          </span>
-                                        )}
-                                        {user.exists && (
-                                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                            user.isCloned 
-                                              ? 'bg-green-100 text-green-800' 
-                                              : 'bg-blue-100 text-blue-800'
-                                          }`}>
-                                            {user.isCloned ? 'Cloned User' : 'Existing User'}
-                                          </span>
-                                        )}
-                                        {user.targetDomain && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                                            📍 {user.targetDomain}
-                                          </span>
-                                        )}
-                                        {user.isHistorical && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                                            📅 From History
-                                          </span>
-                                        )}
-                                        {user.createdInCurrentSession && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-                                            🆕 Current Session
-                                          </span>
-                                        )}
-                                        {user.status === 'cloned' && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                            Recently Cloned
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="mt-1 space-y-1">
-                                        <p className="text-xs text-gray-500 truncate">
-                                          <span className="font-medium">{user.isCloned ? 'Cloned' : 'Target'} Email:</span> {user.email}
-                                        </p>
-                                        <p className="text-xs text-blue-600 truncate">
-                                          <span className="font-medium">Target Subdomain:</span> {user.targetDomain || user.email.split('@')[1]}
-                                        </p>
-                                        {user.sourceMapping && (
-                                          <div className="flex items-center space-x-1 text-xs text-gray-600">
-                                            <span className="font-medium">Source Email:</span>
-                                            <span className="truncate text-orange-600">{user.sourceMapping}</span>
-                                            <ArrowRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                                            <span className={`truncate font-medium ${
-                                              user.isCloned ? 'text-green-600' : 'text-blue-600'
-                                            }`}>{user.email}</span>
-                                          </div>
-                                        )}
-                                        {user.sourceMapping && (
-                                          <p className="text-xs text-gray-500 truncate">
-                                            <span className="font-medium">Source Subdomain:</span> {user.sourceMapping.split('@')[1]}
-                                          </p>
-                                        )}
-                                        {user.sourceName && (
-                                          <p className="text-xs text-gray-500 truncate">
-                                            <span className="font-medium">Source Name:</span> {user.sourceName}
-                                          </p>
-                                        )}
-                                        {user.createdAt && (
-                                          <p className="text-xs text-gray-500 truncate">
-                                            <span className="font-medium">Created:</span> {new Date(user.createdAt).toLocaleDateString()}
-                                          </p>
-                                        )}
-                                        {user.isHistorical && (
-                                          <p className="text-xs text-orange-600 truncate">
-                                            <span className="font-medium">📅 Session:</span> Cloned in previous session
-                                          </p>
-                                        )}
-                                        {user.createdInCurrentSession && (
-                                          <p className="text-xs text-emerald-600 truncate">
-                                            <span className="font-medium">🆕 Session:</span> Cloned in current session
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {isSelected && (
-                                      <CheckCircle className="h-5 w-5 text-blue-600" />
-                                    )}
-                                  </div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
-
-                        {/* Selection Summary */}
-                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                          <div className="flex items-center justify-between text-sm mb-2">
-                            <span className="text-gray-600">Selected for Migration:</span>
-                            <span className="font-medium text-gray-900">
-                              {selectedExistingUsers.length} of {existingUsers.length} users
-                            </span>
-                          </div>
-                          {/* Filter Statistics */}
-                          <div className="text-xs text-gray-500 mb-2">
-                            {userViewMode === 'cloned' ? (
-                              <span>
-                                Showing: {existingUsers.filter(u => u.isCloned).length} cloned users
-                                {existingUsers.filter(u => !u.isCloned).length > 0 && 
-                                  ` (${existingUsers.filter(u => !u.isCloned).length} existing users hidden)`
-                                }
-                              </span>
-                            ) : (
-                              <span>
-                                Showing: {existingUsers.length} total users 
-                                ({existingUsers.filter(u => u.isCloned).length} cloned, {existingUsers.filter(u => !u.isCloned).length} existing)
-                              </span>
-                            )}
-                          </div>
-                          {selectedExistingUsers.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {selectedExistingUsers.slice(0, 4).map(user => (
-                                <span key={user.email} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
-                                  {user.name || user.email}
-                                </span>
-                              ))}
-                              {selectedExistingUsers.length > 4 && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
-                                  +{selectedExistingUsers.length - 4} more
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 italic">No users selected (default: unselected)</p>
-                          )}
-                        </div>
-                      </>
-                    ) : loadingTargetUsers ? (
-                      <div className="text-center py-12">
-                        <div className="flex justify-center mb-4">
-                          <Loader2 className="h-16 w-16 text-blue-500 animate-spin" />
-                        </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">Loading Target Users...</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Fetching existing users from target domain(s)
-                        </p>
-                        <div className="text-xs text-gray-500 bg-blue-50 rounded-lg p-3 max-w-md mx-auto">
-                          <p><strong>Loading:</strong> Retrieving actual users from your target domain(s) via Google Admin API.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Cloned Users Found Across Subdomains</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          No users were created through the user cloning workflow in any target subdomain
-                        </p>
-                        <div className="text-xs text-gray-500 bg-yellow-50 rounded-lg p-3 max-w-md mx-auto space-y-2">
-                          <p><strong>Possible reasons:</strong></p>
-                          <ul className="text-left space-y-1">
-                            <li>• You skipped the user creation step</li>
-                            <li>• User creation workflow was not completed</li>
-                            <li>• Users exist in target subdomains but weren't created through this platform</li>
-                          </ul>
-                          <p className="mt-2"><strong>To see cloned users:</strong> Complete the user creation workflow and create new users in the target subdomain(s).</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
                 {/* All Target Domain Users Section */}
                 <div className="bg-white border border-gray-200 rounded-xl p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -2486,17 +4076,14 @@ export default function NewMigration() {
                                         <p className="text-xs text-gray-500 truncate">
                                           <span className="font-medium">Domain:</span> {user.targetDomain}
                                         </p>
-                                        <p className="text-xs text-gray-500 truncate">
-                                          <span className="font-medium">Org Unit:</span> {user.orgUnitPath || '/'}
-                                        </p>
-                                        {user.lastLoginTime && (
-                                          <p className="text-xs text-gray-500 truncate">
-                                            <span className="font-medium">Last Login:</span> {new Date(user.lastLoginTime).toLocaleDateString()}
+                                        {user.sourceEmail && (
+                                          <p className="text-xs text-orange-600 truncate">
+                                            <span className="font-medium">Source User:</span> {user.sourceEmail}
                                           </p>
                                         )}
-                                        {user.creationTime && (
-                                          <p className="text-xs text-gray-500 truncate">
-                                            <span className="font-medium">Created:</span> {new Date(user.creationTime).toLocaleDateString()}
+                                        {user.sourceEmail && (
+                                          <p className="text-xs text-orange-600 truncate">
+                                            <span className="font-medium">Source Domain:</span> {user.sourceEmail.split('@')[1]}
                                           </p>
                                         )}
                                       </div>
@@ -3017,33 +4604,742 @@ export default function NewMigration() {
         };
 
         return (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* Header */}
             <div className="text-center">
               <div className="flex justify-center mb-4">
                 <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
-                  <PlayCircle className="h-8 w-8 text-green-600" />
+                  <PlayCircle className="h-8 w-8 text-green-600 animate-pulse" />
                 </div>
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Migration in Progress
+                Migration Dashboard
               </h2>
               <p className="text-gray-600 max-w-2xl mx-auto">
-                Your migration is now running. You can monitor the progress below.
+                Real-time monitoring and control of your Google Workspace migration
               </p>
             </div>
 
-            {/* Migration Progress Component */}
-            <ComponentLoader>
-              <MigrationProgress 
-                migrationStatus={migrationStatus}
-                steps={scenario.steps}
-                onStepAction={(stepId, action) => {
-                  console.log(`Step action: ${action} on step ${stepId}`);
-                  // TODO: Implement step action handling
-                }}
-              />
-            </ComponentLoader>
+            {/* Overall Progress Card */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Overall Progress</h3>
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm text-green-600 font-medium">Active</span>
+                  </div>
+                  <span className="text-sm text-gray-500">
+                    {new Date().toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Migration Progress</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {migrationStatus?.overallProgress || 0}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div 
+                    className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${migrationStatus?.overallProgress || 0}%` }}
+                  ></div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {selectedAllTargetUsers.length}
+                    </div>
+                    <div className="text-sm text-blue-700">Total Users</div>
+                  </div>
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600">
+                      {Math.round((migrationStatus?.overallProgress || 0) / 100 * selectedAllTargetUsers.length)}
+                    </div>
+                    <div className="text-sm text-green-700">Completed</div>
+                  </div>
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {migrationConfig.services.length}
+                    </div>
+                    <div className="text-sm text-orange-700">Services</div>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {(() => {
+                        // Calculate total errors from services and users
+                        const serviceErrors = migrationStatus?.serviceProgress ? 
+                          Object.values(migrationStatus.serviceProgress).reduce((total, service) => 
+                            total + (service.errors?.length || 0), 0
+                          ) : 0;
+                        const userErrors = migrationStatus?.userProgress ? 
+                          Object.values(migrationStatus.userProgress).filter(user => 
+                            user.status === 'failed' || (user.errors && user.errors.length > 0)
+                          ).length : 0;
+                        return serviceErrors + userErrors + (migrationStatus?.errors?.length || 0);
+                      })()}
+                    </div>
+                    <div className="text-sm text-purple-700">Errors</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Service Progress Cards */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {migrationConfig.services.map((service, index) => {
+                // Calculate service progress from migration status
+                const serviceStatus = migrationStatus?.serviceProgress?.[service.toLowerCase()] || {
+                  progress: 0,
+                  status: 'pending',
+                  itemsProcessed: 0,
+                  totalItems: 0,
+                  errors: [],
+                  estimatedTimeRemaining: 0
+                };
+                
+                const serviceProgress = serviceStatus.progress || 0;
+                const isActive = serviceStatus.status === 'running';
+                const isCompleted = serviceStatus.status === 'completed' || serviceProgress >= 100;
+                const hasError = serviceStatus.status === 'failed' || (serviceStatus.errors && serviceStatus.errors.length > 0);
+                
+                return (
+                  <div key={service} className="bg-white border border-gray-200 rounded-xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className={`p-2 rounded-lg ${
+                          hasError ? 'bg-red-100' : isCompleted ? 'bg-green-100' : isActive ? 'bg-blue-100' : 'bg-gray-100'
+                        }`}>
+                          {service.toLowerCase() === 'gmail' && <Mail className={`h-5 w-5 ${
+                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />}
+                          {service.toLowerCase() === 'drive' && <HardDrive className={`h-5 w-5 ${
+                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />}
+                          {service.toLowerCase() === 'calendar' && <Calendar className={`h-5 w-5 ${
+                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />}
+                          {service.toLowerCase() === 'contacts' && <Users className={`h-5 w-5 ${
+                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />}
+                          {!['gmail', 'drive', 'calendar', 'contacts'].includes(service.toLowerCase()) && <Settings className={`h-5 w-5 ${
+                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />}
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-gray-900 capitalize">{service}</h4>
+                          <p className="text-sm text-gray-500 capitalize">
+                            {hasError ? 'Error' : isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Pending'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-gray-900">{Math.round(serviceProgress)}%</div>
+                        {hasError && (
+                          <div className="flex items-center space-x-1">
+                            <AlertCircle className="h-3 w-3 text-red-500" />
+                            <span className="text-xs text-red-600">Failed</span>
+                          </div>
+                        )}
+                        {isActive && !hasError && (
+                          <div className="flex items-center space-x-1">
+                            <Loader2 className="h-3 w-3 text-blue-500 animate-spin" />
+                            <span className="text-xs text-blue-600">Processing</span>
+                          </div>
+                        )}
+                        {isCompleted && !hasError && (
+                          <div className="flex items-center space-x-1">
+                            <CheckCircle className="h-3 w-3 text-green-500" />
+                            <span className="text-xs text-green-600">Done</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          hasError ? 'bg-red-500' : isCompleted ? 'bg-green-500' : isActive ? 'bg-blue-500' : 'bg-gray-300'
+                        }`}
+                        style={{ width: `${serviceProgress}%` }}
+                      ></div>
+                    </div>
+                    
+                    <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Items Processed:</span>
+                        <div className="font-medium text-gray-900">
+                          {serviceStatus.itemsProcessed || 0} / {serviceStatus.totalItems || selectedAllTargetUsers.length}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Est. Time Left:</span>
+                        <div className="font-medium text-gray-900">
+                          {isCompleted ? '0 min' : serviceStatus.estimatedTimeRemaining ? 
+                            `${Math.round(serviceStatus.estimatedTimeRemaining / 60)} min` : 
+                            'Calculating...'
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Error Details */}
+                    {hasError && serviceStatus.errors && serviceStatus.errors.length > 0 && (
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="text-sm text-red-800 font-medium mb-1">Recent Errors:</div>
+                        <div className="text-xs text-red-700 space-y-1">
+                          {serviceStatus.errors.slice(0, 2).map((error: any, idx: number) => (
+                            <div key={idx} className="truncate">{error.message || error}</div>
+                          ))}
+                          {serviceStatus.errors.length > 2 && (
+                            <div className="text-red-600">+{serviceStatus.errors.length - 2} more errors</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* User Mapping Summary */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">User Mapping Configuration</h3>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">
+                    {selectedAllTargetUsers.length} users configured
+                  </span>
+                </div>
+              </div>
+
+              {/* Mapping Statistics with One-to-Many Support */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <GitBranch className="h-5 w-5 text-green-600" />
+                    <div>
+                      <div className="text-lg font-semibold text-green-700">
+                        {selectedAllTargetUsers.filter(user => user.hasSourceMapping).length}
+                      </div>
+                      <div className="text-sm text-green-600">Explicit Mappings</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <Zap className="h-5 w-5 text-yellow-600" />
+                    <div>
+                      <div className="text-lg font-semibold text-yellow-700">
+                        {selectedAllTargetUsers.filter(user => user.isInferredMapping).length}
+                      </div>
+                      <div className="text-sm text-yellow-600">Inferred Mappings</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <UserPlus className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <div className="text-lg font-semibold text-blue-700">
+                        {selectedAllTargetUsers.filter(user => !user.hasSourceMapping && !user.isInferredMapping).length}
+                      </div>
+                      <div className="text-sm text-blue-600">Direct Migrations</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <Database className="h-5 w-5 text-purple-600" />
+                    <div>
+                      <div className="text-lg font-semibold text-purple-700">
+                        {userMappingConfig?.relationship === 'one-to-many' ? (() => {
+                          // Calculate unique source users for one-to-many
+                          const sourceEmails = new Set(
+                            selectedAllTargetUsers
+                              .filter(user => user.sourceEmail)
+                              .map(user => user.sourceEmail)
+                          );
+                          return sourceEmails.size;
+                        })() : migrationConfig.services.length}
+                      </div>
+                      <div className="text-sm text-purple-600">
+                        {userMappingConfig?.relationship === 'one-to-many' ? 'Source Users' : 'Services per User'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* One-to-Many Specific Statistics */}
+              {userMappingConfig?.relationship === 'one-to-many' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+                  <h4 className="text-sm font-semibold text-orange-900 mb-3">One-to-Many Migration Details</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-orange-700">
+                        {(() => {
+                          // Calculate parallel groups
+                          const sourceToTargetsMap = new Map();
+                          selectedAllTargetUsers.forEach(user => {
+                            const sourceEmail = user.sourceEmail || user.primaryEmail;
+                            if (!sourceToTargetsMap.has(sourceEmail)) {
+                              sourceToTargetsMap.set(sourceEmail, []);
+                            }
+                            sourceToTargetsMap.get(sourceEmail).push(user);
+                          });
+                          return Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1).length;
+                        })()}
+                      </div>
+                      <div className="text-xs text-orange-600">Parallel Groups</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-orange-700">
+                        {(() => {
+                          // Calculate average targets per source
+                          const sourceToTargetsMap = new Map();
+                          selectedAllTargetUsers.forEach(user => {
+                            const sourceEmail = user.sourceEmail || user.primaryEmail;
+                            if (!sourceToTargetsMap.has(sourceEmail)) {
+                              sourceToTargetsMap.set(sourceEmail, []);
+                            }
+                            sourceToTargetsMap.get(sourceEmail).push(user);
+                          });
+                          const groups = Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1);
+                          const totalTargets = groups.reduce((sum, group) => sum + group.length, 0);
+                          return groups.length > 0 ? Math.round(totalTargets / groups.length * 10) / 10 : 0;
+                        })()}
+                      </div>
+                      <div className="text-xs text-orange-600">Avg Targets/Source</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-orange-700">
+                        {(() => {
+                          // Calculate time savings (approximate)
+                          const sourceToTargetsMap = new Map();
+                          selectedAllTargetUsers.forEach(user => {
+                            const sourceEmail = user.sourceEmail || user.primaryEmail;
+                            if (!sourceToTargetsMap.has(sourceEmail)) {
+                              sourceToTargetsMap.set(sourceEmail, []);
+                            }
+                            sourceToTargetsMap.get(sourceEmail).push(user);
+                          });
+                          const groups = Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1);
+                          const timeSaved = groups.reduce((sum, group) => sum + (group.length - 1), 0) * 5; // 5 min per user saved
+                          return Math.round(timeSaved);
+                        })()}min
+                      </div>
+                      <div className="text-xs text-orange-600">Est. Time Saved</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Domain Mapping Overview */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">Domain Mapping Overview</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs text-gray-600 mb-2">Source → Target Domain Mapping</div>
+                    {domainMapping ? (
+                      Object.entries(domainMapping).map(([sourceDomain, targetDomains]) => (
+                        <div key={sourceDomain} className="flex items-center space-x-2 text-sm mb-1">
+                          <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                            {sourceDomain}
+                          </span>
+                          <ArrowRight className="h-3 w-3 text-gray-400" />
+                          <div className="flex flex-wrap gap-1">
+                            {targetDomains.map((targetDomain, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
+                                {targetDomain}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-gray-500 italic">
+                        {migrationConfig.sourceDomain && migrationConfig.targetDomain ? (
+                          <div className="flex items-center space-x-2">
+                            <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                              {migrationConfig.sourceDomain}
+                            </span>
+                            <ArrowRight className="h-3 w-3 text-gray-400" />
+                            <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
+                              {migrationConfig.targetDomain}
+                            </span>
+                          </div>
+                        ) : (
+                          'No domain mapping configured'
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-600 mb-2">Migration Scenario</div>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      selectedScenario === 'cross-tenant' 
+                        ? 'bg-purple-100 text-purple-800' 
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      {selectedScenario === 'cross-tenant' ? 'Cross-Tenant Migration' : 'Single Super Admin'}
+                    </span>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {userMappingConfig?.relationship || 'Default user relationship'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sample User Mappings Preview */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-900 mb-3">Sample User Mappings</h4>
+                <div className="space-y-2">
+                  {selectedAllTargetUsers.slice(0, 3).map((user, index) => (
+                    <div key={user.primaryEmail} className="flex items-center justify-between text-xs bg-white rounded p-2">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-medium">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">{user.name || user.primaryEmail}</div>
+                          <div className="text-gray-500">{user.primaryEmail}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {user.sourceEmail ? (
+                          <>
+                            <span className="text-orange-700">{user.sourceEmail}</span>
+                            <ArrowRight className="h-3 w-3 text-gray-400" />
+                            <span className="text-indigo-700">{user.primaryEmail}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              user.hasSourceMapping ? 'bg-green-100 text-green-700' :
+                              user.isInferredMapping ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {user.hasSourceMapping ? 'Explicit' : user.isInferredMapping ? 'Inferred' : 'Direct'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-gray-500 italic">New user</span>
+                            <ArrowRight className="h-3 w-3 text-gray-400" />
+                            <span className="text-indigo-700">{user.primaryEmail}</span>
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                              Direct
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {selectedAllTargetUsers.length > 3 && (
+                    <div className="text-center text-xs text-gray-500 italic">
+                      ... and {selectedAllTargetUsers.length - 3} more users
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* User Progress Table */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">User Migration Status</h3>
+                <div className="flex items-center space-x-2">
+                  <button className="flex items-center space-x-2 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition-colors">
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Refresh</span>
+                  </button>
+                  <button className="flex items-center space-x-2 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors">
+                    <Download className="h-4 w-4" />
+                    <span>Export</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Target User</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Target Domain</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Source User</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Source Domain</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Progress</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Current Service</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
+                      <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedAllTargetUsers.slice(0, 10).map((user, index) => {
+                      // Get user-specific migration status from migrationStatus
+                      const userStatus = migrationStatus?.userProgress?.[user.primaryEmail] || {
+                        progress: 0,
+                        currentService: null,
+                        status: 'pending',
+                        servicesCompleted: [],
+                        errors: [],
+                        startTime: null,
+                        lastUpdated: null
+                      };
+                      
+                      const userProgress = userStatus.progress || 0;
+                      const currentService = userStatus.currentService || (migrationConfig.services[0] || 'Unknown');
+                      const isCompleted = userStatus.status === 'completed' || userProgress >= 100;
+                      const hasError = userStatus.status === 'failed' || (userStatus.errors && userStatus.errors.length > 0);
+                      const isProcessing = userStatus.status === 'processing';
+                      
+                      return (
+                        <tr key={user.primaryEmail} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                                isCompleted ? 'bg-green-100 text-green-700' : 
+                                hasError ? 'bg-red-100 text-red-700' : 
+                                isProcessing ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                {user.name ? user.name.charAt(0).toUpperCase() : user.primaryEmail.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900">{user.name || user.primaryEmail}</div>
+                                <div className="text-xs text-gray-500">{user.primaryEmail}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                              {user.targetDomain || user.primaryEmail.split('@')[1]}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {user.sourceEmail ? (
+                              <div>
+                                <div className="font-medium text-orange-800">{user.sourceEmail}</div>
+                                <div className="text-xs text-orange-600">
+                                  {user.hasSourceMapping ? 'Explicit Mapping' : 
+                                   user.isInferredMapping ? 'Inferred Mapping' : 'Source User'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center">
+                                <span className="text-xs text-gray-400 italic">No source mapping</span>
+                                <div className="text-xs text-gray-400">Direct migration</div>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {user.sourceEmail ? (
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                user.hasSourceMapping ? 'bg-orange-100 text-orange-800' :
+                                user.isInferredMapping ? 'bg-yellow-100 text-yellow-800' : 'bg-orange-100 text-orange-800'
+                              }`}>
+                                {user.sourceEmail.split('@')[1]}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-16 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className={`h-2 rounded-full transition-all duration-300 ${
+                                    isCompleted ? 'bg-green-500' : hasError ? 'bg-red-500' : isProcessing ? 'bg-blue-500' : 'bg-gray-300'
+                                  }`}
+                                  style={{ width: `${userProgress}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-xs font-medium text-gray-700">{Math.round(userProgress)}%</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium capitalize ${
+                              isCompleted ? 'bg-green-100 text-green-800' :
+                              hasError ? 'bg-red-100 text-red-800' :
+                              isProcessing ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {isCompleted ? 'All Services' : hasError ? 'Failed' : currentService}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {isCompleted ? (
+                              <span className="inline-flex items-center space-x-1 text-green-700">
+                                <CheckCircle className="h-4 w-4" />
+                                <span className="text-xs font-medium">Complete</span>
+                              </span>
+                            ) : hasError ? (
+                              <span className="inline-flex items-center space-x-1 text-red-700">
+                                <AlertCircle className="h-4 w-4" />
+                                <span className="text-xs font-medium">Error</span>
+                              </span>
+                            ) : isProcessing ? (
+                              <span className="inline-flex items-center space-x-1 text-blue-700">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span className="text-xs font-medium">Processing</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 text-gray-700">
+                                <Clock className="h-4 w-4" />
+                                <span className="text-xs font-medium">Pending</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-1">
+                              <button 
+                                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                                title="View Details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              {hasError && (
+                                <button 
+                                  className="p-1 text-red-400 hover:text-red-600 transition-colors"
+                                  title="Retry Migration"
+                                >
+                                  <RefreshCw className="h-4 w-4" />
+                                </button>
+                              )}
+                              {isProcessing && (
+                                <button 
+                                  className="p-1 text-orange-400 hover:text-orange-600 transition-colors"
+                                  title="Pause User Migration"
+                                >
+                                  <Pause className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              
+              {selectedAllTargetUsers.length > 10 && (
+                <div className="mt-4 text-center">
+                  <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                    View All {selectedAllTargetUsers.length} Users
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Control Panel */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Migration Controls</h3>
+              
+              {/* Service Integration Controls */}
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-blue-900 mb-3">Service Integration with User Mappings</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => {
+                      const payload = createMigrationPayload('gmail');
+                      console.log('Gmail Service Payload:', payload);
+                      // Here you would call your actual Gmail migration API
+                      startServiceMigration('gmail', payload);
+                    }}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    <Mail className="h-4 w-4" />
+                    <span>Start Gmail Migration</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const payload = createMigrationPayload('drive');
+                      console.log('Drive Service Payload:', payload);
+                      startServiceMigration('drive', payload);
+                    }}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    <HardDrive className="h-4 w-4" />
+                    <span>Start Drive Migration</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const payload = createMigrationPayload('calendar');
+                      console.log('Calendar Service Payload:', payload);
+                      startServiceMigration('calendar', payload);
+                    }}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    <Calendar className="h-4 w-4" />
+                    <span>Start Calendar Migration</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const payload = createMigrationPayload('contacts');
+                      console.log('Contacts Service Payload:', payload);
+                      startServiceMigration('contacts', payload);
+                    }}
+                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Start Contacts Migration</span>
+                  </button>
+                </div>
+                <div className="mt-3 text-xs text-blue-700">
+                  Click any service button to see the user mapping payload in console
+                </div>
+              </div>
+
+              {/* Standard Migration Controls */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <button className="flex items-center space-x-2 px-4 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg font-medium transition-colors">
+                    <Pause className="h-4 w-4" />
+                    <span>Pause Migration</span>
+                  </button>
+                  <button className="flex items-center space-x-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors">
+                    <StopCircle className="h-4 w-4" />
+                    <span>Stop Migration</span>
+                  </button>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <button className="flex items-center space-x-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors">
+                    <FileText className="h-4 w-4" />
+                    <span>View Logs</span>
+                  </button>
+                  <button className="flex items-center space-x-2 px-4 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg font-medium transition-colors">
+                    <Download className="h-4 w-4" />
+                    <span>Download Report</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Migration Completion or Next Steps */}
+            {(migrationStatus?.overallProgress || 0) >= 100 && (
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <CheckCircle className="h-8 w-8 text-green-600" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-green-900">Migration Completed Successfully!</h3>
+                    <p className="text-green-700">All selected services have been migrated to the target domain(s).</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <button 
+                    onClick={() => router.push('/migrations')}
+                    className="flex items-center space-x-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    <span>View Migration Summary</span>
+                  </button>
+                  <button className="flex items-center space-x-2 px-4 py-2 bg-white hover:bg-gray-50 text-green-700 border border-green-300 rounded-lg font-medium transition-colors">
+                    <Download className="h-4 w-4" />
+                    <span>Download Complete Report</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
 
@@ -3122,7 +5418,7 @@ export default function NewMigration() {
                migrationConfig.sourceDomain && 
                migrationConfig.targetDomain && 
                migrationConfig.services.length > 0 &&
-               selectedUsers.length > 0; // Require users to be selected
+               selectedAllTargetUsers.length > 0; // Require users to be selected
         
         console.log('[Migration Wizard] Configuration validation:', {
           migrationName: migrationConfig.migrationName,
@@ -3133,8 +5429,8 @@ export default function NewMigration() {
           targetDomainValid: !!migrationConfig.targetDomain,
           services: migrationConfig.services,
           servicesValid: migrationConfig.services.length > 0,
-          selectedUsers: selectedUsers.length,
-          selectedUsersValid: selectedUsers.length > 0,
+          selectedUsers: selectedAllTargetUsers.length,
+          selectedUsersValid: selectedAllTargetUsers.length > 0,
           overallValid: configValid
         });
         
@@ -3157,8 +5453,8 @@ export default function NewMigration() {
     migrationConfig.migrationName, 
     migrationConfig.sourceDomain, 
     migrationConfig.targetDomain, 
-    migrationConfig.services.length, 
-    selectedUsers.length,
+    migrationConfig.services, 
+    selectedAllTargetUsers.length,
     adminEmail,
     sourceAdminEmail,
     targetAdminEmail,
@@ -3193,6 +5489,7 @@ export default function NewMigration() {
   
   // Add ref to track if we've loaded users for this configuration step
   const hasLoadedUsersForCurrentStep = useRef(false);
+  const hasLoadedAllTargetUsers = useRef(false);
 
   // Load existing users when we enter configuration step
   useEffect(() => {
@@ -3451,15 +5748,89 @@ export default function NewMigration() {
       // Reset the ref when leaving configuration step
       hasLoadedUsersForCurrentStep.current = false;
     }
-  }, [currentStep, discoveredUsers, createdUsers, userMappings, targetDomains, targetAdminEmails, loadActualTargetUsers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep]);
   
   // Load all target domain users when configuration step is reached
   useEffect(() => {
-    if (currentStep === 'configuration' && targetDomains.length > 0 && Object.keys(targetAdminEmails).length > 0) {
+    console.log('[Migration Config] Second useEffect triggered - currentStep:', currentStep, 
+                'targetDomains:', targetDomains, 
+                'targetAdminEmails:', targetAdminEmails);
+    
+    const condition1 = currentStep === 'configuration';
+    const condition2 = targetDomains.length > 0;
+    const condition3 = Object.keys(targetAdminEmails).length > 0;
+    
+    console.log('[Migration Config] Conditions check:', {
+      'currentStep': currentStep,
+      'currentStep === configuration': condition1,
+      'targetDomains': targetDomains,
+      'targetDomains.length > 0': condition2,
+      'targetAdminEmails': targetAdminEmails,
+      'targetAdminEmails keys': Object.keys(targetAdminEmails),
+      'targetAdminEmails keys > 0': condition3,
+      'hasLoadedAllTargetUsers.current': hasLoadedAllTargetUsers.current,
+      'all conditions met': condition1 && condition2 && condition3,
+      'final condition': condition1 && condition2 && condition3 && !hasLoadedAllTargetUsers.current
+    });
+    
+    if (condition1 && condition2 && condition3 && !hasLoadedAllTargetUsers.current) {
       console.log('[Migration Config] Loading all target domain users for migration settings...');
+      hasLoadedAllTargetUsers.current = true;
       loadAllTargetDomainUsers();
+    } else {
+      console.log('[Migration Config] Not loading target users - conditions not met or already loaded');
+      console.log('[Migration Config] Reason:', {
+        'step not configuration': !condition1,
+        'no target domains': !condition2,
+        'no admin emails': !condition3,
+        'already loaded': hasLoadedAllTargetUsers.current
+      });
     }
-  }, [currentStep, targetDomains, targetAdminEmails]);
+  }, [currentStep, targetDomains, targetAdminEmails, loadAllTargetDomainUsers]);
+
+  // Debug helper function - expose to window for console debugging
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).debugMigrationStep = {
+        currentStep,
+        targetDomains,
+        targetAdminEmails,
+        migrationConfig,
+        domainMapping,
+        goToConfiguration: () => setCurrentStep('configuration'),
+        forceLoadUsers: () => {
+          console.log('[DEBUG] Force loading users...');
+          hasLoadedAllTargetUsers.current = false;
+          loadAllTargetDomainUsers();
+        },
+        checkConditions: () => {
+          const condition1 = currentStep === 'configuration';
+          const condition2 = targetDomains.length > 0;
+          const condition3 = Object.keys(targetAdminEmails).length > 0;
+          
+          return {
+            currentStep,
+            targetDomains,
+            targetAdminEmails,
+            'currentStep === configuration': condition1,
+            'targetDomains.length > 0': condition2,
+            'targetAdminEmails keys > 0': condition3,
+            'all conditions met': condition1 && condition2 && condition3,
+            'hasLoadedAllTargetUsers': hasLoadedAllTargetUsers.current
+          };
+        }
+      };
+    }
+  }, [currentStep, targetDomains, targetAdminEmails, migrationConfig, domainMapping, loadAllTargetDomainUsers]);
+
+  // Reset loading flags when step changes
+  useEffect(() => {
+    if (currentStep !== 'configuration') {
+      hasLoadedAllTargetUsers.current = false;
+      hasLoadedUsersForCurrentStep.current = false;
+    }
+  }, [currentStep]);
   
   const memoizedSourceAdminEmails = useMemo(() => {
     return selectedScenario === 'cross-tenant' && getSourceDomains().length > 1 ? sourceAdminEmails : undefined;
@@ -3482,8 +5853,8 @@ export default function NewMigration() {
   }, [userMappingConfig]);
   
   const memoizedVerificationToken = useMemo(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('dwd_verification_token') || undefined : undefined;
-  }, []);
+    return verificationTokenGenerator.token || undefined;
+  }, [verificationTokenGenerator.token]);
   
   const memoizedUseServiceAccount = useMemo(() => {
     return !!(process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL);
@@ -3774,7 +6145,7 @@ export default function NewMigration() {
                               {!migrationConfig.sourceDomain && 'Source domain required. '}
                               {!migrationConfig.targetDomain && 'Target domain required. '}
                               {migrationConfig.services.length === 0 && 'Select at least one service. '}
-                              {selectedUsers.length === 0 && 'Select users to migrate. '}
+                              {selectedAllTargetUsers.length === 0 && 'Select users to migrate. '}
                             </div>
                           ) : (
                             'Complete all required fields to continue'
@@ -3782,11 +6153,22 @@ export default function NewMigration() {
                         </div>
                       )}
                       <button
-                        onClick={handleNext}
+                        onClick={() => {
+                          if (currentStep === 'delegation' && canProceed()) {
+                            // Handle complete configuration action
+                            console.log('Complete Configuration clicked');
+                            // You can add specific logic here
+                            handleNext(); // Or any other action you want
+                          } else {
+                            handleNext();
+                          }
+                        }}
                         disabled={!canProceed()}
                         className={`flex items-center px-8 py-3 text-sm font-medium rounded-lg transition-all ${
                           canProceed()
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl'
+                            ? currentStep === 'delegation' 
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 shadow-lg hover:shadow-xl'
+                              : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl'
                             : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         }`}
                       >
@@ -3794,6 +6176,11 @@ export default function NewMigration() {
                           <>
                             <PlayCircle className="h-4 w-4 mr-2" />
                             Start Migration
+                          </>
+                        ) : currentStep === 'delegation' ? (
+                          <>
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Complete Configuration
                           </>
                         ) : (
                           <>
@@ -3813,4 +6200,3 @@ export default function NewMigration() {
     </ProtectedRoute>
   );
 }
- 

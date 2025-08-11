@@ -102,8 +102,17 @@ export async function GET(request: NextRequest) {
     if (process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL) {
       try {
         // For service account with domain-wide delegation, we need an admin email to impersonate
-        // If no admin email provided, try to derive one from the domain
+        // Validate that the admin email is from the target domain and not the service account itself
         let impersonateEmail = adminEmail
+        
+        // Check if the provided admin email is actually the service account email (invalid for impersonation)
+        const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL
+        if (impersonateEmail === serviceAccountEmail) {
+          console.log(`Invalid impersonation: admin email is the service account itself (${impersonateEmail})`)
+          impersonateEmail = null
+        }
+        
+        // If no valid admin email provided, try to derive one from the domain
         if (!impersonateEmail && domain) {
           // Try common admin patterns if no admin email provided
           const commonAdminPatterns = [
@@ -113,14 +122,19 @@ export async function GET(request: NextRequest) {
           ]
           // For now, we'll use the first pattern, but this should be configurable
           impersonateEmail = commonAdminPatterns[0]
-          console.log(`No admin email provided, trying to impersonate: ${impersonateEmail}`)
+          console.log(`No valid admin email provided, trying to impersonate: ${impersonateEmail}`)
+        }
+        
+        // Validate that the impersonation email belongs to the target domain
+        if (impersonateEmail && domain && !impersonateEmail.endsWith(`@${domain}`)) {
+          console.log(`Warning: Impersonation email ${impersonateEmail} does not belong to target domain ${domain}`)
         }
         
         if (impersonateEmail) {
           gwsService = createServiceAccountService(impersonateEmail)
           console.log('Using service account authentication for admin:', impersonateEmail)
         } else {
-          throw new Error('Admin email required for service account domain-wide delegation')
+          throw new Error('Valid admin email from the target domain required for service account domain-wide delegation')
         }
       } catch (serviceAccountError: any) {
         console.warn('Service account authentication failed, falling back to OAuth:', serviceAccountError)
@@ -228,31 +242,244 @@ export async function GET(request: NextRequest) {
           })
         } catch (error: any) {
           console.error('Error fetching users:', error)
+          console.error('Error context:', {
+            domain: domain,
+            adminEmail: adminEmail,
+            errorMessage: error?.message,
+            errorCode: error?.code,
+            errorCause: error?.cause?.message
+          })
           
           // Check for domain-wide delegation issues
           if (error.message?.includes('Domain-wide delegation error') || 
               error.message?.includes('unauthorized_client') ||
               error.message?.includes('invalid_grant') ||
-              error.code === 401 || error.code === 400) {
+              error.message?.includes('Not Authorized to access this resource/api') ||
+              error.code === 401 || error.code === 400 || error.code === 403) {
+            
+            // Check if the admin email is the service account email (common mistake)
+            const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL
+            const isServiceAccountEmail = adminEmail === serviceAccountEmail
+            
             return NextResponse.json({
               error: 'Domain-wide delegation not configured',
-              message: `Unable to access users from ${domain || 'the domain'}. This usually means:`,
-              details: [
+              message: `Unable to access users from ${domain || 'the domain'}. This is a domain-wide delegation issue.`,
+              details: isServiceAccountEmail ? [
+                `❌ Invalid admin email: You provided the service account email (${adminEmail}) instead of a real admin user`,
+                `✅ Required: Provide an admin email from the target domain ${domain || 'migrate.arakutourism.net'} (e.g., admin@${domain || 'migrate.arakutourism.net'})`,
+                `🔧 The service account needs to impersonate a real admin user from the target domain`,
+                `📋 Ensure domain-wide delegation is set up in ${domain || 'the target domain'}'s Google Admin Console`
+              ] : [
                 `The service account is not configured for domain-wide delegation in ${domain || 'the target domain'}`,
-                `The admin email ${adminEmail || 'provided'} does not have sufficient permissions for ${domain || 'the domain'}`,
-                'Domain-wide delegation needs to be set up in the Google Admin Console'
+                `The admin email ${adminEmail || 'provided'} may not exist or have sufficient permissions in ${domain || 'the domain'}`,
+                `Domain-wide delegation needs to be set up in ${domain || 'the target domain'}'s Google Admin Console`,
+                `Service account client ID needs to be authorized with the required scopes`
               ],
-              actionRequired: 'Please ensure domain-wide delegation is properly configured for cross-domain access',
+              actionRequired: isServiceAccountEmail 
+                ? `Provide a valid admin email from ${domain || 'the target domain'} instead of the service account email`
+                : 'Please ensure domain-wide delegation is properly configured for cross-domain access',
               domain: domain,
-              adminEmail: adminEmail
-            }, { status: 401 })
+              adminEmail: adminEmail,
+              serviceAccountEmail: serviceAccountEmail,
+              isServiceAccountEmailError: isServiceAccountEmail,
+              originalError: error?.message
+            }, { status: 403 })
           }
           
           return NextResponse.json({
             error: 'Failed to fetch users',
             message: error.message || 'Unknown error occurred',
             domain: domain,
-            adminEmail: adminEmail
+            adminEmail: adminEmail,
+            errorDetails: {
+              code: error?.code,
+              cause: error?.cause?.message,
+              stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+            }
+          }, { status: 500 })
+        }
+
+      case 'users-with-subdomains':
+        try {
+          // Get includeSubdomains parameter
+          const includeSubdomains = searchParams.get('includeSubdomains') === 'true'
+          const maxResults = searchParams.get('maxResults') ? parseInt(searchParams.get('maxResults')!) : 100
+          
+          if (!includeSubdomains) {
+            // If not including subdomains, fall back to regular users endpoint
+            return NextResponse.redirect(new URL(request.url.replace('action=users-with-subdomains', 'action=users')))
+          }
+
+          // Create cache key that includes subdomain flag
+          const subdomainCacheKey = `users-subdomains:${domain || 'default'}:${adminEmail || 'default'}`
+          
+          // Check cache first
+          const cachedSubdomainUsers = getCachedUsers(subdomainCacheKey)
+          if (cachedSubdomainUsers?.data) {
+            console.log('Returning cached subdomain users for domain:', domain)
+            return NextResponse.json({ 
+              ...cachedSubdomainUsers.data,
+              cached: true,
+              timestamp: new Date().toISOString()
+            }, {
+              headers: {
+                'Cache-Control': 'public, max-age=180, s-maxage=180', // Shorter cache for subdomain data
+                'X-Cache-Status': 'HIT'
+              }
+            })
+          }
+
+          const allUsersData: {
+            users: any[]
+            domains: string[]
+            subdomainResults: Record<string, { users: any[], error?: string }>
+            totalUsers: number
+            timestamp: string
+            cached: boolean
+          } = {
+            users: [],
+            domains: [],
+            subdomainResults: {},
+            totalUsers: 0,
+            timestamp: new Date().toISOString(),
+            cached: false
+          }
+
+          // First, get users from the main domain
+          if (domain) {
+            try {
+              console.log(`Fetching users from main domain: ${domain}`)
+              const mainDomainUsers = await gwsService.getUsers(domain, Math.min(maxResults, 200))
+              allUsersData.users.push(...mainDomainUsers)
+              allUsersData.domains.push(domain)
+              allUsersData.subdomainResults[domain] = { users: mainDomainUsers }
+              console.log(`Found ${mainDomainUsers.length} users in main domain ${domain}`)
+            } catch (error: any) {
+              console.error(`Error fetching users from main domain ${domain}:`, error.message)
+              allUsersData.subdomainResults[domain] = { 
+                users: [], 
+                error: error.message || 'Failed to fetch users' 
+              }
+            }
+          }
+
+          // Get all domains from the organization
+          try {
+            console.log('Fetching all domains from organization...')
+            const allDomains = await gwsService.getDomains()
+            const verifiedDomains = allDomains
+              .filter(d => d.verified && d.domainName !== domain) // Exclude main domain we already processed
+              .map(d => d.domainName)
+            
+            console.log(`Found ${verifiedDomains.length} additional verified domains:`, verifiedDomains)
+
+            // Fetch users from each subdomain/additional domain
+            const domainPromises = verifiedDomains.map(async (subdomain) => {
+              try {
+                console.log(`Fetching users from subdomain: ${subdomain}`)
+                
+                // Create admin email for this subdomain
+                let subdomainAdminEmail = adminEmail
+                if (adminEmail && domain && adminEmail.includes(domain)) {
+                  // Replace the domain part with the subdomain
+                  subdomainAdminEmail = adminEmail.replace(domain, subdomain)
+                  console.log(`Using subdomain admin email: ${subdomainAdminEmail}`)
+                }
+
+                // Create a service for this specific subdomain
+                const subdomainService = subdomainAdminEmail 
+                  ? createServiceAccountService(subdomainAdminEmail)
+                  : gwsService
+
+                const subdomainUsers = await subdomainService.getUsers(subdomain, Math.min(maxResults, 100))
+                
+                allUsersData.domains.push(subdomain)
+                allUsersData.subdomainResults[subdomain] = { users: subdomainUsers }
+                
+                console.log(`Found ${subdomainUsers.length} users in subdomain ${subdomain}`)
+                return subdomainUsers
+              } catch (error: any) {
+                console.error(`Error fetching users from subdomain ${subdomain}:`, error.message)
+                allUsersData.subdomainResults[subdomain] = { 
+                  users: [], 
+                  error: error.message || 'Failed to fetch users from subdomain' 
+                }
+                return []
+              }
+            })
+
+            // Wait for all subdomain queries to complete
+            const subdomainResults = await Promise.allSettled(domainPromises)
+            
+            // Add all successful results to the main users array
+            subdomainResults.forEach((result, index) => {
+              if (result.status === 'fulfilled' && result.value) {
+                allUsersData.users.push(...result.value)
+              }
+            })
+
+          } catch (domainsError: any) {
+            console.error('Error fetching domains for subdomain enumeration:', domainsError.message)
+            // Continue with main domain only if we can't get subdomains
+          }
+
+          // Calculate totals and add metadata
+          allUsersData.totalUsers = allUsersData.users.length
+
+          // Cache the results
+          setCachedUsers(subdomainCacheKey, allUsersData)
+
+          return NextResponse.json(allUsersData, {
+            headers: {
+              'Cache-Control': 'public, max-age=180, s-maxage=180',
+              'X-Cache-Status': 'MISS'
+            }
+          })
+
+        } catch (error: any) {
+          console.error('Error fetching users with subdomains:', error)
+          
+          // Check for domain-wide delegation issues (same as regular users endpoint)
+          if (error.message?.includes('Domain-wide delegation error') || 
+              error.message?.includes('unauthorized_client') ||
+              error.message?.includes('invalid_grant') ||
+              error.message?.includes('Not Authorized to access this resource/api') ||
+              error.code === 401 || error.code === 400 || error.code === 403) {
+            
+            const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL || process.env.SERVICE_ACCOUNT_EMAIL
+            const isServiceAccountEmail = adminEmail === serviceAccountEmail
+            
+            return NextResponse.json({
+              error: 'Domain-wide delegation not configured for subdomain access',
+              message: `Unable to access users from ${domain || 'the domain'} and its subdomains.`,
+              details: isServiceAccountEmail ? [
+                `❌ Invalid admin email: You provided the service account email (${adminEmail}) instead of a real admin user`,
+                `✅ Required: Provide an admin email from the main domain ${domain || 'the target domain'} (e.g., admin@${domain || 'the target domain'})`,
+                `🌐 Subdomain access: The system will attempt to map admin emails to subdomains automatically`,
+                `📋 Ensure domain-wide delegation is set up across all domains in the organization`
+              ] : [
+                `Domain-wide delegation may not be configured for all subdomains`,
+                `The admin email ${adminEmail || 'provided'} may not have permissions across all domains`,
+                `Some subdomains may require separate admin accounts`,
+                `Ensure domain-wide delegation covers the entire organization`
+              ],
+              actionRequired: 'Configure domain-wide delegation for multi-domain access',
+              domain: domain,
+              adminEmail: adminEmail,
+              originalError: error?.message
+            }, { status: 403 })
+          }
+          
+          return NextResponse.json({
+            error: 'Failed to fetch users with subdomains',
+            message: error.message || 'Unknown error occurred',
+            domain: domain,
+            adminEmail: adminEmail,
+            errorDetails: {
+              code: error?.code,
+              cause: error?.cause?.message,
+              stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+            }
           }, { status: 500 })
         }
 

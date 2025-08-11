@@ -4,6 +4,9 @@ import { createServiceAccountService } from '@/lib/google-workspace'
 import { authOptions } from '@/lib/auth-options'
 import { google } from 'googleapis'
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic'
+
 interface GroupsMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
@@ -125,7 +128,7 @@ async function getGroupStatistics(adminService: any, specificGroups?: string[]) 
       groupCount = specificGroups.length
       for (const groupId of specificGroups) {
         try {
-          const membersResponse = await adminService.members.list({
+          const membersResponse: any = await adminService.members.list({
             groupKey: groupId,
             maxResults: 1
           })
@@ -138,7 +141,7 @@ async function getGroupStatistics(adminService: any, specificGroups?: string[]) 
       // Count all groups
       let pageToken: string | undefined = undefined
       do {
-        const groupsResponse = await adminService.groups.list({
+        const groupsResponse: any = await adminService.groups.list({
           customer: 'my_customer',
           maxResults: 200,
           pageToken
@@ -150,7 +153,7 @@ async function getGroupStatistics(adminService: any, specificGroups?: string[]) 
         // Count members for each group
         for (const group of groups) {
           try {
-            const membersResponse = await adminService.members.list({
+            const membersResponse: any = await adminService.members.list({
               groupKey: group.id,
               maxResults: 1
             })
@@ -197,7 +200,7 @@ async function processGroupMigration(
       // Get all groups
       let pageToken: string | undefined = undefined
       do {
-        const groupsResponse = await sourceService.groups.list({
+        const groupsResponse: any = await sourceService.groups.list({
           customer: 'my_customer',
           maxResults: options.batchSize || 50,
           pageToken
@@ -324,7 +327,7 @@ async function migrateGroupMembers(sourceService: any, targetService: any, sourc
     let pageToken: string | undefined = undefined
 
     do {
-      const membersResponse = await sourceService.members.list({
+      const membersResponse: any = await sourceService.members.list({
         groupKey: sourceGroupId,
         maxResults: 200,
         pageToken
@@ -342,7 +345,7 @@ async function migrateGroupMembers(sourceService: any, targetService: any, sourc
               role: options.preserveRoles ? member.role : 'MEMBER'
             }
           })
-          progress.migratedMembers++
+          // progress.migratedMembers++ // TODO: Implement proper progress tracking
         } catch (error) {
           console.error(`Error migrating member ${member.email}:`, error)
         }

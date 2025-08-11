@@ -15,6 +15,9 @@ import {
   Plus,
   Search
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import IndividualUserMapper from '@/components/IndividualUserMapper';
 import UserMappingVisualizer, { UserMapping } from '@/components/UserMappingVisualizer';
 import CSVMappingManager from '@/components/CSVMappingManager';
@@ -72,35 +75,34 @@ export default function UserMappingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-secondary-50">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-xl shadow-sm border-b border-blue-100 sticky top-0 z-50">
+      <header className="bg-white shadow-sm border-b border-secondary-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-6">
             <div className="flex items-center gap-4">
-              <Link
-                href="/migrations"
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="h-5 w-5" />
+              <Link href="/migrations">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
               </Link>
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg">
+                <div className="p-2 bg-primary-600 rounded-xl shadow-lg">
                   <Database className="h-6 w-6 text-white" />
                 </div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                <span className="text-2xl font-bold text-secondary-900">
                   MigrateGWS
                 </span>
               </div>
             </div>
             <nav className="hidden md:flex items-center space-x-8">
-              <Link href="/dashboard" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200">
+              <Link href="/dashboard" className="text-secondary-600 hover:text-primary-600 font-medium">
                 Dashboard
               </Link>
-              <Link href="/migrations" className="text-blue-600 font-medium">
+              <Link href="/migrations" className="text-primary-600 font-medium">
                 Migrations
               </Link>
-              <Link href="/settings" className="text-gray-600 hover:text-blue-600 font-medium transition-colors duration-200">
+              <Link href="/settings" className="text-secondary-600 hover:text-primary-600 font-medium">
                 Settings
               </Link>
             </nav>
@@ -112,14 +114,14 @@ export default function UserMappingPage() {
         {/* Page Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-lg">
+            <div className="p-2 bg-primary-600 rounded-xl shadow-lg">
               <Users className="h-7 w-7 text-white" />
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold text-secondary-900">
               User Mapping
             </h1>
           </div>
-          <p className="text-gray-600 max-w-3xl font-medium">
+          <p className="text-secondary-600 max-w-3xl font-medium">
             Create and manage user mappings for Google Workspace migrations. Define how users from source domains 
             will be mapped to target domains with support for merge, split, direct, and create scenarios.
           </p>

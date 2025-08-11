@@ -36,6 +36,24 @@ export interface MigrationStatus {
   overallProgress: number;
   errors: MigrationError[];
   migrationConfig?: any; // Configuration data for the migration including services, users, and mappings
+  lastUpdated?: string;
+  serviceProgress?: Record<string, {
+    progress: number;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    itemsProcessed: number;
+    totalItems: number;
+    errors: string[];
+    estimatedTimeRemaining?: number;
+  }>;
+  userProgress?: Record<string, {
+    progress: number;
+    currentService: string;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    servicesCompleted: string[];
+    errors: string[];
+    startTime?: string | null;
+    lastUpdated: string;
+  }>;
 }
 
 export interface DomainMapping {

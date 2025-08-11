@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import ServiceAccountTargetSetup from '@/components/ServiceAccountTargetSetup';
-import { autoConfigureTargetDomains, type TargetDomainConfig } from '@/utils/targetDomainConfig';
+import { autoConfigureTargetDomains, type TargetDomainConfig } from '@/types/targetDomainConfig';
 import { CheckCircle, ArrowRight, Copy } from 'lucide-react';
 
 export default function ServiceAccountSetupPage() {

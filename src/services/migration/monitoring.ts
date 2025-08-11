@@ -293,7 +293,9 @@ export class MigrationMonitoringSystem extends EventEmitter {
       this.dashboardData.alerts = this.dashboardData.alerts.slice(0, 50);
     }
 
-    this.logActivity(level, 'system', `Alert created: ${title}`, { alertId, category });
+    // Map alert level to activity log level (critical -> error)
+    const activityLevel: ActivityLogEntry['level'] = level === 'critical' ? 'error' : level;
+    this.logActivity(activityLevel, 'system', `Alert created: ${title}`, { alertId, category });
     this.emit('alertCreated', alert);
 
     // Send external notifications

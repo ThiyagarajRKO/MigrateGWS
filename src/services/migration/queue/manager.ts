@@ -686,3 +686,6 @@ class RateLimiter {
     this.dailyRequests = this.dailyRequests.filter(time => now - time < 86400000);
   }
 }
+
+// Re-export types for convenience
+export type { QueueMetrics } from './types';
