@@ -2162,7 +2162,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                     <span className="font-medium text-green-900">
                       Discovery Complete: {discoveredUsers.length} users found
                       {stats.cloned > 0 && (
-                        <span className="ml-2 text-sm text-orange-700">
+                        <span className="ml-2 text-sm text-blue-700">
                           ({stats.cloned} already exist in target, {stats.selectable} available for creation)
                         </span>
                       )}
@@ -2183,7 +2183,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                       className={`px-3 py-2 rounded-lg transition-colors text-sm flex items-center space-x-2 ${
                         isCheckingExistingUsers
                           ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                          : 'bg-orange-600 text-white hover:bg-orange-700'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
                       }`}
                     >
                       {isCheckingExistingUsers ? (
@@ -2412,7 +2412,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${
                                             consolidationType === 'Multi-Domain' 
                                               ? 'bg-purple-100 text-purple-800' 
-                                              : 'bg-orange-100 text-orange-800'
+                                              : 'bg-blue-100 text-blue-800'
                                           }`}>
                                             <TrendingUp className="h-3 w-3 mr-1" />
                                             {consolidationType}
@@ -2897,50 +2897,65 @@ For cross-tenant migration, each target domain requires its own admin email with
                 </p>
               </div>
             </div>
-            
-            {/* Migration Status Summary */}
-            {(() => {
-              const stats = (() => {
-                const total = discoveredUsers.length;
-                const cloned = discoveredUsers.filter(user => {
-                  const cloneStatus = getCloneStatusForUser(user);
-                  return cloneStatus.isCloned;
-                }).length;
-                const selectable = total - cloned;
-                const selected = selectedUsers.size;
-                
-                return { total, cloned, selectable, selected };
-              })();
+          </div>
+
+          {/* Migration Status Summary */}
+          {(() => {
+            const stats = (() => {
+              const total = discoveredUsers.length;
+              const cloned = discoveredUsers.filter(user => {
+                const cloneStatus = getCloneStatusForUser(user);
+                return cloneStatus.isCloned;
+              }).length;
+              const selectable = total - cloned;
+              const selected = selectedUsers.size;
               
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              return { total, cloned, selectable, selected };
+            })();
+            
+            return (
+              <div className="mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
-                      <div className="text-sm text-blue-700">Total Users</div>
+                      <div className="text-2xl font-bold text-blue-700">{stats.total}</div>
+                      <div className="text-sm text-blue-600">Total Users</div>
                     </div>
                   </div>
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-green-600">{stats.cloned}</div>
-                      <div className="text-sm text-green-700">Already Migrated</div>
+                      <div className="text-2xl font-bold text-blue-700">{stats.cloned}</div>
+                      <div className="text-sm text-blue-600">Already Cloned</div>
                     </div>
                   </div>
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-purple-600">{stats.selectable}</div>
-                      <div className="text-sm text-purple-700">Available to Select</div>
+                      <div className="text-2xl font-bold text-blue-700">{stats.selectable}</div>
+                      <div className="text-sm text-blue-600">Available for Selection</div>
                     </div>
                   </div>
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-600">{stats.selected}</div>
-                      <div className="text-sm text-orange-700">Selected for Creation</div>
+                      <div className="text-2xl font-bold text-blue-700">{selectedUsers.size}</div>
+                      <div className="text-sm text-blue-600">Users Selected</div>
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-700">{selectedMappingsCount}</div>
+                      <div className="text-sm text-blue-600">Target Accounts</div>
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-700">{stats.selected}</div>
+                      <div className="text-sm text-blue-600">Ready for Creation</div>
                     </div>
                   </div>
                 </div>
-              );
-            })()}
+              </div>
+            );
+          })()}
             
             {/* Target Domain Configuration Validation */}
             {(() => {
@@ -3014,7 +3029,6 @@ For cross-tenant migration, each target domain requires its own admin email with
                 <span>Skip User Creation</span>
               </button>
             </div>
-          </div>
 
           {/* Filters */}
           {showFilters && (
@@ -3048,53 +3062,6 @@ For cross-tenant migration, each target domain requires its own admin email with
               </div>
             </div>
           )}
-
-          {/* Selection Summary */}
-          <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Users selected:</span>
-                <span className="font-medium">{selectedUsers.size}</span>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Target accounts to create:</span>
-                <span className="font-medium">{selectedMappingsCount}</span>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Already cloned:</span>
-                <span className="font-medium text-orange-600">{stats.cloned}</span>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Available for selection:</span>
-                <span className="font-medium text-green-600">{stats.selectable}</span>
-              </div>
-            </div>
-            
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Migration strategy:</span>
-                <span className="font-medium">{mappingType?.replace(/-/g, ' TO ').toUpperCase() || 'Not specified'}</span>
-              </div>
-            </div>
-            
-            {/* Show clone information banner */}
-            {stats.cloned > 0 && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="p-3 bg-orange-100 border border-orange-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-orange-800">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="font-medium">Clone Detection Results:</span>
-                  </div>
-                  <div className="mt-1 text-sm text-orange-700">
-                    {stats.cloned} user(s) already exist in target domain(s) and have been removed from the selection list to prevent duplicate creation.
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Selected User Mappings Display */}
           {selectedUsers.size > 0 && (
@@ -3271,7 +3238,7 @@ For cross-tenant migration, each target domain requires its own admin email with
               return (
                 <div key={userId} className={`border rounded-lg p-3 ${
                   isCloned 
-                    ? 'border-orange-200 bg-orange-50' 
+                    ? 'border-blue-200 bg-blue-50' 
                     : 'border-gray-200'
                 }`}>
                   <div className="flex items-center justify-between">
@@ -3299,7 +3266,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                             </span>
                           )}
                           {isCloned && (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-red-300">
                               <AlertCircle className="h-3 w-3 mr-1" />
                               Already Exists
                             </span>
@@ -3327,17 +3294,17 @@ For cross-tenant migration, each target domain requires its own admin email with
                         
                         {/* Show clone information */}
                         {isCloned && (
-                          <div className="mt-2 p-2 bg-orange-100 border border-orange-200 rounded text-xs">
-                            <div className="font-medium text-orange-800 mb-1">User already exists in target domain(s):</div>
+                          <div className="mt-2 p-2 bg-blue-100 border border-red-300 rounded text-xs">
+                            <div className="font-medium text-blue-800 mb-1">User already exists in target domain(s):</div>
                             <div className="space-y-1">
                               {cloneStatus.clonedTargetEmails.map((email, idx) => (
-                                <div key={idx} className="text-orange-700">
+                                <div key={idx} className="text-blue-700">
                                   <Mail className="h-3 w-3 inline mr-1" />
                                   {email} in {cloneStatus.clonedInDomains[idx]}
                                 </div>
                               ))}
                             </div>
-                            <div className="mt-1 text-orange-600 italic">
+                            <div className="mt-1 text-blue-600 italic">
                               Selection disabled to prevent duplicate creation
                             </div>
                           </div>
