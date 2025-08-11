@@ -2358,6 +2358,11 @@ export default function NewMigration() {
       // Create the migration payload for this service
       const migrationPayload = createMigrationPayload(serviceKey);
       
+      // Check if payload creation was successful
+      if (!migrationPayload) {
+        throw new Error(`Failed to create migration payload for ${serviceKey}. Migration status or configuration might be missing.`);
+      }
+      
       console.log(`[Service Migration] Created payload for ${serviceKey}:`, {
         userMappings: migrationPayload?.userMappings?.length || 0,
         serviceName: (migrationPayload as any)?.service || 'all-services',
@@ -2514,6 +2519,17 @@ export default function NewMigration() {
 
   // Create service-specific migration request
   const createServiceMigrationRequest = (serviceName: string, payload: any) => {
+    // Add null check for payload
+    if (!payload) {
+      console.error(`[Service Migration] Payload is null for service: ${serviceName}`);
+      return {
+        scenario: selectedScenario,
+        migrationId: 'unknown',
+        userMappings: [],
+        service: serviceName
+      };
+    }
+
     const serviceConfig = payload.serviceConfigs?.[serviceName.toLowerCase()];
     const userMappings = serviceConfig?.userMappings || payload.userMappings || [];
 
@@ -2676,7 +2692,10 @@ export default function NewMigration() {
 
   // Function to create migration API payload for services
   const createMigrationPayload = useCallback((serviceName?: string) => {
-    if (!migrationStatus) return null;
+    if (!migrationStatus) {
+      console.error('[Migration Payload] migrationStatus is null or undefined');
+      return null;
+    }
 
     const basePayload = {
       migrationId: migrationStatus.id,
@@ -2715,7 +2734,11 @@ export default function NewMigration() {
     if (serviceName) {
       const serviceConfig = basePayload.serviceConfigs[serviceName.toLowerCase()];
       if (!serviceConfig) {
-        console.warn(`Service ${serviceName} not found in configuration`);
+        console.error(`[Migration Payload] Service ${serviceName} not found in configuration.`, {
+          availableServices: Object.keys(basePayload.serviceConfigs),
+          requestedService: serviceName.toLowerCase(),
+          migrationServices: migrationConfig.services
+        });
         return null;
       }
 
