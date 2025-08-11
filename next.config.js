@@ -10,6 +10,30 @@ const nextConfig = {
   },
   // Bundle size optimization
   webpack: (config, { isServer }) => {
+    // Handle Node.js modules for client-side
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        child_process: false,
+        'stream': require.resolve('stream-browserify'),
+        'buffer': require.resolve('buffer'),
+        'crypto': require.resolve('crypto-browserify'),
+        'process': require.resolve('process/browser'),
+      };
+      
+      // Add plugins for browser polyfills
+      const webpack = require('webpack');
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ['buffer', 'Buffer'],
+          process: 'process/browser',
+        })
+      );
+    }
+
     // Analyze bundle in production
     if (process.env.ANALYZE === 'true') {
       const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
