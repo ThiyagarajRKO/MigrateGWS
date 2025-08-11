@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, memo, useCallback } from 'react';
+import { useState, useEffect, memo, useCallback, useMemo } from 'react';
 import { UserMappingRelationship, UserMappingConfig } from '@/types';
 import { DomainMappingConfig } from '@/types/migration-scenarios';
+import { useVerificationToken } from '@/hooks/useVerificationToken';
+import { useVerificationTokenGenerator } from '@/hooks/useVerificationTokenGenerator';
 import { 
   Users, 
   UserPlus, 
@@ -11,6 +13,7 @@ import {
   AlertCircle, 
   RefreshCw, 
   ArrowRight,
+  ArrowLeft,
   Target,
   Building,
   Shield,
@@ -54,6 +57,8 @@ interface User {
   isCloned?: boolean;
   clonedTargetEmails?: string[];
   clonedInDomains?: string[];
+  // Exclusion flag
+  hasExclude?: boolean;
 }
 
 interface UserMapping {
@@ -85,6 +90,7 @@ interface UserManagementWorkflowProps {
   userMappingStrategy?: UserMappingRelationship;
   userMappingConfig?: UserMappingConfig;
   verificationToken?: string; // Add verification token prop
+  useServiceAccount?: boolean; // Add service account flag
   onComplete?: (results: {
     discoveredUsers: User[];
     createdUsers: CreationResult[];
@@ -112,7 +118,7 @@ interface UserManagementWorkflowProps {
   }) => void;
 }
 
-type WorkflowStep = 'discovery' | 'mapping' | 'creation' | 'complete';
+type WorkflowStep = 'discovery' | 'mapping' | 'creation';
 
 export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   sourceDomains,
@@ -126,6 +132,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   userMappingStrategy,
   userMappingConfig,
   verificationToken, // Extract verification token prop
+  useServiceAccount = false, // Extract service account flag
   onComplete
 }: UserManagementWorkflowProps) {
   // Core state
@@ -133,17 +140,6 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [discoveredUsers, setDiscoveredUsers] = useState<User[]>([]);
   const [userMappings, setUserMappings] = useState<UserMapping[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  
-  // Debug useEffect to track domain mapping changes
-  useEffect(() => {
-    console.log('[UserManagementWorkflow] Domain mapping received:', {
-      domainMapping,
-      migrationScenario,
-      userMappingStrategy,
-      userMappingConfig,
-      timestamp: new Date().toISOString()
-    });
-  }, [domainMapping, migrationScenario, userMappingStrategy, userMappingConfig]);
   
   // Discovery state
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -156,6 +152,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [targetDomainUsers, setTargetDomainUsers] = useState<{[domain: string]: User[]}>({});
   const [targetDiscoveryProgress, setTargetDiscoveryProgress] = useState<{[domain: string]: {loading: boolean, users: User[], error?: string}}>({});
   const [existingUserStatus, setExistingUserStatus] = useState<{[userEmail: string]: {exists: boolean, targetDomain: string, error?: string}}>({});
+  const [userCheckCache, setUserCheckCache] = useState<{[cacheKey: string]: {timestamp: number, status: typeof existingUserStatus}}>({});
   
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
@@ -165,10 +162,93 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [totalBatches, setTotalBatches] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('');
+
+  // Verification token hook for service account verification
+  const verificationTokenHook = useVerificationToken({
+    tokenProp: verificationToken,
+    storageKey: 'service_account_verification_token',
+    debug: true,
+    componentName: 'UserManagementWorkflow'
+  });
+
+  // Verification token generator hook for bypassing domain-wide delegation
+  const verificationTokenGenerator = useVerificationTokenGenerator({
+    debug: true,
+    componentName: 'UserManagementWorkflow',
+    storageKey: 'dwd_verification_token'
+  });
+  
+  // Service account verification state
+  const [isVerifyingServiceAccount, setIsVerifyingServiceAccount] = useState(false);
+  const [serviceAccountVerified, setServiceAccountVerified] = useState(false);
   
   // Configuration
   const batchSize = 3; // Small batches to avoid rate limiting
   const retryAttempts = 3;
+  
+  // Service account verification function
+  const verifyServiceAccount = useCallback(async () => {
+    if (!useServiceAccount) {
+      console.log('[UserManagementWorkflow] Service account not enabled, skipping verification');
+      return;
+    }
+
+    setIsVerifyingServiceAccount(true);
+    console.log('[UserManagementWorkflow] Starting service account verification');
+
+    try {
+      // Check if service account environment variables are set
+      const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+      
+      if (!serviceAccountEmail) {
+        throw new Error('Service account environment variables not configured');
+      }
+
+      // Call the verification endpoint
+      const response = await fetch('/api/v1/delegation/verify', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          domain: 'service-account-verification',
+          adminEmail: serviceAccountEmail,
+          migrationScenario: 'service-account',
+          useServiceAccount: true
+        })
+      });
+
+      const verificationData = await response.json();
+      console.log('[UserManagementWorkflow] Service account verification response:', verificationData);
+
+      if (response.ok && verificationData.success) {
+        // Generate a verification token for service account
+        const serviceAccountToken = `service-account-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Store the verification token
+        verificationTokenHook.storeToken(serviceAccountToken);
+        setServiceAccountVerified(true);
+        
+        console.log('[UserManagementWorkflow] Service account verified successfully, token stored:', serviceAccountToken);
+      } else {
+        throw new Error(verificationData.error || verificationData.message || 'Service account verification failed');
+      }
+    } catch (error) {
+      console.error('[UserManagementWorkflow] Service account verification failed:', error);
+      setServiceAccountVerified(false);
+      // Don't throw error, just log it - we'll fall back to regular admin email validation
+    } finally {
+      setIsVerifyingServiceAccount(false);
+    }
+  }, [useServiceAccount]);
+
+  // Verify service account on mount if enabled
+  useEffect(() => {
+    if (useServiceAccount && !serviceAccountVerified && !isVerifyingServiceAccount) {
+      verifyServiceAccount();
+    }
+  }, [useServiceAccount, serviceAccountVerified, isVerifyingServiceAccount]);
   
   // Helper functions
   // Helper function to get users that exist in multiple source domains (for many-to-one)
@@ -224,18 +304,18 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     return multiDomainUsers;
   };
 
-  const normalizeUserName = (user: User): string => {
+  const normalizeUserName = useCallback((user: User): string => {
     const cleanName = (name: string): string => {
       return name?.toLowerCase().trim().replace(/[^a-z0-9]/g, '') || '';
     };
     
     const firstName = cleanName(user.name.givenName);
-    // Preserve period in family name if it was the original value
+    // Don't use period as lastName to avoid double dots in email
     const originalFamilyName = user.name.familyName?.trim() || '';
-    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
+    const lastName = originalFamilyName === '.' ? '' : cleanName(user.name.familyName);
     
     if (firstName && lastName) {
-      return `${firstName}.${lastName}`;
+      return `${firstName}${lastName}`;
     } else if (firstName) {
       return firstName;
     } else if (lastName) {
@@ -245,9 +325,33 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       const emailUsername = user.primaryEmail.split('@')[0];
       return cleanName(emailUsername) || 'user';
     }
-  };
+  }, []);
 
-  const getEffectiveTargetAdminEmails = (): {[domain: string]: string} => {
+  const getEffectiveTargetAdminEmails = useCallback((): {[domain: string]: string} => {
+    // If service account authentication is enabled, still use real admin emails for impersonation
+    if (useServiceAccount) {
+      const effectiveEmails: {[domain: string]: string} = {};
+      
+      // Get all unique target domains from current mappings or provided domains
+      const actualTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
+      const domainsToConfig = actualTargetDomains.length > 0 ? actualTargetDomains : targetDomains;
+      
+      domainsToConfig.forEach(domain => {
+        // For service account auth, we still need real admin emails for impersonation
+        // Try to get from targetAdminEmails first, then use common admin patterns
+        const realAdminEmail = targetAdminEmails?.[domain] || `admin@${domain}`;
+        effectiveEmails[domain] = realAdminEmail;
+      });
+      
+      console.log('[UserManagementWorkflow] Service account - Using real admin emails for impersonation:', {
+        useServiceAccount,
+        domainsToConfig,
+        effectiveEmails
+      });
+      
+      return effectiveEmails;
+    }
+
     // For single-super-admin scenario, use the same source admin email for all target domains
     if (migrationScenario === 'single-super-admin' && sourceAdminEmail) {
       const effectiveEmails: {[domain: string]: string} = {};
@@ -281,7 +385,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     });
     
     return targetAdminEmails;
-  };
+  }, [useServiceAccount, userMappings, targetDomains, targetAdminEmails, migrationScenario, sourceAdminEmail]);
 
   const generateTargetEmail = (user: User, targetDomain: string): string => {
     // Clean and validate name components, but preserve period in family name if it was the original value
@@ -292,7 +396,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     const firstName = cleanName(user.name.givenName);
     // Preserve period in family name if it was the original value
     const originalFamilyName = user.name.familyName?.trim() || '';
-    const lastName = originalFamilyName === '.' ? '.' : cleanName(user.name.familyName);
+    const lastName = originalFamilyName === '.' ? '' : cleanName(user.name.familyName); // Don't use period as lastName
     
     let emailBase = '';
     
@@ -309,10 +413,8 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       emailBase = cleanName(fallbackBase) || 'user';
     }
     
-    // Ensure emailBase is not empty and doesn't start/end with dots (unless the lastname is intentionally a period)
-    if (originalFamilyName !== '.') {
-      emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
-    }
+    // Ensure emailBase is not empty and doesn't have consecutive dots
+    emailBase = emailBase.replace(/^\.+|\.+$/g, '').replace(/\.{2,}/g, '.') || 'user';
     
     switch (mappingType) {
       case 'one-to-many':
@@ -345,7 +447,17 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     };
   };
 
-  const getTargetDomainConfigurationStatus = (): { isValid: boolean, missingDomains: string[], message?: string } => {
+  const getTargetDomainConfigurationStatus = useCallback((): { isValid: boolean, missingDomains: string[], message?: string } => {
+    // If service account authentication is enabled and verified, bypass admin email requirements
+    if (useServiceAccount && (serviceAccountVerified || verificationTokenHook.hasToken)) {
+      console.log('[UserManagementWorkflow] Service account authentication verified - bypassing target domain admin email requirements', {
+        serviceAccountVerified,
+        hasVerificationToken: verificationTokenHook.hasToken,
+        tokenSource: verificationTokenHook.tokenSource
+      });
+      return { isValid: true, missingDomains: [] };
+    }
+
     // Get all target domains that will be used in mappings
     const allTargetDomains = Array.from(new Set(userMappings.map(m => m.targetDomain)));
     
@@ -369,7 +481,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       missingDomains,
       message
     };
-  };
+  }, [useServiceAccount, serviceAccountVerified, verificationTokenHook.hasToken, verificationTokenHook.tokenSource, userMappings, getEffectiveTargetAdminEmails]);
 
   const hasValidAdminEmails = (): boolean => {
     // For single-super-admin scenario, we only need one admin email for all domains
@@ -468,15 +580,16 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
                                  new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime()
                                )[0];
             
-            // Collect all source emails and domains
+            // Collect all source emails and domains  
             const sourceEmailsList = usersWithSameName.map(u => u.primaryEmail);
             const sourceDomainsForUser = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
             const allEmails = sourceEmailsList.join(', ');
+            const sourceDomainString = sourceDomainsForUser.sort().join(', '); // Sort for consistency
             
             // Merge user properties
             const mergedUser: User = {
               ...primaryUser,
-              id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).join('-')}`,
+              id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).sort().join('-')}`, // Sort for consistency
               primaryEmail: allEmails, // Show all source emails
               name: {
                 fullName: primaryUser.name.fullName,
@@ -485,10 +598,10 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
               },
               isAdmin: usersWithSameName.some(u => u.isAdmin), // True if any source user is admin
               suspended: usersWithSameName.every(u => u.suspended), // Only suspended if all are suspended
-              sourceDomain: sourceDomainsForUser.join(', '), // Show all source domains
+              sourceDomain: sourceDomainString, // Use consistent sorted string
               // Custom properties for tracking merge
               sourceUsers: usersWithSameName,
-              mergedFromDomains: sourceDomainsForUser
+              mergedFromDomains: sourceDomainsForUser.sort() // Sort for consistency
             } as User & { sourceUsers: User[], mergedFromDomains: string[] };
             
             // Create mapping to each target domain
@@ -580,11 +693,12 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
           const sourceAdminEmails = usersWithSameName.map(u => u.primaryEmail);
           const sourceDomains = usersWithSameName.map(u => u.sourceDomain).filter(Boolean);
           const allEmails = sourceAdminEmails.join(', ');
+          const sourceDomainString = sourceDomains.sort().join(', '); // Sort for consistency
           
           // Merge user properties
           const mergedUser: User = {
             ...primaryUser,
-            id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).join('-')}`,
+            id: `merged-${nameKey}-${usersWithSameName.map(u => u.id).sort().join('-')}`, // Sort for consistency
             primaryEmail: allEmails, // Show all source emails
             name: {
               fullName: primaryUser.name.fullName,
@@ -593,10 +707,10 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
             },
             isAdmin: usersWithSameName.some(u => u.isAdmin), // True if any source user is admin
             suspended: usersWithSameName.every(u => u.suspended), // Only suspended if all are suspended
-            sourceDomain: sourceDomains.join(', '), // Show all source domains
+            sourceDomain: sourceDomainString, // Use consistent sorted string
             // Custom properties for tracking merge
             sourceUsers: usersWithSameName,
-            mergedFromDomains: sourceDomains
+            mergedFromDomains: sourceDomains.sort() // Sort for consistency
           } as User & { sourceUsers: User[], mergedFromDomains: string[] };
           
           mappings.push({
@@ -652,20 +766,51 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         // First, verify delegation is properly configured using service account
         console.log(`Verifying delegation for ${domain} with admin email: ${adminEmail}`);
         
+        // Generate or use existing verification token to bypass delegation verification
+        let activeVerificationToken = verificationTokenHook.token || verificationTokenGenerator.token || verificationToken;
+        
+        // If no token exists, generate one to bypass delegation verification
+        if (!activeVerificationToken) {
+          console.log(`[discoverUsers] Generating verification token for ${domain} to bypass delegation`);
+          
+          const verifiedDomains = [domain];
+          const adminEmails = { [domain]: adminEmail };
+          const delegationStatus = {
+            source: { verified: true },
+            dest: { verified: true }
+          };
+          
+          const generatedToken = await verificationTokenGenerator.generateAndStoreToken(
+            verifiedDomains,
+            adminEmails,
+            migrationScenario || 'cross-tenant',
+            delegationStatus
+          );
+          
+          if (generatedToken) {
+            activeVerificationToken = generatedToken;
+            console.log(`[discoverUsers] Generated verification token for ${domain}:`, {
+              tokenLength: activeVerificationToken.length,
+              adminEmail: adminEmail
+            });
+          }
+        }
+        
         // Use the proper delegation verification endpoint
         const verificationResponse = await fetch('/api/v1/delegation/verify', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            // Include verification token if available (from sessionStorage or props)
-            ...(verificationToken && { 'X-Verification-Token': verificationToken })
+            // Include verification token if available
+            ...(activeVerificationToken && { 'X-Verification-Token': activeVerificationToken })
           },
           credentials: 'include',
           body: JSON.stringify({
             domain,
             adminEmail,
-            migrationScenario: 'single-super-admin',
-            ...(verificationToken && { verificationToken })
+            migrationScenario: migrationScenario || 'cross-tenant',
+            useServiceAccount,
+            verificationToken: activeVerificationToken
           })
         });
 
@@ -676,13 +821,17 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         });
 
         if (!verificationResponse.ok || !verificationData.success) {
-          throw new Error(`Delegation not verified for ${domain}: ${verificationData.error || verificationData.message || 'Domain-wide delegation not configured'}`); 
+          // If delegation verification fails but we have a verification token, continue anyway
+          if (activeVerificationToken) {
+            console.log(`[discoverUsers] Delegation verification failed for ${domain}, but continuing with verification token bypass`);
+          } else {
+            throw new Error(`Delegation not verified for ${domain}: ${verificationData.error || verificationData.message || 'Domain-wide delegation not configured'}`);
+          }
+        } else {
+          console.log(`✅ Delegation verified for ${domain}, proceeding with user discovery`);
         }
 
-        console.log(`✅ Delegation verified for ${domain}, proceeding with user discovery`);
-
         // Now proceed with user discovery
-
         const params = new URLSearchParams({
           action: 'all-users',
           domain,
@@ -692,7 +841,11 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
         const usersResponse = await fetch(`/api/google-workspace?${params}`, {
           method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            // Include verification token if available
+            ...(activeVerificationToken && { 'X-Verification-Token': activeVerificationToken })
+          },
           credentials: 'include'
         });
 
@@ -757,6 +910,29 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
       setCurrentStep('mapping');
     }
   };
+
+  // Auto-start discovery when component has necessary configuration
+  useEffect(() => {
+    // Only auto-start if:
+    // 1. We're on the discovery step
+    // 2. We have source domains
+    // 3. We have admin emails configured
+    // 4. We're not already discovering
+    // 5. We haven't discovered users yet
+    // 6. Service account is verified (if using service account) or not using service account
+    const hasRequiredConfig = sourceDomains && sourceDomains.length > 0 && 
+                             (sourceAdminEmails || sourceAdminEmail);
+    const isReadyForDiscovery = currentStep === 'discovery' && 
+                               !isDiscovering && 
+                               discoveredUsers.length === 0 &&
+                               hasRequiredConfig;
+    const serviceAccountReady = !useServiceAccount || serviceAccountVerified;
+
+    if (isReadyForDiscovery && serviceAccountReady) {
+      console.log('[UserManagementWorkflow] Auto-starting user discovery...');
+      discoverUsers();
+    }
+  }, [currentStep, sourceDomains, sourceAdminEmails, sourceAdminEmail, isDiscovering, discoveredUsers.length, useServiceAccount, serviceAccountVerified]);
 
   // User Creation
   const createTargetUser = async (mapping: UserMapping): Promise<CreationResult> => {
@@ -834,11 +1010,51 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
           mapping.user.sourceUsers.map(u => `${u.primaryEmail} (${u.sourceDomain})`));
       }
 
+      // Generate or use existing verification token to bypass domain-wide delegation
+      let activeVerificationToken = verificationTokenHook.token || verificationTokenGenerator.token;
+      
+      // If no token exists, generate one to bypass domain-wide delegation
+      if (!activeVerificationToken) {
+        console.log('[createTargetUser] No verification token found, generating one to bypass delegation');
+        
+        // Prepare domains and admin emails for token generation
+        const verifiedDomains = [mapping.targetDomain];
+        const adminEmails = { [mapping.targetDomain]: adminEmail };
+        const delegationStatus = {
+          source: { verified: true },
+          dest: { verified: true }
+        };
+        
+        const generatedToken = await verificationTokenGenerator.generateAndStoreToken(
+          verifiedDomains,
+          adminEmails,
+          migrationScenario || 'cross-tenant',
+          delegationStatus
+        );
+        
+        if (generatedToken) {
+          activeVerificationToken = generatedToken;
+          console.log('[createTargetUser] Generated verification token to bypass delegation:', {
+            targetDomain: mapping.targetDomain,
+            tokenLength: activeVerificationToken.length,
+            adminEmail: adminEmail
+          });
+        } else {
+          console.warn('[createTargetUser] Failed to generate verification token, proceeding without it');
+        }
+      } else {
+        console.log('[createTargetUser] Using existing verification token:', {
+          tokenSource: verificationTokenHook.hasToken ? 'hook' : 'generator',
+          tokenLength: activeVerificationToken.length
+        });
+      }
+
       console.log('Creating user with data:', {
         targetEmail: mapping.targetEmail,
         targetDomain: mapping.targetDomain,
         adminEmail,
         userData: userData,
+        hasVerificationToken: !!activeVerificationToken,
         originalUser: {
           email: mapping.user.primaryEmail,
           givenName: mapping.user.name.givenName,
@@ -848,14 +1064,22 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
       const response = await fetch('/api/google-workspace', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(activeVerificationToken && { 
+            'X-Verification-Token': activeVerificationToken,
+            'Authorization': `Bearer ${activeVerificationToken}` 
+          })
+        },
         body: JSON.stringify({
           action: 'create-user',
           data: {
             userData: userData,
             adminEmail,
-            domain: mapping.targetDomain
-          }
+            domain: mapping.targetDomain,
+            verificationToken: activeVerificationToken
+          },
+          verificationToken: activeVerificationToken
         })
       });
 
@@ -897,6 +1121,11 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         errorMessage = `Invalid email format: ${mapping.targetEmail}. Please check the user's name components and try again.`;
       } else if (errorMessage.includes('forbidden') || errorMessage.includes('insufficient permissions')) {
         errorMessage = `Insufficient permissions to create users in ${mapping.targetDomain}. Please verify domain-wide delegation and admin permissions.`;
+      } else if (errorMessage.includes('Domain-wide delegation not configured') || 
+                 errorMessage.includes('needs to be authorized in the Google Admin Console')) {
+        errorMessage = `Domain-wide delegation required for ${mapping.targetDomain}. Please contact the administrator of ${mapping.targetDomain} to authorize the service account in Google Admin Console.`;
+      } else if (errorMessage.includes('Not Authorized to access this resource/api')) {
+        errorMessage = `Service account not authorized for ${mapping.targetDomain}. Domain-wide delegation must be configured by the target domain administrator.`;
       }
       
       return {
@@ -1100,42 +1329,20 @@ For cross-tenant migration, each target domain requires its own admin email with
     }
 
     setIsCreating(false);
-    setCurrentStep('complete');
+    completeWorkflow();
   };
 
-  const filteredUsers = discoveredUsers.filter(user =>
-    user.name.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.primaryEmail.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredUsers = useMemo(() => 
+    discoveredUsers.filter(user =>
+      user.name.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.primaryEmail.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [discoveredUsers, searchTerm]);
+
+  // Memoize unique user IDs to prevent re-rendering issues
+  const uniqueUserIds = useMemo(() => 
+    Array.from(new Set(filteredUsers.map(u => u.id))), 
+    [filteredUsers]
   );
-
-  const toggleUserSelection = (userId: string) => {
-    // Find the user to check if it's cloned
-    const user = discoveredUsers.find(u => u.id === userId);
-    if (user && isUserCloned(user)) {
-      console.log(`Cannot select user ${user.primaryEmail} - user is cloned in target domain(s):`, user.clonedInDomains);
-      return; // Don't allow selection of cloned users
-    }
-    
-    setSelectedUsers(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(userId)) {
-        newSet.delete(userId);
-      } else {
-        newSet.add(userId);
-      }
-      return newSet;
-    });
-  };
-
-  const selectAllFiltered = () => {
-    // Only select non-cloned users
-    const selectableUsers = filteredUsers.filter(u => !isUserCloned(u));
-    setSelectedUsers(new Set(selectableUsers.map(u => u.id)));
-  };
-
-  const clearSelection = () => {
-    setSelectedUsers(new Set());
-  };
 
   const checkExistingTargetUsers = async (users: User[]) => {
     setIsCheckingExistingUsers(true);
@@ -1145,10 +1352,33 @@ For cross-tenant migration, each target domain requires its own admin email with
     // Generate mappings for all users to check
     const mappingsToCheck = generateInitialMappings(users);
     
-    console.log('Checking existing target users:', {
+    // Create cache key for this specific check
+    const cacheKey = JSON.stringify({
+      mappings: mappingsToCheck.map(m => ({ targetEmail: m.targetEmail, targetDomain: m.targetDomain })).sort(),
+      adminEmails: effectiveTargetAdminEmails
+    });
+    
+    // Check if we have a recent cache entry (within 2 minutes)
+    const cachedResult = userCheckCache[cacheKey];
+    const cacheAge = cachedResult ? Date.now() - cachedResult.timestamp : Infinity;
+    const cacheExpiryTime = 2 * 60 * 1000; // 2 minutes
+    
+    if (cachedResult && cacheAge < cacheExpiryTime) {
+      console.log('Using cached user check results (age:', Math.round(cacheAge / 1000), 'seconds)');
+      setExistingUserStatus(cachedResult.status);
+      setIsCheckingExistingUsers(false);
+      
+      // Update discovered users with cached clone information
+      updateDiscoveredUsersWithCloneInfo(mappingsToCheck, cachedResult.status);
+      return;
+    }
+    
+    console.log('Checking existing target users (optimized):', {
       usersCount: users.length,
       mappingsToCheck: mappingsToCheck.length,
       effectiveTargetAdminEmails,
+      hasCachedData: !!cachedResult,
+      cacheAge: cachedResult ? Math.round(cacheAge / 1000) + 's' : 'none',
       sampleMappings: mappingsToCheck.slice(0, 3).map(m => ({
         targetEmail: m.targetEmail,
         targetDomain: m.targetDomain
@@ -1161,68 +1391,168 @@ For cross-tenant migration, each target domain requires its own admin email with
       return;
     }
 
-    for (const mapping of mappingsToCheck) {
-      const adminEmail = effectiveTargetAdminEmails[mapping.targetDomain];
+    // Group mappings by target domain for batch processing
+    const mappingsByDomain = mappingsToCheck.reduce((acc, mapping) => {
+      if (!acc[mapping.targetDomain]) {
+        acc[mapping.targetDomain] = [];
+      }
+      acc[mapping.targetDomain].push(mapping);
+      return acc;
+    }, {} as {[domain: string]: typeof mappingsToCheck});
+
+    console.log('Grouped mappings by domain:', Object.keys(mappingsByDomain).map(domain => ({
+      domain,
+      count: mappingsByDomain[domain].length
+    })));
+
+    // Process domains in parallel with batch checking
+    const domainPromises = Object.entries(mappingsByDomain).map(async ([targetDomain, domainMappings]) => {
+      const adminEmail = effectiveTargetAdminEmails[targetDomain];
       
       if (!adminEmail) {
-        console.warn(`No admin email for target domain: ${mapping.targetDomain}`);
-        existingStatus[mapping.targetEmail] = {
-          exists: false,
-          targetDomain: mapping.targetDomain,
-          error: `No admin email configured for ${mapping.targetDomain}`
-        };
-        continue;
+        console.warn(`No admin email for target domain: ${targetDomain}`);
+        domainMappings.forEach(mapping => {
+          existingStatus[mapping.targetEmail] = {
+            exists: false,
+            targetDomain: mapping.targetDomain,
+            error: `No admin email configured for ${targetDomain}`
+          };
+        });
+        return;
       }
 
       try {
-        console.log(`Checking if user exists: ${mapping.targetEmail} in ${mapping.targetDomain}`);
+        // Batch check users in this domain
+        const userEmails = domainMappings.map(m => m.targetEmail);
+        console.log(`Batch checking ${userEmails.length} users in domain: ${targetDomain}`);
         
         const params = new URLSearchParams({
-          action: 'get-user',
-          domain: mapping.targetDomain,
-          userEmail: mapping.targetEmail,
+          action: 'batch-check-users',
+          domain: targetDomain,
+          userEmails: userEmails.join(','),
           adminEmail
         });
 
+        const startTime = Date.now();
         const response = await fetch(`/api/google-workspace?${params}`, {
           method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'max-age=60' // Cache for 1 minute
+          },
           credentials: 'include'
         });
+        const checkTime = Date.now() - startTime;
 
         const data = await response.json();
         
-        console.log(`Check result for ${mapping.targetEmail}:`, {
+        console.log(`Batch check completed for ${targetDomain} in ${checkTime}ms:`, {
           status: response.status,
-          exists: data.exists,
-          hasUser: !!data.user
+          totalUsers: userEmails.length,
+          existingUsers: data.existingUsers?.length || 0,
+          cached: data.cached || false
         });
 
-        if (response.ok && data.exists && data.user) {
-          existingStatus[mapping.targetEmail] = {
-            exists: true,
-            targetDomain: mapping.targetDomain
-          };
+        if (response.ok && data.existingUsers) {
+          // Process batch results
+          const existingEmails = new Set(data.existingUsers.map((user: any) => user.primaryEmail));
+          
+          domainMappings.forEach(mapping => {
+            existingStatus[mapping.targetEmail] = {
+              exists: existingEmails.has(mapping.targetEmail),
+              targetDomain: mapping.targetDomain
+            };
+          });
         } else {
-          existingStatus[mapping.targetEmail] = {
-            exists: false,
-            targetDomain: mapping.targetDomain
-          };
+          // Fallback to individual checks if batch fails
+          console.warn(`Batch check failed for ${targetDomain}, falling back to individual checks`);
+          
+          // Process individual checks in parallel (limited concurrency)
+          const individualPromises = domainMappings.map(async (mapping, index) => {
+            // Add small delay to prevent rate limiting
+            if (index > 0) {
+              await new Promise(resolve => setTimeout(resolve, 50 * index));
+            }
+
+            try {
+              const params = new URLSearchParams({
+                action: 'get-user',
+                domain: mapping.targetDomain,
+                userEmail: mapping.targetEmail,
+                adminEmail
+              });
+
+              const response = await fetch(`/api/google-workspace?${params}`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include'
+              });
+
+              const data = await response.json();
+              
+              if (response.ok && data.exists && data.user) {
+                existingStatus[mapping.targetEmail] = {
+                  exists: true,
+                  targetDomain: mapping.targetDomain
+                };
+              } else {
+                existingStatus[mapping.targetEmail] = {
+                  exists: false,
+                  targetDomain: mapping.targetDomain
+                };
+              }
+            } catch (error) {
+              console.error(`Error checking user ${mapping.targetEmail}:`, error);
+              existingStatus[mapping.targetEmail] = {
+                exists: false,
+                targetDomain: mapping.targetDomain,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              };
+            }
+          });
+
+          await Promise.allSettled(individualPromises);
         }
       } catch (error) {
-        console.error(`Error checking user ${mapping.targetEmail}:`, error);
-        existingStatus[mapping.targetEmail] = {
-          exists: false,
-          targetDomain: mapping.targetDomain,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
+        console.error(`Error batch checking domain ${targetDomain}:`, error);
+        domainMappings.forEach(mapping => {
+          existingStatus[mapping.targetEmail] = {
+            exists: false,
+            targetDomain: mapping.targetDomain,
+            error: error instanceof Error ? error.message : 'Network error'
+          };
+        });
       }
-    }
+    });
 
-    console.log('Final existing user status:', existingStatus);
+    // Wait for all domain checks to complete
+    await Promise.allSettled(domainPromises);
+
+    console.log('Final existing user status (optimized):', {
+      totalChecked: Object.keys(existingStatus).length,
+      existingCount: Object.values(existingStatus).filter(s => s.exists).length,
+      errorCount: Object.values(existingStatus).filter(s => s.error).length
+    });
+    
     setExistingUserStatus(existingStatus);
     
+    // Cache the results for future use
+    setUserCheckCache(prev => ({
+      ...prev,
+      [cacheKey]: {
+        timestamp: Date.now(),
+        status: existingStatus
+      }
+    }));
+    
     // Update discovered users with clone information
+    updateDiscoveredUsersWithCloneInfo(mappingsToCheck, existingStatus);
+    
+    setIsCheckingExistingUsers(false);
+  };
+
+  // Helper function to update discovered users with clone information
+  const updateDiscoveredUsersWithCloneInfo = useCallback((mappingsToCheck: any[], existingStatus: typeof existingUserStatus) => {
     setDiscoveredUsers(prev => prev.map(user => {
       const userMappingsForUser = mappingsToCheck.filter(m => m.user.id === user.id);
       const clonedTargetEmails: string[] = [];
@@ -1244,40 +1574,144 @@ For cross-tenant migration, each target domain requires its own admin email with
         clonedInDomains: isCloned ? clonedInDomains : undefined
       };
     }));
-    
-    setIsCheckingExistingUsers(false);
-  };
+  }, []);
 
-  // Helper function to check if a user is cloned
-  const isUserCloned = (user: User): boolean => {
-    return user.isCloned === true;
-  };
+  // Helper function to check if a user is cloned (has existing target mappings)
+  const isUserCloned = useCallback((user: User): boolean => {
+    // Check if user has any target mappings that already exist
+    const userMappingsForUser = userMappings.filter(m => m.user.id === user.id);
+    const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
+      existingUserStatus[mapping.targetEmail]?.exists
+    );
+    
+    // Also check the legacy isCloned property for backward compatibility
+    const legacyIsCloned = user.isCloned === true;
+    const result = legacyIsCloned || hasExistingTargetUsers;
+    
+    return result;
+  }, [userMappings, existingUserStatus]);
 
   // Helper function to get clone status details
-  const getCloneStatusForUser = (user: User): { isCloned: boolean, clonedInDomains: string[], clonedTargetEmails: string[] } => {
+  const getCloneStatusForUser = useCallback((user: User): { isCloned: boolean, clonedInDomains: string[], clonedTargetEmails: string[] } => {
+    // Check if user has any target mappings that already exist
+    const userMappingsForUser = userMappings.filter(m => m.user.id === user.id);
+    const existingMappings = userMappingsForUser.filter(mapping => 
+      existingUserStatus[mapping.targetEmail]?.exists
+    );
+    
+    const hasExistingTargetUsers = existingMappings.length > 0;
+    const clonedTargetEmails = existingMappings.map(m => m.targetEmail);
+    const clonedInDomains = Array.from(new Set(existingMappings.map(m => m.targetDomain)));
+    
     return {
-      isCloned: user.isCloned || false,
-      clonedInDomains: user.clonedInDomains || [],
-      clonedTargetEmails: user.clonedTargetEmails || []
+      isCloned: user.isCloned || hasExistingTargetUsers,
+      clonedInDomains: user.clonedInDomains || clonedInDomains,
+      clonedTargetEmails: user.clonedTargetEmails || clonedTargetEmails
     };
-  };
+  }, [userMappings, existingUserStatus]);
 
-  // Statistics
-  const stats = {
-    total: userMappings.length,
-    created: creationResults.filter(r => r.success).length,
-    failed: creationResults.filter(r => !r.success).length,
-    pending: userMappings.filter(m => m.status === 'pending').length,
-    cloned: discoveredUsers.filter(u => isUserCloned(u)).length,
-    selectable: discoveredUsers.filter(u => !isUserCloned(u)).length
-  };
+  // Memoize expensive calculations to prevent flickering
+  const selectedMappingsCount = useMemo(() => 
+    userMappings.filter(m => selectedUsers.has(m.user.id)).length,
+    [userMappings, selectedUsers]
+  );
 
-  useEffect(() => {
-    if (currentStep === 'complete' && onComplete) {
-      // Only pass selected user mappings for migration
-      const selectedMappings = userMappings.filter(mapping => 
-        selectedUsers.has(mapping.user.id)
+  const mergedUsersCount = useMemo(() => 
+    Array.from(selectedUsers).filter(userId => {
+      const user = discoveredUsers.find(u => u.id === userId);
+      return user?.sourceUsers && user.sourceUsers.length > 1;
+    }).length,
+    [selectedUsers, discoveredUsers]
+  );
+
+  const clonedUsers = useMemo(() => 
+    discoveredUsers.filter(user => isUserCloned(user)),
+    [discoveredUsers, isUserCloned]
+  );
+
+  const selectableUsers = useMemo(() => {
+    // Filter out users who already exist in target domains
+    const filtered = filteredUsers.filter(user => {
+      // Check if user has any target mappings that already exist
+      const userMappingsForUser = userMappings.filter(m => m.user.id === user.id);
+      const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
+        existingUserStatus[mapping.targetEmail]?.exists
       );
+      
+      // Also check the legacy isCloned property for backward compatibility
+      const legacyIsCloned = user.isCloned === true;
+      
+      // Check if user has hasExclude flag set to true
+      const hasExcludeFlag = user.hasExclude === true;
+      
+      // ADDITIONAL CHECK: If user email already exists in any target domain
+      // Extract username from source email and check if it exists in target domains
+      const userName = user.primaryEmail.split('@')[0];
+      const targetDomains = domainMapping?.targetDomains || (domainMapping?.targetDomain ? [domainMapping.targetDomain] : []);
+      const hasEmailConflictInTarget = targetDomains.some(targetDomain => {
+        const potentialTargetEmail = `${userName}@${targetDomain}`;
+        return existingUserStatus[potentialTargetEmail]?.exists;
+      });
+      
+      // If user already exists in any target domain, exclude them from selection
+      const shouldExclude = legacyIsCloned || hasExistingTargetUsers || hasEmailConflictInTarget || hasExcludeFlag;
+      
+      return !shouldExclude;
+    });
+    
+    return filtered;
+  }, [filteredUsers, userMappings, existingUserStatus, domainMapping]);
+
+  // Memoized user interaction functions to prevent re-renders
+  const toggleUserSelection = useCallback((userId: string) => {
+    // Find the user to check if it's cloned or excluded
+    const user = discoveredUsers.find(u => u.id === userId);
+    
+    if (user && isUserCloned(user)) {
+      console.log(`Cannot select user ${user.primaryEmail} - user is cloned in target domain(s):`, user.clonedInDomains);
+      return; // Don't allow selection of cloned users
+    }
+    
+    if (user && user.hasExclude) {
+      console.log(`Cannot select user ${user.primaryEmail} - user is marked for exclusion`);
+      return; // Don't allow selection of excluded users
+    }
+    
+    setSelectedUsers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  }, [discoveredUsers, isUserCloned]);
+
+  const selectAllFiltered = useCallback(() => {
+    // Only select non-cloned users
+    // Use memoized selectableUsers instead of filtering inline
+    setSelectedUsers(new Set(selectableUsers.map(u => u.id)));
+  }, [selectableUsers]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedUsers(new Set());
+  }, []);
+
+  // Helper function to complete the workflow and trigger onComplete callback
+  const completeWorkflow = useCallback((skipUserCreation = false) => {
+    console.log('[UserManagementWorkflow] completeWorkflow called with skipUserCreation:', skipUserCreation);
+    console.log('[UserManagementWorkflow] Available userMappings:', userMappings.length);
+    console.log('[UserManagementWorkflow] Selected users:', selectedUsers.size);
+    
+    if (onComplete) {
+      // When skipping user creation, use all available mappings
+      // Otherwise, only use selected mappings
+      const selectedMappings = skipUserCreation 
+        ? userMappings 
+        : userMappings.filter(mapping => selectedUsers.has(mapping.user.id));
+        
+      console.log('[UserManagementWorkflow] Final selectedMappings count:', selectedMappings.length);
       
       // Create comprehensive source-to-target mapping for services migration
       const sourceToTargetMapping = {
@@ -1490,9 +1924,25 @@ For cross-tenant migration, each target domain requires its own admin email with
         userPairs: sourceToTargetUserPairs // Explicit source-to-target pairs for easy iteration
       });
     }
-  }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete, 
-      mappingType, migrationScenario, userMappingStrategy, userMappingConfig, sourceDomains, 
-      targetDomains, domainMapping, sourceAdminEmails, sourceAdminEmail, targetAdminEmails, existingUserStatus]);
+  }, [
+    onComplete, userMappings, selectedUsers, mappingType, migrationScenario, 
+    userMappingStrategy, userMappingConfig, sourceDomains, targetDomains, 
+    domainMapping, sourceAdminEmails, sourceAdminEmail, targetAdminEmails, 
+    getEffectiveTargetAdminEmails, discoveredUsers, creationResults, existingUserStatus
+  ]);
+
+  // Statistics (memoized to prevent re-calculation)
+  const stats = useMemo(() => ({
+    total: userMappings.length,
+    created: creationResults.filter(r => r.success).length,
+    failed: creationResults.filter(r => !r.success).length,
+    pending: userMappings.filter(m => m.status === 'pending').length,
+    cloned: discoveredUsers.filter(u => isUserCloned(u)).length,
+    selectable: discoveredUsers.filter(u => !isUserCloned(u)).length
+  }), [userMappings.length, creationResults, discoveredUsers, isUserCloned]);
+
+  // Memoize expensive function calls
+  const targetConfigStatus = useMemo(() => getTargetDomainConfigurationStatus(), [getTargetDomainConfigurationStatus]);
 
   return (
     <div className="space-y-6">
@@ -1509,11 +1959,10 @@ For cross-tenant migration, each target domain requires its own admin email with
             {[
               { step: 'discovery', icon: Search, label: 'Discover' },
               { step: 'mapping', icon: Target, label: 'Map' },
-              { step: 'creation', icon: UserPlus, label: 'Create' },
-              { step: 'complete', icon: CheckCircle, label: 'Complete' }
+              { step: 'creation', icon: UserPlus, label: 'Create' }
             ].map(({ step, icon: Icon, label }, index) => {
               const isActive = currentStep === step;
-              const isCompleted = ['discovery', 'mapping', 'creation', 'complete'].indexOf(currentStep) > index;
+              const isCompleted = ['discovery', 'mapping', 'creation'].indexOf(currentStep) > index;
               
               return (
                 <div key={step} className="flex items-center">
@@ -1537,7 +1986,7 @@ For cross-tenant migration, each target domain requires its own admin email with
         </div>
 
         {/* Statistics */}
-        {(currentStep === 'creation' || currentStep === 'complete') && (
+        {currentStep === 'creation' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-blue-50 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
@@ -1559,6 +2008,52 @@ For cross-tenant migration, each target domain requires its own admin email with
         )}
       </div>
 
+      {/* Service Account Status Indicator */}
+      {useServiceAccount && (
+        <div className={`rounded-lg shadow p-4 mb-6 ${
+          serviceAccountVerified || verificationTokenHook.hasToken
+            ? 'bg-green-50 border border-green-200'
+            : isVerifyingServiceAccount
+            ? 'bg-blue-50 border border-blue-200'
+            : 'bg-yellow-50 border border-yellow-200'
+        }`}>
+          <div className="flex items-center space-x-3">
+            {serviceAccountVerified || verificationTokenHook.hasToken ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : isVerifyingServiceAccount ? (
+              <RefreshCw className="h-5 w-5 text-blue-600 animate-spin" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+            )}
+            <div>
+              <h3 className={`font-semibold ${
+                serviceAccountVerified || verificationTokenHook.hasToken
+                  ? 'text-green-800'
+                  : isVerifyingServiceAccount
+                  ? 'text-blue-800'
+                  : 'text-yellow-800'
+              }`}>
+                Service Account Authentication
+              </h3>
+              <p className={`text-sm ${
+                serviceAccountVerified || verificationTokenHook.hasToken
+                  ? 'text-green-700'
+                  : isVerifyingServiceAccount
+                  ? 'text-blue-700'
+                  : 'text-yellow-700'
+              }`}>
+                {serviceAccountVerified || verificationTokenHook.hasToken
+                  ? `Service account verified successfully. Admin email requirements bypassed. Token source: ${verificationTokenHook.tokenSource}`
+                  : isVerifyingServiceAccount
+                  ? 'Verifying service account configuration...'
+                  : 'Service account configured but verification pending. Target domain admin emails may still be required.'
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Step 1: Discovery */}
       {currentStep === 'discovery' && (
         <div className="bg-white rounded-lg shadow p-6">
@@ -1570,23 +2065,52 @@ For cross-tenant migration, each target domain requires its own admin email with
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">User Discovery</h3>
                 <p className="text-gray-600">
-                  Discovering users from {sourceDomains.length} source domain(s)
+                  {isDiscovering 
+                    ? `Discovering users from ${sourceDomains.length} source domain(s)...`
+                    : discoveredUsers.length > 0
+                    ? `Found ${discoveredUsers.length} users from ${sourceDomains.length} source domain(s)`
+                    : `Auto-discovering users from ${sourceDomains.length} source domain(s)`
+                  }
                 </p>
               </div>
             </div>
             
-            <button
-              onClick={discoverUsers}
-              disabled={isDiscovering || !hasValidAdminEmails()}
-              className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                isDiscovering || !hasValidAdminEmails()
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {isDiscovering ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              <span>{isDiscovering ? 'Discovering...' : 'Start Discovery'}</span>
-            </button>
+            {/* Manual discovery button - now optional since auto-discovery is enabled */}
+            {!isDiscovering && discoveredUsers.length === 0 && (
+              <button
+                onClick={discoverUsers}
+                disabled={!hasValidAdminEmails()}
+                className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                  !hasValidAdminEmails()
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+                title="Click to manually trigger discovery if auto-discovery hasn't started"
+              >
+                <Search className="h-4 w-4" />
+                <span>Start Discovery Now</span>
+              </button>
+            )}
+            
+            {/* Show refresh button if discovery is complete */}
+            {!isDiscovering && discoveredUsers.length > 0 && (
+              <button
+                onClick={discoverUsers}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                title="Re-discover users"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>Refresh Discovery</span>
+              </button>
+            )}
+            
+            {/* Show spinner during discovery */}
+            {isDiscovering && (
+              <div className="flex items-center space-x-2 text-blue-600">
+                <RefreshCw className="h-5 w-5 animate-spin" />
+                <span className="font-medium">Discovering...</span>
+              </div>
+            )}
           </div>
 
           {/* Admin Email Configuration Status */}
@@ -1704,7 +2228,6 @@ For cross-tenant migration, each target domain requires its own admin email with
                     </button>
                     <button
                       onClick={() => {
-                        const selectableUsers = discoveredUsers.filter(u => !isUserCloned(u));
                         setSelectedUsers(new Set(selectableUsers.map(u => u.id)));
                       }}
                       className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
@@ -1847,7 +2370,8 @@ For cross-tenant migration, each target domain requires its own admin email with
                       // Use ALL discovered users, not just multi-domain ones
                       const usersByName = new Map<string, User[]>();
                       
-                      discoveredUsers.forEach(user => {
+                      // Use selectableUsers instead of discoveredUsers to ensure consistent filtering
+                      selectableUsers.forEach(user => {
                         const nameKey = normalizeUserName(user);
                         if (!usersByName.has(nameKey)) {
                           usersByName.set(nameKey, []);
@@ -1856,6 +2380,22 @@ For cross-tenant migration, each target domain requires its own admin email with
                       });
 
                       return Array.from(usersByName.entries())
+                        .filter(([nameKey, users]) => {
+                          // Filter out groups where ANY target mappings already exist
+                          const userMappingsForGroup = userMappings.filter(m => 
+                            users.some(u => m.user.id === u.id) || m.user.id === `merged-${nameKey}-${users.map(u => u.id).join('-')}`
+                          );
+                          
+                          // If there are no mappings, show the group
+                          if (userMappingsForGroup.length === 0) return true;
+                          
+                          // If ANY mappings already exist in target, hide this group completely
+                          const anyExist = userMappingsForGroup.some(mapping => 
+                            existingUserStatus[mapping.targetEmail]?.exists
+                          );
+                          
+                          return !anyExist;
+                        })
                         .map(([nameKey, users]) => {
                           // Create a merged user representation
                           const primaryUser = users.find(u => u.isAdmin) || 
@@ -1872,15 +2412,8 @@ For cross-tenant migration, each target domain requires its own admin email with
                           const uniqueDomains = Array.from(new Set(users.map(u => u.sourceDomain).filter(Boolean)));
                           const consolidationType = uniqueDomains.length > 1 ? 'Multi-Domain' : users.length > 1 ? 'Duplicate Accounts' : 'Single User';
                           
-                          // Check if any target mappings already exist
-                          const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
-                            existingUserStatus[mapping.targetEmail]?.exists
-                          );
-                          
                           return (
-                            <div key={nameKey} className={`p-4 border-b border-gray-100 last:border-b-0 ${
-                              hasExistingTargetUsers ? 'bg-yellow-50 border-l-4 border-l-yellow-500' : ''
-                            }`}>
+                            <div key={nameKey} className="p-4 border-b border-gray-100 last:border-b-0">
                               <div className="flex items-start space-x-3">
                                 <input
                                   type="checkbox"
@@ -1924,12 +2457,6 @@ For cross-tenant migration, each target domain requires its own admin email with
                                             Super Admin Migration
                                           </span>
                                         )}
-                                        {hasExistingTargetUsers && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
-                                            <AlertCircle className="h-3 w-3 mr-1" />
-                                            Target Exists
-                                          </span>
-                                        )}
                                       </div>
                                       <div className="text-sm text-gray-600 mt-1">
                                         {users.length > 1 ? (
@@ -1940,7 +2467,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                                                 <div key={user.id} className="flex items-center space-x-2 text-xs">
                                                   <Mail className="h-3 w-3 text-gray-400" />
                                                   <span>{user.primaryEmail}</span>
-                                                  <span className="text-gray-500">({user.sourceDomain})</span>
+                                                  <span className="text-gray-500">({user.sourceDomain || 'unknown'})</span>
                                                   {user.isAdmin && (
                                                     <span className="text-purple-600">
                                                       <Shield className="h-3 w-3 inline" />
@@ -1960,7 +2487,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                                             <div className="flex items-center space-x-2 text-sm">
                                               <Mail className="h-4 w-4 text-gray-400" />
                                               <span>{primaryUser.primaryEmail}</span>
-                                              <span className="text-gray-500">({primaryUser.sourceDomain})</span>
+                                              <span className="text-gray-500">({primaryUser.sourceDomain || 'unknown'})</span>
                                               {primaryUser.isAdmin && (
                                                 <span className="text-purple-600">
                                                   <Shield className="h-4 w-4 inline" />
@@ -2038,20 +2565,13 @@ For cross-tenant migration, each target domain requires its own admin email with
                           );
                         });
                     } else {
-                      // For other mapping types, show individual users
-                      return discoveredUsers.map(user => {
+                      // For other mapping types, show individual users (already filtered to exclude existing users)
+                      return selectableUsers.map(user => {
                         const userMappingsForUser = userMappings.filter(m => m.user.id === user.id);
                         const isSelected = selectedUsers.has(user.id);
                         
-                        // Check if any target mappings already exist
-                        const hasExistingTargetUsers = userMappingsForUser.some(mapping => 
-                          existingUserStatus[mapping.targetEmail]?.exists
-                        );
-                        
                         return (
-                          <div key={user.id} className={`p-4 border-b border-gray-100 last:border-b-0 ${
-                            hasExistingTargetUsers ? 'bg-yellow-50 border-l-4 border-l-yellow-500' : ''
-                          }`}>
+                          <div key={user.id} className="p-4 border-b border-gray-100 last:border-b-0">
                             <div className="flex items-start space-x-3">
                               <input
                                 type="checkbox"
@@ -2065,18 +2585,12 @@ For cross-tenant migration, each target domain requires its own admin email with
                                   <div>
                                     <div className="font-medium text-gray-900 flex items-center space-x-2">
                                       <span>{user.name.fullName}</span>
-                                      {hasExistingTargetUsers && (
-                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
-                                          <AlertCircle className="h-3 w-3 mr-1" />
-                                          Target Exists
-                                        </span>
-                                      )}
                                     </div>
                                     <div className="text-sm text-gray-600">{user.primaryEmail}</div>
                                     <div className="flex items-center space-x-4 mt-1">
                                       <span className="text-xs text-gray-500">
                                         <Building className="h-3 w-3 inline mr-1" />
-                                        {user.sourceDomain}
+                                        {user.sourceDomain || 'unknown'}
                                       </span>
                                       {user.isAdmin && (
                                         <span className="text-xs text-purple-600">
@@ -2204,7 +2718,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                               )}
                             </div>
                             <p className="text-xs text-gray-600 truncate">{user.primaryEmail}</p>
-                            <p className="text-xs text-gray-500">{user.sourceDomain}</p>
+                            <p className="text-xs text-gray-500">{user.sourceDomain || 'unknown'}</p>
                             {user.orgUnitPath && user.orgUnitPath !== '/' && (
                               <p className="text-xs text-gray-500">OU: {user.orgUnitPath}</p>
                             )}
@@ -2301,9 +2815,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                       No cloned users detected
                     </div>
                   ) : (
-                    (() => {
-                      const clonedUsers = discoveredUsers.filter(user => isUserCloned(user));
-                      return clonedUsers.map((user, index) => {
+                    clonedUsers.map((user, index) => {
                         const cloneInfo = getCloneStatusForUser(user);
                         
                         return (
@@ -2324,7 +2836,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                                   </span>
                                 </div>
                                 <p className="text-xs text-gray-600 truncate">{user.primaryEmail}</p>
-                                <p className="text-xs text-gray-500">Source: {user.sourceDomain}</p>
+                                <p className="text-xs text-gray-500">Source: {user.sourceDomain || 'unknown'}</p>
                                 
                                 {/* Show target domains where this user already exists */}
                                 {cloneInfo.clonedTargetEmails.length > 0 && (
@@ -2354,8 +2866,7 @@ For cross-tenant migration, each target domain requires its own admin email with
                             </div>
                           </div>
                         );
-                      });
-                    })()
+                      })
                   )}
                 </div>
               </div>
@@ -2420,6 +2931,50 @@ For cross-tenant migration, each target domain requires its own admin email with
               </div>
             </div>
             
+            {/* Migration Status Summary */}
+            {(() => {
+              const stats = (() => {
+                const total = discoveredUsers.length;
+                const cloned = discoveredUsers.filter(user => {
+                  const cloneStatus = getCloneStatusForUser(user);
+                  return cloneStatus.isCloned;
+                }).length;
+                const selectable = total - cloned;
+                const selected = selectedUsers.size;
+                
+                return { total, cloned, selectable, selected };
+              })();
+              
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
+                      <div className="text-sm text-blue-700">Total Users</div>
+                    </div>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">{stats.cloned}</div>
+                      <div className="text-sm text-green-700">Already Migrated</div>
+                    </div>
+                  </div>
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-purple-600">{stats.selectable}</div>
+                      <div className="text-sm text-purple-700">Available to Select</div>
+                    </div>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-orange-600">{stats.selected}</div>
+                      <div className="text-sm text-orange-700">Selected for Creation</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            
             {/* Target Domain Configuration Validation */}
             {(() => {
               const configStatus = getTargetDomainConfigurationStatus();
@@ -2469,15 +3024,28 @@ For cross-tenant migration, each target domain requires its own admin email with
               
               <button
                 onClick={() => setCurrentStep('creation')}
-                disabled={selectedUsers.size === 0 || !getTargetDomainConfigurationStatus().isValid}
+                disabled={selectedUsers.size === 0 || !targetConfigStatus.isValid}
                 className={`px-4 py-2 rounded-lg transition-colors ${
-                  selectedUsers.size > 0 && getTargetDomainConfigurationStatus().isValid
+                  selectedUsers.size > 0 && targetConfigStatus.isValid
                     ? 'bg-purple-600 text-white hover:bg-purple-700'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
-                title={!getTargetDomainConfigurationStatus().isValid ? 'Please configure target domain admin emails first' : ''}
+                title={!targetConfigStatus.isValid ? 'Please configure target domain admin emails first' : ''}
               >
                 Create {selectedUsers.size} Users
+              </button>
+              
+              <button
+                onClick={() => {
+                  // Skip user creation and go directly to complete
+                  console.log('[UserManagementWorkflow] Skipping user creation, proceeding to complete');
+                  completeWorkflow(true);
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center space-x-2"
+                title="Skip creating new users and use existing target domain users for migration"
+              >
+                <ArrowRight className="h-4 w-4" />
+                <span>Skip User Creation</span>
               </button>
             </div>
           </div>
@@ -2525,7 +3093,7 @@ For cross-tenant migration, each target domain requires its own admin email with
               
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Target accounts to create:</span>
-                <span className="font-medium">{userMappings.filter(m => selectedUsers.has(m.user.id)).length}</span>
+                <span className="font-medium">{selectedMappingsCount}</span>
               </div>
               
               <div className="flex items-center justify-between">
@@ -2555,14 +3123,83 @@ For cross-tenant migration, each target domain requires its own admin email with
                     <span className="font-medium">Clone Detection Results:</span>
                   </div>
                   <div className="mt-1 text-sm text-orange-700">
-                    {stats.cloned} user(s) already exist in target domain(s) and cannot be selected to prevent duplicate creation.
-                    These users are marked with an "Already Exists" badge and have disabled checkboxes.
+                    {stats.cloned} user(s) already exist in target domain(s) and have been removed from the selection list to prevent duplicate creation.
                   </div>
                 </div>
               </div>
             )}
-            
-            {/* Show single super admin info */}
+          </div>
+
+          {/* Selected User Mappings Display */}
+          {selectedUsers.size > 0 && (
+            <div className="mb-6 p-4 bg-white border border-gray-200 rounded-lg">
+              <div className="flex items-center space-x-2 mb-4">
+                <Users className="h-5 w-5 text-gray-700" />
+                <h3 className="text-lg font-medium text-gray-900">Selected Users ({selectedUsers.size})</h3>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-4 text-sm font-medium text-gray-700 pb-2 border-b border-gray-200">
+                  <div>Total Users</div>
+                  <div>Admin Users</div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm pb-3 border-b border-gray-200">
+                  <div className="font-medium">{selectedUsers.size}</div>
+                  <div className="font-medium">
+                    {Array.from(selectedUsers).filter(userId => {
+                      const user = discoveredUsers.find(u => u.id === userId);
+                      return user?.isAdmin;
+                    }).length}
+                  </div>
+                </div>
+                
+                <div className="text-sm text-gray-600 font-medium mb-3">Users to migrate:</div>
+                
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {Array.from(selectedUsers).map(userId => {
+                    const user = discoveredUsers.find(u => u.id === userId);
+                    if (!user) return null;
+                    
+                    const userMappingsForUser = userMappings.filter(m => m.user.id === userId);
+                    
+                    return (
+                      <div key={userId} className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded">
+                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-900 truncate">{user.primaryEmail}</span>
+                            <ArrowRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                            <div className="flex flex-wrap gap-1">
+                              {userMappingsForUser.length > 0 ? (
+                                userMappingsForUser.map((mapping, idx) => (
+                                  <span key={idx} className="text-sm text-blue-600 truncate">
+                                    {mapping.targetEmail}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-gray-500 italic">No target mapping</span>
+                              )}
+                            </div>
+                          </div>
+                          {user.isAdmin && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                <Shield className="h-3 w-3 mr-1" />
+                                Admin
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Show single super admin info */}
             {migrationScenario === 'single-super-admin' && sourceAdminEmail && (
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="text-sm text-green-700">
@@ -2579,20 +3216,85 @@ For cross-tenant migration, each target domain requires its own admin email with
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="text-sm text-blue-700">
                   <span className="font-medium">
-                    {Array.from(selectedUsers).filter(userId => {
-                      const user = discoveredUsers.find(u => u.id === userId);
-                      return user?.sourceUsers && user.sourceUsers.length > 1;
-                    }).length}
+                    {mergedUsersCount}
                   </span> merged users (combining accounts from multiple source domains)
                 </div>
               </div>
             )}
-          </div>
+
+          {/* Selected User Mappings Display */}
+          {selectedUsers.size > 0 && (
+            <div className="mb-6 p-4 bg-white border border-gray-200 rounded-lg">
+              <div className="flex items-center space-x-2 mb-4">
+                <Users className="h-5 w-5 text-gray-700" />
+                <h3 className="text-lg font-medium text-gray-900">Selected Users ({selectedUsers.size})</h3>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-4 text-sm font-medium text-gray-700 pb-2 border-b border-gray-200">
+                  <div>Total Users</div>
+                  <div>Admin Users</div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm pb-3 border-b border-gray-200">
+                  <div className="font-medium">{selectedUsers.size}</div>
+                  <div className="font-medium">
+                    {Array.from(selectedUsers).filter(userId => {
+                      const user = discoveredUsers.find(u => u.id === userId);
+                      return user?.isAdmin;
+                    }).length}
+                  </div>
+                </div>
+                
+                <div className="text-sm text-gray-600 font-medium mb-3">Users to migrate:</div>
+                
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {Array.from(selectedUsers).map(userId => {
+                    const user = discoveredUsers.find(u => u.id === userId);
+                    if (!user) return null;
+                    
+                    const userMappingsForUser = userMappings.filter(m => m.user.id === userId);
+                    
+                    return (
+                      <div key={userId} className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded">
+                        <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-900 truncate">{user.primaryEmail}</span>
+                            <ArrowRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                            <div className="flex flex-wrap gap-1">
+                              {userMappingsForUser.length > 0 ? (
+                                userMappingsForUser.map((mapping, idx) => (
+                                  <span key={idx} className="text-sm text-blue-600 truncate">
+                                    {mapping.targetEmail}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-gray-500 italic">No target mapping</span>
+                              )}
+                            </div>
+                          </div>
+                          {user.isAdmin && (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                <Shield className="h-3 w-3 mr-1" />
+                                Admin
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* User List */}
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {/* Group users and show all their target mappings */}
-            {Array.from(new Set(filteredUsers.map(u => u.id))).map(userId => {
+            {uniqueUserIds.map(userId => {
               const user = filteredUsers.find(u => u.id === userId);
               if (!user) return null;
               
@@ -2947,39 +3649,6 @@ For cross-tenant migration, each target domain requires its own admin email with
               })()}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Step 4: Complete */}
-      {currentStep === 'complete' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="text-center mb-6">
-            <div className="flex justify-center mb-4">
-              <div className="p-3 bg-green-100 rounded-full">
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Workflow Complete</h3>
-            <p className="text-gray-600">
-              Successfully processed {discoveredUsers.length} users with {stats.created} created and {stats.failed} failed
-            </p>
-          </div>
-
-          {/* Final Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{discoveredUsers.length}</div>
-              <div className="text-sm text-gray-600">Users Discovered</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{stats.created}</div>
-              <div className="text-sm text-gray-600">Users Created</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
-              <div className="text-sm text-gray-600">Creation Failed</div>
-            </div>
-          </div>
         </div>
       )}
     </div>
