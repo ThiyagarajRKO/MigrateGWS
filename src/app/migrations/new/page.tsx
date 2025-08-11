@@ -63,9 +63,7 @@ const UserMappingRelationshipSelector = lazy(() =>
 const DomainWideDelegationSetup = lazy(() => 
   import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }))
 );
-const UserManagementWorkflow = lazy(() => 
-  import('@/components/UserManagementWorkflow').then(module => ({ default: module.default }))
-);
+const UserManagementWorkflow = lazy(() => import('@/components/UserManagementWorkflow'));
 const MigrationProgress = lazy(() => 
   import('@/components/MigrationProgress').then(module => ({ default: module.default }))
 );
@@ -1577,37 +1575,6 @@ export default function NewMigration() {
               </p>
             </div>
 
-            {/* Configuration Summary */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-              <div className="flex items-start space-x-3">
-                <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h3 className="font-medium text-blue-900 mb-2">Configuration Summary</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="font-medium text-blue-900">Migration Type:</span>
-                      <span className="text-blue-800 ml-2">{selectedScenario === 'single-super-admin' ? 'Single Super Admin' : 'Cross-Tenant'}</span>
-                    </div>
-                    <div>
-                      <span className="font-medium text-blue-900">Domains:</span>
-                      <span className="text-blue-800 ml-2">
-                        {domainMapping?.sourceDomains && domainMapping.sourceDomains.length > 0 
-                          ? domainMapping.sourceDomains.join(', ') 
-                          : getSourceDomains().join(', ')
-                        } → {
-                          domainMapping?.targetDomain || 
-                          (domainMapping?.targetDomains && domainMapping.targetDomains.length > 0 
-                            ? domainMapping.targetDomains.join(', ')
-                            : getTargetDomains().join(', ')
-                          )
-                        }
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Domain-wide Delegation Setup */}
             <div className="max-w-4xl mx-auto">
               <ComponentLoader>
@@ -1639,8 +1606,8 @@ export default function NewMigration() {
                 <div className="flex items-center space-x-3">
                   <CheckCircle className="h-6 w-6 text-green-600" />
                   <div>
-                    <h3 className="font-medium text-green-900">Domain-wide Delegation Configured</h3>
-                    <p className="text-green-700 text-sm">The service account has been properly configured for domain-wide delegation.</p>
+                    <h3 className="font-medium text-green-900 text-sm">Domain-wide Delegation Configured</h3>
+                    <p className="text-green-700 text-xs">The service account has been properly configured for domain-wide delegation.</p>
                   </div>
                 </div>
               </div>
@@ -1662,30 +1629,6 @@ export default function NewMigration() {
               <p className="text-gray-600 max-w-2xl mx-auto">
                 Configure secure access permissions and service account delegation for your Google Workspace domains.
               </p>
-            </div>
-
-            {/* Configuration Summary */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <Shield className="h-5 w-5 mr-2" />
-                    Migration Type
-                  </h3>
-                  <p className="text-blue-800 text-sm">
-                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <Database className="h-5 w-5 mr-2" />
-                    Domain Configuration
-                  </h3>
-                  <p className="text-blue-800 text-sm">
-                    {domainMapping ? domainMapping.description : 'Not configured'}
-                  </p>
-                </div>
-              </div>
             </div>
 
             {/* Domain-wide Delegation Setup */}
@@ -1801,43 +1744,6 @@ export default function NewMigration() {
               </p>
             </div>
 
-            {/* Configuration Summary */}
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
-                    <Shield className="h-5 w-5 mr-2" />
-                    Migration Scenario
-                  </h3>
-                  <p className="text-green-800 text-sm">
-                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
-                    <GitBranch className="h-5 w-5 mr-2" />
-                    User Mapping Strategy
-                  </h3>
-                  <p className="text-green-800 text-sm">
-                    {userMappingConfig?.relationship ? 
-                      userMappingConfig.relationship.charAt(0).toUpperCase() + userMappingConfig.relationship.slice(1).replace('-', ' to ') + ' mapping'
-                      : 'Not configured'}
-                  </p>
-                </div>
-              </div>
-              {domainMapping && (
-                <div className="mt-4 pt-4 border-t border-green-300">
-                  <h3 className="font-semibold text-green-900 mb-2 flex items-center">
-                    <Database className="h-5 w-5 mr-2" />
-                    Domain Configuration
-                  </h3>
-                  <p className="text-green-800 text-sm">
-                    Domain mapping configured: {Object.keys(domainMapping).length} source domain(s) to {Object.values(domainMapping).flat().length} target domain(s)
-                  </p>
-                </div>
-              )}
-            </div>
-
             {/* UserManagementWorkflow Component */}
             <div className="max-w-6xl mx-auto">
               <ComponentLoader>
@@ -1903,30 +1809,6 @@ export default function NewMigration() {
               <p className="text-gray-600 max-w-2xl mx-auto">
                 Choose which services to migrate and configure advanced options.
               </p>
-            </div>
-
-            {/* Configuration Summary */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                    <Shield className="h-5 w-5 mr-2" />
-                    Migration Type
-                  </h3>
-                  <p className="text-blue-800">
-                    {selectedScenario === 'single-super-admin' ? 'Single Super Admin Migration' : 'Cross-Tenant Migration'}
-                  </p>
-                </div>
-                {domainMapping && (
-                  <div>
-                    <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
-                      <Database className="h-5 w-5 mr-2" />
-                      Domain Mapping
-                    </h3>
-                    <p className="text-blue-800">{domainMapping.description}</p>
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Migration Name */}
@@ -3805,9 +3687,21 @@ export default function NewMigration() {
                         Step {getStepNumber()} of {getTotalSteps()}: {STEP_CONFIG[currentStep].title}
                       </p>
                     )}
-                    {/* Migration Scenario and User Mapping Strategy */}
+                  </div>
+                  <div className="flex flex-col items-end space-y-2">
+                    {/* Domain Configuration - Right aligned */}
+                    {domainMapping && (
+                      <div className="flex items-center space-x-2">
+                        <Database className="h-4 w-4 text-blue-200" />
+                        <span className="text-sm text-blue-100">Domain Configuration:</span>
+                        <span className="text-sm font-medium text-white">
+                          {Object.keys(domainMapping).length} source domain(s) to {Object.values(domainMapping).flat().length} target domain(s)
+                        </span>
+                      </div>
+                    )}
+                    {/* Migration Scenario and User Mapping Strategy - Right aligned */}
                     {selectedScenario && (
-                      <div className="mt-3 flex items-center space-x-6">
+                      <div className="flex flex-col space-y-1 text-right">
                         <div className="flex items-center space-x-2">
                           <Users className="h-4 w-4 text-blue-200" />
                           <span className="text-sm text-blue-100">Migration Scenario:</span>
@@ -3830,13 +3724,13 @@ export default function NewMigration() {
                         )}
                       </div>
                     )}
+                    {currentStep !== 'scenario' && currentStep !== 'migration' && (
+                      <div className="flex items-center space-x-2 text-blue-100">
+                        <Clock className="h-4 w-4" />
+                        <span className="text-sm">Est. {getTotalSteps() - getStepNumber()} steps remaining</span>
+                      </div>
+                    )}
                   </div>
-                  {currentStep !== 'scenario' && currentStep !== 'migration' && (
-                    <div className="flex items-center space-x-2 text-blue-100">
-                      <Clock className="h-4 w-4" />
-                      <span className="text-sm">Est. {getTotalSteps() - getStepNumber()} steps remaining</span>
-                    </div>
-                  )}
                 </div>
               </div>
 

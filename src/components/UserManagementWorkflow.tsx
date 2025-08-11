@@ -118,7 +118,7 @@ interface UserManagementWorkflowProps {
   }) => void;
 }
 
-type WorkflowStep = 'discovery' | 'mapping' | 'creation';
+type WorkflowStep = 'discovery' | 'mapping' | 'creation' | 'complete';
 
 export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   sourceDomains,
@@ -162,6 +162,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   const [totalBatches, setTotalBatches] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string>('');
+  const [userCreationSkipped, setUserCreationSkipped] = useState(false);
 
   // Verification token hook for service account verification
   const verificationTokenHook = useVerificationToken({
@@ -1329,7 +1330,7 @@ For cross-tenant migration, each target domain requires its own admin email with
     }
 
     setIsCreating(false);
-    completeWorkflow();
+    setCurrentStep('complete');
   };
 
   const filteredUsers = useMemo(() => 
@@ -1698,20 +1699,23 @@ For cross-tenant migration, each target domain requires its own admin email with
     setSelectedUsers(new Set());
   }, []);
 
-  // Helper function to complete the workflow and trigger onComplete callback
-  const completeWorkflow = useCallback((skipUserCreation = false) => {
-    console.log('[UserManagementWorkflow] completeWorkflow called with skipUserCreation:', skipUserCreation);
-    console.log('[UserManagementWorkflow] Available userMappings:', userMappings.length);
-    console.log('[UserManagementWorkflow] Selected users:', selectedUsers.size);
-    
-    if (onComplete) {
-      // When skipping user creation, use all available mappings
-      // Otherwise, only use selected mappings
-      const selectedMappings = skipUserCreation 
-        ? userMappings 
-        : userMappings.filter(mapping => selectedUsers.has(mapping.user.id));
-        
-      console.log('[UserManagementWorkflow] Final selectedMappings count:', selectedMappings.length);
+  // Statistics (memoized to prevent re-calculation)
+  const stats = useMemo(() => ({
+    total: userMappings.length,
+    created: creationResults.filter(r => r.success).length,
+    failed: creationResults.filter(r => !r.success).length,
+    pending: userMappings.filter(m => m.status === 'pending').length,
+    cloned: discoveredUsers.filter(u => isUserCloned(u)).length,
+    selectable: discoveredUsers.filter(u => !isUserCloned(u)).length
+  }), [userMappings.length, creationResults, discoveredUsers, isUserCloned]);
+
+  useEffect(() => {
+    if (currentStep === 'complete' && onComplete && !userCreationSkipped) {
+      // Only auto-trigger onComplete when user creation was actually performed
+      // If user creation was skipped, wait for manual button click
+      const selectedMappings = userMappings.filter(mapping => 
+        selectedUsers.has(mapping.user.id)
+      );
       
       // Create comprehensive source-to-target mapping for services migration
       const sourceToTargetMapping = {
@@ -1924,22 +1928,9 @@ For cross-tenant migration, each target domain requires its own admin email with
         userPairs: sourceToTargetUserPairs // Explicit source-to-target pairs for easy iteration
       });
     }
-  }, [
-    onComplete, userMappings, selectedUsers, mappingType, migrationScenario, 
-    userMappingStrategy, userMappingConfig, sourceDomains, targetDomains, 
-    domainMapping, sourceAdminEmails, sourceAdminEmail, targetAdminEmails, 
-    getEffectiveTargetAdminEmails, discoveredUsers, creationResults, existingUserStatus
-  ]);
-
-  // Statistics (memoized to prevent re-calculation)
-  const stats = useMemo(() => ({
-    total: userMappings.length,
-    created: creationResults.filter(r => r.success).length,
-    failed: creationResults.filter(r => !r.success).length,
-    pending: userMappings.filter(m => m.status === 'pending').length,
-    cloned: discoveredUsers.filter(u => isUserCloned(u)).length,
-    selectable: discoveredUsers.filter(u => !isUserCloned(u)).length
-  }), [userMappings.length, creationResults, discoveredUsers, isUserCloned]);
+  }, [currentStep, discoveredUsers, creationResults, userMappings, selectedUsers, onComplete, 
+      mappingType, migrationScenario, userMappingStrategy, userMappingConfig, sourceDomains, 
+      targetDomains, domainMapping, sourceAdminEmails, sourceAdminEmail, targetAdminEmails, existingUserStatus, userCreationSkipped]);
 
   // Memoize expensive function calls
   const targetConfigStatus = useMemo(() => getTargetDomainConfigurationStatus(), [getTargetDomainConfigurationStatus]);
@@ -1959,10 +1950,11 @@ For cross-tenant migration, each target domain requires its own admin email with
             {[
               { step: 'discovery', icon: Search, label: 'Discover' },
               { step: 'mapping', icon: Target, label: 'Map' },
-              { step: 'creation', icon: UserPlus, label: 'Create' }
+              { step: 'creation', icon: UserPlus, label: 'Create' },
+              { step: 'complete', icon: CheckCircle, label: 'Complete' }
             ].map(({ step, icon: Icon, label }, index) => {
               const isActive = currentStep === step;
-              const isCompleted = ['discovery', 'mapping', 'creation'].indexOf(currentStep) > index;
+              const isCompleted = ['discovery', 'mapping', 'creation', 'complete'].indexOf(currentStep) > index;
               
               return (
                 <div key={step} className="flex items-center">
@@ -1986,7 +1978,7 @@ For cross-tenant migration, each target domain requires its own admin email with
         </div>
 
         {/* Statistics */}
-        {currentStep === 'creation' && (
+        {(currentStep === 'creation' || currentStep === 'complete') && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-blue-50 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
@@ -2008,48 +2000,23 @@ For cross-tenant migration, each target domain requires its own admin email with
         )}
       </div>
 
-      {/* Service Account Status Indicator */}
+      {/* Service Account Status Icon - Top Right */}
       {useServiceAccount && (
-        <div className={`rounded-lg shadow p-4 mb-6 ${
-          serviceAccountVerified || verificationTokenHook.hasToken
-            ? 'bg-green-50 border border-green-200'
-            : isVerifyingServiceAccount
-            ? 'bg-blue-50 border border-blue-200'
-            : 'bg-yellow-50 border border-yellow-200'
-        }`}>
-          <div className="flex items-center space-x-3">
+        <div className="absolute top-4 right-4 z-10">
+          <div className={`rounded-full p-2 shadow-md ${
+            serviceAccountVerified || verificationTokenHook.hasToken
+              ? 'bg-green-100 border border-green-300'
+              : isVerifyingServiceAccount
+              ? 'bg-yellow-100 border border-yellow-300'
+              : 'bg-red-100 border border-red-300'
+          }`}>
             {serviceAccountVerified || verificationTokenHook.hasToken ? (
-              <CheckCircle className="h-5 w-5 text-green-600" />
+              <Shield className="h-4 w-4 text-green-600" />
             ) : isVerifyingServiceAccount ? (
-              <RefreshCw className="h-5 w-5 text-blue-600 animate-spin" />
+              <RefreshCw className="h-4 w-4 text-yellow-600 animate-spin" />
             ) : (
-              <AlertCircle className="h-5 w-5 text-yellow-600" />
+              <AlertCircle className="h-4 w-4 text-red-600" />
             )}
-            <div>
-              <h3 className={`font-semibold ${
-                serviceAccountVerified || verificationTokenHook.hasToken
-                  ? 'text-green-800'
-                  : isVerifyingServiceAccount
-                  ? 'text-blue-800'
-                  : 'text-yellow-800'
-              }`}>
-                Service Account Authentication
-              </h3>
-              <p className={`text-sm ${
-                serviceAccountVerified || verificationTokenHook.hasToken
-                  ? 'text-green-700'
-                  : isVerifyingServiceAccount
-                  ? 'text-blue-700'
-                  : 'text-yellow-700'
-              }`}>
-                {serviceAccountVerified || verificationTokenHook.hasToken
-                  ? `Service account verified successfully. Admin email requirements bypassed. Token source: ${verificationTokenHook.tokenSource}`
-                  : isVerifyingServiceAccount
-                  ? 'Verifying service account configuration...'
-                  : 'Service account configured but verification pending. Target domain admin emails may still be required.'
-                }
-              </p>
-            </div>
           </div>
         </div>
       )}
@@ -3037,12 +3004,11 @@ For cross-tenant migration, each target domain requires its own admin email with
               
               <button
                 onClick={() => {
-                  // Skip user creation and go directly to complete
-                  console.log('[UserManagementWorkflow] Skipping user creation, proceeding to complete');
-                  completeWorkflow(true);
+                  setUserCreationSkipped(true);
+                  setCurrentStep('complete');
                 }}
                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center space-x-2"
-                title="Skip creating new users and use existing target domain users for migration"
+                title="Skip user creation and proceed to migration settings"
               >
                 <ArrowRight className="h-4 w-4" />
                 <span>Skip User Creation</span>
@@ -3649,6 +3615,103 @@ For cross-tenant migration, each target domain requires its own admin email with
               })()}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Step 4: Complete */}
+      {currentStep === 'complete' && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="text-center mb-6">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-green-100 rounded-full">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Workflow Complete</h3>
+            <p className="text-gray-600">
+              {userCreationSkipped 
+                ? `Successfully mapped ${discoveredUsers.length} users for migration (user creation skipped)`
+                : `Successfully processed ${discoveredUsers.length} users with ${stats.created} created${stats.failed > 0 ? ` and ${stats.failed} failed` : ''}`
+              }
+            </p>
+          </div>
+
+          {/* Final Summary */}
+          {userCreationSkipped ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="h-5 w-5 text-amber-600" />
+                <h4 className="font-medium text-amber-800">User Creation Skipped</h4>
+              </div>
+              <p className="text-amber-700 text-sm mt-2">
+                You chose to skip target user creation. Make sure the target users exist in their respective domains 
+                before starting the migration, or they will need to be created manually.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{discoveredUsers.length}</div>
+              <div className="text-sm text-gray-600">Users Discovered</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {userCreationSkipped ? selectedUsers.size : stats.created}
+              </div>
+              <div className="text-sm text-gray-600">
+                {userCreationSkipped ? 'Users Selected for Migration' : 'Users Created'}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-red-600">
+                {userCreationSkipped ? 0 : stats.failed}
+              </div>
+              <div className="text-sm text-gray-600">
+                {userCreationSkipped ? 'Creation Skipped' : 'Creation Failed'}
+              </div>
+            </div>
+          </div>
+          
+          {/* Action Button */}
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                if (onComplete) {
+                  // Force trigger the complete callback when button is clicked
+                  const selectedMappings = userMappings.filter(mapping => 
+                    selectedUsers.has(mapping.user.id)
+                  );
+                  
+                  const results = {
+                    discoveredUsers,
+                    createdUsers: creationResults,
+                    mappings: selectedMappings,
+                    sourceToTargetMapping: {
+                      mappingType,
+                      migrationScenario,
+                      userMappingStrategy,
+                      userMappingConfig,
+                      sourceDomains,
+                      targetDomains,
+                      domainMapping,
+                      sourceAdminEmails,
+                      sourceAdminEmail,
+                      targetAdminEmails,
+                      userMappings: selectedMappings,
+                      userCreationSkipped
+                    }
+                  };
+                  
+                  onComplete(results);
+                }
+              }}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center space-x-2 mx-auto"
+            >
+              <ArrowRight className="h-5 w-5" />
+              <span>Complete Workflow</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
