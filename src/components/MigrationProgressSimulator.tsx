@@ -102,11 +102,11 @@ export default function MigrationProgressSimulator() {
     if (isRunning) return
 
     setIsRunning(true)
-    logger.info('migration', 'Starting comprehensive Google Workspace migration simulation', selectedUser, {
+    logger.info('migration', 'Starting comprehensive Google Workspace migration simulation', JSON.stringify({
       services: services.map(s => s.service),
       totalItems: services.reduce((sum, s) => sum + s.totalItems, 0),
       estimatedDuration: Math.max(...services.map(s => s.estimatedTime)) + 'ms'
-    })
+    }), selectedUser)
 
     // Start all services with staggered delays
     const servicePromises = services.map((service, index) => 
@@ -115,9 +115,9 @@ export default function MigrationProgressSimulator() {
 
     try {
       await Promise.all(servicePromises)
-      logger.success('migration', 'All services migration completed successfully', selectedUser)
+      logger.success('migration', 'All services migration completed successfully', undefined, selectedUser)
     } catch (error) {
-      logger.error('migration', 'Migration simulation failed', selectedUser, { error })
+      logger.error('migration', 'Migration simulation failed', JSON.stringify({ error }), selectedUser)
     } finally {
       setIsRunning(false)
     }
@@ -137,10 +137,10 @@ export default function MigrationProgressSimulator() {
       currentItem: `Initializing ${service.displayName} migration...`
     })
 
-    logger.info(service.service, `Starting ${service.displayName} migration`, selectedUser, {
+    logger.info(service.service, `Starting ${service.displayName} migration`, JSON.stringify({
       totalItems: service.totalItems,
       estimatedTime: service.estimatedTime
-    })
+    }), selectedUser)
 
     // Simulate item-by-item processing
     for (let i = 0; i <= service.totalItems; i++) {
@@ -157,11 +157,15 @@ export default function MigrationProgressSimulator() {
       })
 
       // Send progress updates
-      logger.progress(service.service, `${service.displayName}: ${progress}%`, selectedUser, {
-        progress,
-        processedItems: i,
+      logger.progress(service.service, selectedUser, {
+        service: service.service,
+        user: selectedUser,
         totalItems: service.totalItems,
-        currentItem
+        processedItems: i,
+        currentItem: currentItem,
+        status: i === service.totalItems ? 'completed' : 'in-progress',
+        errors: service.errors,
+        warnings: service.warnings
       })
 
       // Simulate realistic processing time with complexity
@@ -178,7 +182,7 @@ export default function MigrationProgressSimulator() {
         updateServiceStatus(service.service, {
           warnings: [...service.warnings, warning]
         })
-        logger.warning(service.service, warning, selectedUser, { item: currentItem })
+        logger.warning(service.service, warning, JSON.stringify({ item: currentItem }), selectedUser)
       }
 
       if (Math.random() < 0.02) { // 2% chance of error
@@ -186,16 +190,16 @@ export default function MigrationProgressSimulator() {
         updateServiceStatus(service.service, {
           errors: [...service.errors, error]
         })
-        logger.error(service.service, error, selectedUser, { item: currentItem, retrying: true })
+        logger.error(service.service, error, JSON.stringify({ item: currentItem, retrying: true }), selectedUser)
       }
     }
 
     if (isRunning) {
-      logger.success(service.service, `${service.displayName} migration completed`, selectedUser, {
+      logger.success(service.service, `${service.displayName} migration completed`, JSON.stringify({
         totalProcessed: service.totalItems,
         warnings: service.warnings.length,
         errors: service.errors.length
-      })
+      }), selectedUser)
     }
   }
 

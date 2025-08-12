@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { createServiceAccountService, createGmailServiceForUser } from '@/lib/google-workspace'
-import { authOptions } from '@/lib/auth-options'
+import { createServiceAccountService } from '@/lib/google-workspace'
 import { google } from 'googleapis'
 import { 
   parseEnhancedVerificationToken, 
   isEnhancedTokenValidForDomains,
   getAdminEmailFromEnhancedToken
 } from '@/lib/enhanced-verification-token'
+
+// Helper function to create Gmail service for a specific user
+function createGmailServiceForUser(userEmail: string) {
+  const serviceAccount = createServiceAccountService(userEmail)
+  return google.gmail({ version: 'v1', auth: serviceAccount['jwtClient'] })
+}
 import { validateDelegationMiddleware, validateTokenDelegation } from '@/lib/delegation-access-middleware'
 
 // WebSocket integration for real-time progress updates
@@ -167,12 +172,12 @@ export async function POST(request: NextRequest) {
     const testMode = request.headers.get('x-test-mode');
     
     if (!testMode) {
-      const session = await getServerSession(authOptions)
+    if (!testMode) {
+      const session = await getServerSession()
       if (!session?.user) {
         return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
       }
     }
-
     const body: GmailMigrationRequest = await request.json()
     
     // Enhanced verification token validation with delegation access
