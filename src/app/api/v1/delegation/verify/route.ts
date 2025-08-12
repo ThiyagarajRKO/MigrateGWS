@@ -134,7 +134,7 @@ const verifyDomainAccess = async (domain: string, clientId: string, adminEmail: 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { sourceAdminEmail, destAdminEmail, adminEmail, migrationScenario, verificationToken } = body
+    const { sourceAdminEmail, destAdminEmail, adminEmail, domain, migrationScenario, verificationToken } = body
     
     // Check for verification token in headers as well
     const headerToken = request.headers.get('X-Verification-Token')
@@ -169,6 +169,79 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.log('[Delegation Verify] No verification token provided')
+    }
+
+    // Handle direct domain verification (for service account testing)
+    if (domain && adminEmail) {
+      console.log('[Delegation Verify] Direct domain verification requested for:', domain, 'with admin:', adminEmail);
+      
+      // Get client ID from service account key file
+      let clientId: string
+      try {
+        const serviceAccountPath = path.join(process.cwd(), 'source-service-account-key.json')
+        if (fs.existsSync(serviceAccountPath)) {
+          const serviceAccountKey = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'))
+          clientId = serviceAccountKey.client_id
+        } else {
+          throw new Error('Service account key file not found')
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Service account configuration error: ' + (error instanceof Error ? error.message : 'Unknown error')
+          },
+          { status: 500 }
+        )
+      }
+
+      // Verify the domain
+      const domainVerification = await verifyDomainAccess(domain, clientId, adminEmail)
+
+      const response = {
+        success: domainVerification.verified,
+        migrationScenario: migrationScenario || 'direct-verification',
+        verification: {
+          domain: domainVerification,
+          overall: {
+            configured: domainVerification.configured,
+            verified: domainVerification.verified,
+            readyForMigration: domainVerification.verified
+          }
+        },
+        recommendations: [] as Array<{
+          type: 'error' | 'warning' | 'success'
+          domain: string
+          message: string
+          action: string
+        }>
+      }
+
+      // Add recommendations based on verification results
+      if (!domainVerification.configured) {
+        response.recommendations.push({
+          type: 'error',
+          domain: domain,
+          message: 'Domain delegation is not configured. Please complete the setup process.',
+          action: 'Configure domain-wide delegation for your domain'
+        })
+      } else if (!domainVerification.verified) {
+        response.recommendations.push({
+          type: 'warning',
+          domain: domain,
+          message: 'Domain delegation is configured but verification failed.',
+          action: 'Check admin email permissions and service account configuration'
+        })
+      } else {
+        response.recommendations.push({
+          type: 'success',
+          domain: domain,
+          message: 'Domain delegation is properly configured and verified.',
+          action: 'Ready for migration operations'
+        })
+      }
+
+      return NextResponse.json(response)
     }
 
     // Handle Single Super Admin scenario

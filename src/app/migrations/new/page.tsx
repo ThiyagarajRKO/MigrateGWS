@@ -81,6 +81,9 @@ const UserMapping = lazy(() =>
 const MigrationProgress = lazy(() => 
   import('@/components/MigrationProgress').then(module => ({ default: module.default }))
 );
+const RealTimeMigrationDashboard = lazy(() => 
+  import('@/components/RealTimeMigrationDashboard').then(module => ({ default: module.default }))
+);
 
 // Optimized loading component with skeleton
 const ComponentLoader = ({ children }: { children: React.ReactNode }) => (
@@ -4416,52 +4419,62 @@ export default function NewMigration() {
                       })()}
                       targetAdminEmails={targetAdminEmails}
                       strategy={userMappingConfig?.relationship || 'one-to-one'}
-                      onMappingComplete={(mappings) => {
-                        console.log('[Migration Config] User mappings completed:', mappings);
+                      onNext={(selectedMappings) => {
+                        console.log('[Migration Config] ONLY SELECTED user mappings received:', selectedMappings);
                         console.log('[Migration Config] UserMapping domains:', { sourceDomains, targetDomains });
                         console.log('[Migration Config] Strategy:', userMappingConfig?.relationship);
+                        console.log('[Migration Config] Number of selected users:', selectedMappings.length);
                         
-                        // Extract users from mappings and update selectedAllTargetUsers
+                        // Extract users from ONLY SELECTED mappings and update selectedAllTargetUsers
                         const users: any[] = [];
-                        mappings.forEach(mapping => {
-                          // For many-to-one strategy with consolidated mappings
-                          if ((mapping as any).targetUsers && typeof (mapping as any).targetUsers === 'object') {
-                            // Handle consolidated mappings where targetUsers is an object with domain keys
-                            Object.entries((mapping as any).targetUsers).forEach(([domain, domainUsers]) => {
-                              if (Array.isArray(domainUsers)) {
-                                domainUsers.forEach(user => {
-                                  users.push({
-                                    ...user,
-                                    sourceEmail: mapping.sourceUser.primaryEmail,
-                                    sourceUser: mapping.sourceUser,
-                                    targetDomain: domain
+                        selectedMappings.forEach(mappingGroup => {
+                          // UserMapping component passes UserMappingGroup objects with sourceUser and mappings array
+                          const { sourceUser, mappings } = mappingGroup;
+                          
+                          mappings.forEach(mapping => {
+                            // For many-to-one strategy with consolidated mappings
+                            if ((mapping as any).targetUsers && typeof (mapping as any).targetUsers === 'object') {
+                              // Handle consolidated mappings where targetUsers is an object with domain keys
+                              Object.entries((mapping as any).targetUsers).forEach(([domain, domainUsers]) => {
+                                if (Array.isArray(domainUsers)) {
+                                  domainUsers.forEach(user => {
+                                    users.push({
+                                      ...user,
+                                      sourceEmail: sourceUser.primaryEmail,
+                                      sourceUser: sourceUser,
+                                      targetDomain: domain,
+                                      selected: true // Mark as explicitly selected
+                                    });
                                   });
+                                }
+                              });
+                            } else {
+                              // Handle regular one-to-one mappings
+                              if (mapping.targetUser) {
+                                users.push({
+                                  primaryEmail: mapping.targetUser.primaryEmail || mapping.targetEmail,
+                                  targetDomain: mapping.targetUser.domain,
+                                  sourceEmail: sourceUser.primaryEmail,
+                                  sourceUser: sourceUser,
+                                  name: sourceUser.name || mapping.targetUser.name,
+                                  selected: true // Mark as explicitly selected
+                                });
+                              } else if (mapping.targetEmail) {
+                                // Fallback to targetEmail if targetUser is not available
+                                users.push({
+                                  primaryEmail: mapping.targetEmail,
+                                  sourceEmail: sourceUser.primaryEmail,
+                                  sourceUser: sourceUser,
+                                  name: sourceUser.name,
+                                  selected: true // Mark as explicitly selected
                                 });
                               }
-                            });
-                          } else {
-                            // Handle regular one-to-one mappings
-                            if (mapping.targetUser) {
-                              users.push({
-                                primaryEmail: mapping.targetUser.primaryEmail || mapping.targetEmail,
-                                targetDomain: mapping.targetUser.domain,
-                                sourceEmail: mapping.sourceUser.primaryEmail,
-                                sourceUser: mapping.sourceUser,
-                                name: mapping.sourceUser.name || mapping.targetUser.name
-                              });
-                            } else if (mapping.targetEmail) {
-                              // Fallback to targetEmail if targetUser is not available
-                              users.push({
-                                primaryEmail: mapping.targetEmail,
-                                sourceEmail: mapping.sourceUser.primaryEmail,
-                                sourceUser: mapping.sourceUser,
-                                name: mapping.sourceUser.name
-                              });
                             }
-                          }
+                          });
                         });
                         
-                        console.log('[Migration Config] Extracted users for migration:', users);
+                        console.log('[Migration Config] Extracted SELECTED users for migration:', users);
+                        console.log('[Migration Config] Selected users count:', users.length);
                         setSelectedAllTargetUsers(users);
                       }}
                     />
@@ -4800,11 +4813,31 @@ export default function NewMigration() {
                     <Users className="h-5 w-5 mr-2 text-blue-600" />
                     Selected Users for Migration ({selectedAllTargetUsers.length})
                   </h3>
+                  
+                  {/* Highlight that these are ONLY selected users */}
+                  <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <div className="flex items-start space-x-2">
+                      <CheckCircle className="h-4 w-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-emerald-800">
+                        <p className="font-medium mb-1">✅ Only Selected Users Will Be Migrated</p>
+                        <p>
+                          Migration will process <strong>only the {selectedAllTargetUsers.length} user{selectedAllTargetUsers.length !== 1 ? 's' : ''} selected</strong> in the user mapping step. 
+                          Users not selected during the mapping process will be skipped and their data will remain unchanged.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="space-y-4">
                     <div className="grid md:grid-cols-3 gap-4">
                       <div>
-                        <div className="text-sm text-gray-600 mb-1">Total Users</div>
-                        <div className="font-medium text-gray-900">{selectedAllTargetUsers.length}</div>
+                        <div className="text-sm text-gray-600 mb-1">Selected Users</div>
+                        <div className="font-medium text-gray-900 flex items-center">
+                          {selectedAllTargetUsers.length}
+                          <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                            Selected Only
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <div className="text-sm text-gray-600 mb-1">Migration Strategy</div>
@@ -4824,10 +4857,12 @@ export default function NewMigration() {
                     </div>
                     
                     <div className="max-h-40 overflow-y-auto">
-                      <div className="text-sm text-gray-600 mb-2">Users selected for migration:</div>
+                      <div className="text-sm text-gray-600 mb-2">
+                        <strong>Selected users</strong> that will be migrated:
+                      </div>
                       <div className="space-y-2">
                         {selectedAllTargetUsers.slice(0, 15).map((user, index) => (
-                          <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border-l-4 border-blue-500">
                             <div className="flex items-center space-x-3">
                               <div className="flex-shrink-0">
                                 <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
@@ -4837,8 +4872,9 @@ export default function NewMigration() {
                                 </div>
                               </div>
                               <div>
-                                <div className="text-sm font-medium text-gray-900">
+                                <div className="text-sm font-medium text-gray-900 flex items-center">
                                   {user.name?.fullName || user.sourceUser?.name?.fullName || user.primaryEmail}
+                                  <CheckCircle className="h-3 w-3 text-green-500 ml-2" title="Selected for migration" />
                                 </div>
                                 <div className="text-xs text-gray-500">
                                   {user.sourceEmail && user.primaryEmail ? 
@@ -4855,7 +4891,7 @@ export default function NewMigration() {
                         ))}
                         {selectedAllTargetUsers.length > 15 && (
                           <div className="text-sm text-gray-500 italic text-center py-2">
-                            ...and {selectedAllTargetUsers.length - 15} more users
+                            ...and {selectedAllTargetUsers.length - 15} more selected users
                           </div>
                         )}
                       </div>
@@ -4865,11 +4901,13 @@ export default function NewMigration() {
                       <div className="flex items-start space-x-2">
                         <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
                         <div className="text-sm text-blue-800">
-                          <p className="font-medium mb-1">Migration Target</p>
+                          <p className="font-medium mb-1">Migration Scope</p>
                           <p>
-                            Data from {selectedAllTargetUsers.length} user{selectedAllTargetUsers.length !== 1 ? 's' : ''} will be migrated across {migrationConfig.services.length} service{migrationConfig.services.length !== 1 ? 's' : ''}. 
+                            Data from <strong>only these {selectedAllTargetUsers.length} selected user{selectedAllTargetUsers.length !== 1 ? 's' : ''}</strong> will be migrated across {migrationConfig.services.length} service{migrationConfig.services.length !== 1 ? 's' : ''}. 
                             {userMappingConfig?.relationship === 'many-to-one' && ' Multiple source users will be consolidated into target accounts.'}
                             {userMappingConfig?.relationship === 'one-to-many' && ' Source users will be distributed across multiple target domains.'}
+                            <br />
+                            <span className="font-medium">All other users will be skipped and remain unchanged.</span>
                           </p>
                         </div>
                       </div>

@@ -307,14 +307,13 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     console.log('[UserManagementWorkflow] Starting service account verification');
 
     try {
-      // Check if service account environment variables are set
-      const serviceAccountEmail = process.env.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL;
+      // Use the first source domain for verification, or a default domain
+      const testDomain = sourceDomains[0] || 'rrgokuldham.com';
+      const testAdminEmail = sourceAdminEmails?.[testDomain] || sourceAdminEmail || `admin@${testDomain}`;
       
-      if (!serviceAccountEmail) {
-        throw new Error('Service account environment variables not configured');
-      }
+      console.log('[UserManagementWorkflow] Testing service account with domain:', testDomain, 'admin:', testAdminEmail);
 
-      // Call the verification endpoint
+      // Call the verification endpoint with actual domain
       const response = await fetch('/api/v1/delegation/verify', {
         method: 'POST',
         headers: { 
@@ -322,9 +321,9 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
         },
         credentials: 'include',
         body: JSON.stringify({
-          domain: 'service-account-verification',
-          adminEmail: serviceAccountEmail,
-          migrationScenario: 'service-account',
+          domain: testDomain,
+          adminEmail: testAdminEmail,
+          migrationScenario: migrationScenario || 'cross-tenant',
           useServiceAccount: true
         })
       });
@@ -334,7 +333,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
 
       if (response.ok && verificationData.success) {
         setServiceAccountVerified(true);
-        console.log('[UserManagementWorkflow] Service account verified successfully');
+        console.log('[UserManagementWorkflow] Service account verified successfully for domain:', testDomain);
       } else {
         throw new Error(verificationData.error || verificationData.message || 'Service account verification failed');
       }
@@ -345,7 +344,7 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
     } finally {
       setIsVerifyingServiceAccount(false);
     }
-  }, [useServiceAccount]);
+  }, [useServiceAccount, sourceDomains, sourceAdminEmails, sourceAdminEmail, migrationScenario]);
 
   // Verify service account on mount if enabled
   useEffect(() => {
