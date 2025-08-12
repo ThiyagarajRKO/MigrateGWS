@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { DriveQuotaManager } from '@/components/DriveQuotaManager';
 import { DriveQuotaManager as EnhancedDriveQuotaManager } from '@/components/EnhancedDriveQuotaManager';
+import RealTimeMigrationLogger from '@/components/RealTimeMigrationLogger';
+import MigrationProgressSimulator from '@/components/MigrationProgressSimulator';
 import { migrationLogger } from '@/lib/migration-websocket-logger';
 import { 
   BarChart3, 
@@ -701,6 +703,11 @@ export default function Dashboard() {
             </Card>
           )}
 
+          {/* Migration Progress Simulator */}
+          <div className="mb-6">
+            <MigrationProgressSimulator />
+          </div>
+
           {/* Quick Actions for non-Google users */}
           {user?.provider !== 'google' && (
             <div className="mb-8">
@@ -883,6 +890,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </main>
+        
+        {/* Real-time Migration Logger */}
+        <RealTimeMigrationLogger />
       </div>
     </ProtectedRoute>
   );

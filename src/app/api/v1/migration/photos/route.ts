@@ -192,6 +192,67 @@ export async function POST(request: NextRequest) {
       allTargetDomains.add(targetDomain)
     })
 
+    // Enhanced domain mapping validation and processing
+    let sourceDomains: string[] = []
+    let targetDomains: string[] = []
+
+    if (scenario === 'cross-tenant') {
+      // Extract and analyze domains from user mappings
+      const sourceDomainsSet = new Set<string>()
+      const targetDomainsSet = new Set<string>()
+      
+      processUserMappings.forEach(mapping => {
+        sourceDomainsSet.add(mapping.sourceUserEmail.split('@')[1])
+        targetDomainsSet.add(mapping.targetUserEmail.split('@')[1])
+      })
+      
+      sourceDomains = Array.from(sourceDomainsSet)
+      targetDomains = Array.from(targetDomainsSet)
+
+      // Validate and log domain mapping type
+      if (domainMapping === 'one-to-one') {
+        console.log(`🔧 Cross-tenant scenario: ${sourceDomains[0]} → ${targetDomains[0]}`)
+        
+        // Validate: should have only one source and one target domain
+        if (sourceDomains.length > 1 || targetDomains.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid one-to-one mapping',
+            details: `One-to-one mapping should have only one source and one target domain, but found: ${sourceDomains.length} source(s), ${targetDomains.length} target(s)`
+          }, { status: 400 })
+        }
+        
+      } else if (domainMapping === 'one-to-many') {
+        console.log(`🔧 Cross-tenant scenario with one-to-many domain mapping`)
+        console.log(`🔧 One-to-Many mapping: ${sourceDomains[0]} → [${targetDomains.join(', ')}]`)
+        
+        // Validate: should have only one source domain for one-to-many
+        if (sourceDomains.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid one-to-many mapping',
+            details: `One-to-many mapping should have only one source domain, but found: ${sourceDomains.join(', ')}`
+          }, { status: 400 })
+        }
+        
+      } else if (domainMapping === 'many-to-one') {
+        console.log(`🔧 Cross-tenant scenario with many-to-one domain mapping`)
+        console.log(`🔧 Many-to-One mapping: [${sourceDomains.join(', ')}] → ${targetDomains[0]}`)
+        
+        // Validate: should have only one target domain for many-to-one
+        if (targetDomains.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid many-to-one mapping',
+            details: `Many-to-one mapping should have only one target domain, but found: ${targetDomains.join(', ')}`
+          }, { status: 400 })
+        }
+      }
+      
+      // Log domain mapping summary
+      console.log(`📊 Domain Mapping Summary:`)
+      console.log(`   Source Domains (${sourceDomains.length}): ${sourceDomains.join(', ')}`)
+      console.log(`   Target Domains (${targetDomains.length}): ${targetDomains.join(', ')}`)
+      console.log(`   Total User Mappings: ${processUserMappings.length}`)
+    }
+
     // Determine mapping type based on domain relationships
     let mappingType: 'one-to-one' | 'one-to-many' | 'many-to-one'
     if (allSourceDomains.size === 1 && allTargetDomains.size === 1) {

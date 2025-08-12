@@ -8,6 +8,7 @@ import {
   isEnhancedTokenValidForDomains,
   getAdminEmailFromEnhancedToken
 } from '@/lib/enhanced-verification-token'
+import { migrationLogger } from '@/lib/migration-logger'
 
 interface DriveMigrationRequest {
   sourceAdminEmail: string
@@ -163,8 +164,21 @@ export async function POST(request: NextRequest) {
 
     const body: DriveMigrationRequest = await request.json()
     
+    // Initialize migration logger
+    migrationLogger.info('Drive migration request initiated', 'drive', {
+      sourceUser: body.sourceUserEmail || 'multi-user',
+      testMode: !!testMode,
+      realDataMode: body.realDataMode
+    })
+    
     // Enhanced verification token validation
     if (body.verificationToken) {
+      migrationLogger.info('Starting enhanced verification token validation', 'drive', {
+        sourceUser: body.sourceUserEmail || 'multi-user',
+        sourceDomain: body.sourceAdminEmail.split('@')[1],
+        targetDomain: body.targetAdminEmail.split('@')[1]
+      })
+      
       const sourceDomain = body.sourceAdminEmail.split('@')[1]
       const targetDomain = body.targetAdminEmail.split('@')[1]
       
@@ -172,6 +186,10 @@ export async function POST(request: NextRequest) {
         const tokenData = parseEnhancedVerificationToken(body.verificationToken)
         
         if (!tokenData) {
+          migrationLogger.error('Failed to parse enhanced verification token', 'drive', {
+            sourceUser: body.sourceUserEmail || 'multi-user',
+            error: 'Token data is null or invalid'
+          })
           return NextResponse.json({
             error: 'Failed to parse enhanced verification token',
             details: 'Token data is null or invalid'
@@ -180,6 +198,12 @@ export async function POST(request: NextRequest) {
         
         // Validate token for both domains
         if (!isEnhancedTokenValidForDomains(body.verificationToken, [sourceDomain, targetDomain])) {
+          migrationLogger.error('Enhanced verification token validation failed', 'drive', {
+            sourceUser: body.sourceUserEmail || 'multi-user',
+            sourceDomain,
+            targetDomain,
+            error: 'Token validation failed for source or target domain'
+          })
           return NextResponse.json({ 
             error: 'Invalid enhanced verification token for the specified domains',
             details: 'Token validation failed for source or target domain'
@@ -188,6 +212,10 @@ export async function POST(request: NextRequest) {
         
         // Verify token security and integrity
         if (!tokenData.apiAuthenticationEnabled) {
+          migrationLogger.error('API authentication not enabled in verification token', 'drive', {
+            sourceUser: body.sourceUserEmail || 'multi-user',
+            error: 'Enhanced verification token must have API authentication enabled'
+          })
           return NextResponse.json({
             error: 'API authentication not enabled in verification token',
             details: 'Enhanced verification token must have API authentication enabled'
@@ -196,13 +224,29 @@ export async function POST(request: NextRequest) {
 
         // Verify delegation status for Drive API
         if (!tokenData.delegationStatus.sourceVerified || !tokenData.delegationStatus.destVerified) {
+          migrationLogger.error('Drive API delegation not properly verified', 'drive', {
+            sourceUser: body.sourceUserEmail || 'multi-user',
+            sourceVerified: tokenData.delegationStatus.sourceVerified,
+            destVerified: tokenData.delegationStatus.destVerified,
+            error: 'Both source and destination domains must have verified Drive API delegation'
+          })
           return NextResponse.json({
             error: 'Drive API delegation not properly verified',
             details: 'Both source and destination domains must have verified Drive API delegation'
           }, { status: 403 })
         }
 
+        migrationLogger.success('Enhanced verification token validation completed', 'drive', {
+          sourceUser: body.sourceUserEmail || 'multi-user',
+          sourceDomain,
+          targetDomain
+        })
+
       } catch (error: any) {
+        migrationLogger.error('Enhanced verification token parsing failed', 'drive', {
+          sourceUser: body.sourceUserEmail || 'multi-user',
+          error: error.message
+        })
         return NextResponse.json({
           error: 'Enhanced verification token parsing failed',
           details: error.message
@@ -228,6 +272,10 @@ export async function POST(request: NextRequest) {
     const isMultiUser = userMappings && userMappings.length > 0
 
     if (!isSingleUser && !isMultiUser) {
+      migrationLogger.error('Invalid migration configuration', 'drive', {
+        sourceUser: sourceUserEmail || 'unknown',
+        error: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
+      })
       return NextResponse.json({
         error: 'Invalid migration configuration',
         details: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
@@ -241,6 +289,15 @@ export async function POST(request: NextRequest) {
 
     // Determine processing mode
     const processingMode = isSingleUser ? 'single' : 'multi'
+
+    migrationLogger.info('Drive migration configuration validated', 'drive', {
+      sourceUser: sourceUserEmail || 'multi-user',
+      processingMode,
+      userCount: processUserMappings.length,
+      realDataMode,
+      dryRun,
+      scenario
+    })
 
     console.log(`🚀 Drive Migration Request:`)
     console.log(`   Processing Mode: ${processingMode}`)
@@ -264,6 +321,12 @@ export async function POST(request: NextRequest) {
     let targetDomains: string[] = []
 
     if (scenario === 'cross-tenant') {
+      migrationLogger.info('Starting cross-tenant domain mapping validation', 'drive', {
+        sourceUser: sourceUserEmail || 'multi-user',
+        domainMapping,
+        userMappingCount: processUserMappings.length
+      })
+      
       // Extract and analyze domains from user mappings
       const sourceDomainsSet = new Set<string>()
       const targetDomainsSet = new Set<string>()
@@ -282,6 +345,12 @@ export async function POST(request: NextRequest) {
         
         // Validate: should have only one source and one target domain
         if (sourceDomains.length > 1 || targetDomains.length > 1) {
+          migrationLogger.error('Invalid one-to-one mapping configuration', 'drive', {
+            sourceUser: sourceUserEmail || 'multi-user',
+            sourceDomainsCount: sourceDomains.length,
+            targetDomainsCount: targetDomains.length,
+            error: `One-to-one mapping should have only one source and one target domain`
+          })
           return NextResponse.json({
             error: 'Invalid one-to-one mapping',
             details: `One-to-one mapping should have only one source and one target domain, but found: ${sourceDomains.length} source(s), ${targetDomains.length} target(s)`
@@ -294,6 +363,12 @@ export async function POST(request: NextRequest) {
         
         // Validate: should have only one source domain for one-to-many
         if (sourceDomains.length > 1) {
+          migrationLogger.error('Invalid one-to-many mapping configuration', 'drive', {
+            sourceUser: sourceUserEmail || 'multi-user',
+            sourceDomainsCount: sourceDomains.length,
+            sourceDomains,
+            error: `One-to-many mapping should have only one source domain`
+          })
           return NextResponse.json({
             error: 'Invalid one-to-many mapping',
             details: `One-to-many mapping should have only one source domain, but found: ${sourceDomains.join(', ')}`
@@ -306,12 +381,26 @@ export async function POST(request: NextRequest) {
         
         // Validate: should have only one target domain for many-to-one
         if (targetDomains.length > 1) {
+          migrationLogger.error('Invalid many-to-one mapping configuration', 'drive', {
+            sourceUser: sourceUserEmail || 'multi-user',
+            targetDomainsCount: targetDomains.length,
+            targetDomains,
+            error: `Many-to-one mapping should have only one target domain`
+          })
           return NextResponse.json({
             error: 'Invalid many-to-one mapping',
             details: `Many-to-one mapping should have only one target domain, but found: ${targetDomains.join(', ')}`
           }, { status: 400 })
         }
       }
+      
+      migrationLogger.success('Domain mapping validation completed', 'drive', {
+        sourceUser: sourceUserEmail || 'multi-user',
+        domainMapping,
+        sourceDomains,
+        targetDomains,
+        totalUserMappings: processUserMappings.length
+      })
       
       // Log domain mapping summary
       console.log(`📊 Domain Mapping Summary:`)
@@ -323,6 +412,13 @@ export async function POST(request: NextRequest) {
     // Initialize Drive services based on scenario
     let sourceDriveService: any
     let targetDriveService: any
+
+    migrationLogger.info('Initializing Google Drive services', 'drive', {
+      sourceUser: sourceUserEmail || 'multi-user',
+      scenario,
+      sourceAdminEmail,
+      targetAdminEmail
+    })
 
     if (scenario === 'single-super-admin') {
       const gwsService = createServiceAccountService(sourceAdminEmail)
@@ -336,6 +432,14 @@ export async function POST(request: NextRequest) {
     }
 
     const migrationId = `drive-${Date.now()}-multi-user-${processUserMappings.length}`
+    
+    migrationLogger.info('Drive migration initialized', 'drive', {
+      sourceUser: sourceUserEmail || 'multi-user',
+      migrationId,
+      userCount: processUserMappings.length,
+      realDataMode,
+      dryRun
+    })
     
     // Initialize migration progress for multi-user support
     const progress: DriveMigrationProgress = {
@@ -421,6 +525,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`🚀 Starting Drive migration for ${processUserMappings.length} users`)
+    
+    migrationLogger.progress('Starting Drive migration process', 'drive', {
+      service: 'drive',
+      user: sourceUserEmail || 'multi-user',
+      totalItems: processUserMappings.length,
+      processedItems: 0,
+      status: 'starting'
+    })
 
     // Process each user mapping
     let totalUsers = processUserMappings.length
@@ -432,6 +544,13 @@ export async function POST(request: NextRequest) {
       const { sourceUserEmail: currentSourceUser, targetUserEmail: currentTargetUser } = mapping
 
       console.log(`📂 Processing user ${userIndex + 1}/${totalUsers}: ${currentSourceUser} → ${currentTargetUser}`)
+      
+      migrationLogger.info(`Processing user ${userIndex + 1}/${totalUsers}`, 'drive', {
+        sourceUser: currentSourceUser,
+        targetUser: currentTargetUser,
+        migrationId,
+        progress: `${userIndex + 1}/${totalUsers}`
+      })
 
       try {
         // Update user progress
@@ -472,9 +591,25 @@ export async function POST(request: NextRequest) {
 
         successfulUsers++
         console.log(`✅ User ${userIndex + 1} migration completed: ${currentSourceUser}`)
+        
+        migrationLogger.success(`User migration completed: ${currentSourceUser}`, 'drive', {
+          sourceUser: currentSourceUser,
+          targetUser: currentTargetUser,
+          migrationId,
+          migratedFiles: fileStats.count,
+          progress: `${userIndex + 1}/${totalUsers}`
+        })
 
       } catch (error: any) {
         console.error(`❌ User ${userIndex + 1} migration failed: ${currentSourceUser}`, error)
+        
+        migrationLogger.error(`User migration failed: ${currentSourceUser}`, 'drive', {
+          sourceUser: currentSourceUser,
+          targetUser: currentTargetUser,
+          migrationId,
+          error: error.message || 'Unknown error',
+          progress: `${userIndex + 1}/${totalUsers}`
+        })
         
         if (progress.userProgress) {
           progress.userProgress[userIndex].status = 'failed'
@@ -489,6 +624,16 @@ export async function POST(request: NextRequest) {
       }
 
       processedUsers++
+      
+      // Update progress after each user
+      migrationLogger.progress(`Migration progress: ${processedUsers}/${totalUsers} users processed`, 'drive', {
+        service: 'drive',
+        user: sourceUserEmail || 'multi-user',
+        totalItems: totalUsers,
+        processedItems: processedUsers,
+        status: 'in-progress',
+        currentItem: `User ${processedUsers}/${totalUsers}`
+      })
     }
 
     // Update final status
@@ -502,6 +647,39 @@ export async function POST(request: NextRequest) {
       error: progress.userProgress?.[index]?.errors?.[0] || null,
       migrationId: `${migrationId}-user-${index + 1}`
     }))
+
+    // Log final migration status
+    migrationLogger.progress('Drive migration completed', 'drive', {
+      service: 'drive',
+      user: sourceUserEmail || 'multi-user',
+      totalItems: totalUsers,
+      processedItems: totalUsers,
+      status: progress.status as any
+    })
+
+    if (successfulUsers === totalUsers) {
+      migrationLogger.success(`Drive migration completed successfully for all ${totalUsers} users`, 'drive', {
+        migrationId,
+        totalUsers,
+        successfulUsers,
+        successRate: `${Math.round((successfulUsers / totalUsers) * 100)}%`
+      })
+    } else if (successfulUsers > 0) {
+      migrationLogger.warning(`Drive migration completed with partial success`, 'drive', {
+        migrationId,
+        totalUsers,
+        successfulUsers,
+        failedUsers: totalUsers - successfulUsers,
+        successRate: `${Math.round((successfulUsers / totalUsers) * 100)}%`
+      })
+    } else {
+      migrationLogger.error(`Drive migration failed for all users`, 'drive', {
+        migrationId,
+        totalUsers,
+        failedUsers: totalUsers,
+        errors: progress.errors
+      })
+    }
 
     return NextResponse.json({
       success: successfulUsers > 0,
@@ -519,6 +697,13 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Drive migration error:', error)
+    
+    migrationLogger.error('Drive migration failed with system error', 'drive', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    })
+    
     return NextResponse.json({
       error: 'Drive migration failed',
       details: error.message

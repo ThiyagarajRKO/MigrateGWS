@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import RealTimeMigrationLogger from '@/components/RealTimeMigrationLogger';
 import { 
   Table,
   TableHeader,
@@ -350,6 +351,9 @@ export default function MigrationsPage() {
           </Card>
         )}
       </main>
+      
+      {/* Real-time Migration Logger */}
+      <RealTimeMigrationLogger />
     </div>
   );
 }

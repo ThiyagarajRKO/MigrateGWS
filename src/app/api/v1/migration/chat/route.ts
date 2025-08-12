@@ -194,7 +194,88 @@ export async function POST(request: NextRequest) {
       allTargetDomains.add(targetDomain)
     })
 
-    // Determine mapping type based on domain relationships
+    // Enhanced domain mapping validation with comprehensive checks
+    console.log(`🔍 Chat API Domain Mapping Validation:`)
+    console.log(`   Expected Mapping: ${domainMapping}`)
+    console.log(`   Source Domains: ${Array.from(allSourceDomains).join(', ')} (${allSourceDomains.size})`)
+    console.log(`   Target Domains: ${Array.from(allTargetDomains).join(', ')} (${allTargetDomains.size})`)
+
+    // Comprehensive domain mapping validation
+    if (domainMapping === 'one-to-one') {
+      if (allSourceDomains.size !== 1) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `One-to-one mapping requires exactly one source domain, but found ${allSourceDomains.size}: ${Array.from(allSourceDomains).join(', ')}`,
+          code: 'INVALID_ONE_TO_ONE_SOURCE_DOMAINS'
+        }, { status: 400 })
+      }
+      if (allTargetDomains.size !== 1) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `One-to-one mapping requires exactly one target domain, but found ${allTargetDomains.size}: ${Array.from(allTargetDomains).join(', ')}`,
+          code: 'INVALID_ONE_TO_ONE_TARGET_DOMAINS'
+        }, { status: 400 })
+      }
+    } else if (domainMapping === 'one-to-many') {
+      if (allSourceDomains.size !== 1) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `One-to-many mapping requires exactly one source domain, but found ${allSourceDomains.size}: ${Array.from(allSourceDomains).join(', ')}`,
+          code: 'INVALID_ONE_TO_MANY_SOURCE_DOMAINS'
+        }, { status: 400 })
+      }
+      if (allTargetDomains.size < 2) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `One-to-many mapping requires multiple target domains, but found only ${allTargetDomains.size}: ${Array.from(allTargetDomains).join(', ')}`,
+          code: 'INVALID_ONE_TO_MANY_TARGET_DOMAINS'
+        }, { status: 400 })
+      }
+    } else if (domainMapping === 'many-to-one') {
+      if (allSourceDomains.size < 2) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `Many-to-one mapping requires multiple source domains, but found only ${allSourceDomains.size}: ${Array.from(allSourceDomains).join(', ')}`,
+          code: 'INVALID_MANY_TO_ONE_SOURCE_DOMAINS'
+        }, { status: 400 })
+      }
+      if (allTargetDomains.size !== 1) {
+        return NextResponse.json({
+          error: 'Invalid domain mapping configuration',
+          details: `Many-to-one mapping requires exactly one target domain, but found ${allTargetDomains.size}: ${Array.from(allTargetDomains).join(', ')}`,
+          code: 'INVALID_MANY_TO_ONE_TARGET_DOMAINS'
+        }, { status: 400 })
+      }
+    }
+
+    // Cross-tenant validation for scenarios involving multiple domains
+    if (scenario === 'cross-tenant') {
+      const adminSourceDomain = sourceAdminEmail.split('@')[1]
+      const adminTargetDomain = targetAdminEmail.split('@')[1]
+      
+      // Validate that admin emails are aligned with domain mapping
+      if (domainMapping === 'one-to-one' || domainMapping === 'one-to-many') {
+        if (!allSourceDomains.has(adminSourceDomain)) {
+          return NextResponse.json({
+            error: 'Cross-tenant domain mismatch',
+            details: `Source admin domain (${adminSourceDomain}) must match the single source domain for ${domainMapping} mapping`,
+            code: 'ADMIN_SOURCE_DOMAIN_MISMATCH'
+          }, { status: 400 })
+        }
+      }
+      
+      if (domainMapping === 'one-to-one' || domainMapping === 'many-to-one') {
+        if (!allTargetDomains.has(adminTargetDomain)) {
+          return NextResponse.json({
+            error: 'Cross-tenant domain mismatch',
+            details: `Target admin domain (${adminTargetDomain}) must match the single target domain for ${domainMapping} mapping`,
+            code: 'ADMIN_TARGET_DOMAIN_MISMATCH'
+          }, { status: 400 })
+        }
+      }
+    }
+
+    // Determine actual mapping type based on domain relationships
     let mappingType: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'
     if (allSourceDomains.size === 1 && allTargetDomains.size === 1) {
       mappingType = 'one-to-one'
@@ -205,6 +286,18 @@ export async function POST(request: NextRequest) {
     } else {
       mappingType = 'many-to-many'
     }
+
+    console.log(`✅ Chat API Domain Mapping Validation Passed`)
+    console.log(`   Validated Mapping Type: ${mappingType}`)
+    console.log(`   Cross-tenant Scenario: ${scenario}`)
+    
+    // Log domain mapping summary for monitoring
+    console.log(`📊 Chat API Domain Mapping Summary:`)
+    allSourceDomains.forEach(sourceDomain => {
+      const sourceMappings = processUserMappings.filter(m => m.sourceUserEmail.includes(sourceDomain))
+      const targetDomainsForSource = new Set(sourceMappings.map(m => m.targetUserEmail.split('@')[1]))
+      console.log(`   Source Domain ${sourceDomain}: ${sourceMappings.length} users → ${Array.from(targetDomainsForSource).join(', ')}`)
+    })
 
     console.log(`🚀 Chat Migration Request:`)
     console.log(`   Type: ${isSingleUser ? 'Single User' : `Multi-User (${processUserMappings.length} users)`}`)

@@ -18,8 +18,10 @@ interface GroupsMigrationRequest {
   sourceDomains?: string[]  // For multi-domain migrations
   targetDomains?: string[]  // For multi-domain migrations
   userMappings?: Array<{    // For user email domain mapping
-    sourceDomain: string
-    targetDomain: string
+    sourceUserEmail: string
+    targetUserEmail: string
+    sourceUser?: any
+    targetUser?: any
   }>
   migrationOptions: {
     includeSettings: boolean
@@ -174,9 +176,60 @@ export async function POST(request: NextRequest) {
     }
     if (userMappings) {
       userMappings.forEach(mapping => {
-        allSourceDomains.add(mapping.sourceDomain)
-        allTargetDomains.add(mapping.targetDomain)
+        const sourceDomain = mapping.sourceUserEmail.split('@')[1]
+        const targetDomain = mapping.targetUserEmail.split('@')[1]
+        allSourceDomains.add(sourceDomain)
+        allTargetDomains.add(targetDomain)
       })
+    }
+
+    // Enhanced domain mapping validation for cross-tenant scenarios
+    if (scenario === 'cross-tenant') {
+      const sourceDomainsArray = Array.from(allSourceDomains)
+      const targetDomainsArray = Array.from(allTargetDomains)
+
+      // Validate and log domain mapping type
+      if (domainMapping === 'one-to-one') {
+        console.log(`🔧 Cross-tenant scenario: ${sourceDomainsArray[0]} → ${targetDomainsArray[0]}`)
+        
+        // Validate: should have only one source and one target domain
+        if (sourceDomainsArray.length > 1 || targetDomainsArray.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid one-to-one mapping',
+            details: `One-to-one mapping should have only one source and one target domain, but found: ${sourceDomainsArray.length} source(s), ${targetDomainsArray.length} target(s)`
+          }, { status: 400 })
+        }
+        
+      } else if (domainMapping === 'one-to-many') {
+        console.log(`🔧 Cross-tenant scenario with one-to-many domain mapping`)
+        console.log(`🔧 One-to-Many mapping: ${sourceDomainsArray[0]} → [${targetDomainsArray.join(', ')}]`)
+        
+        // Validate: should have only one source domain for one-to-many
+        if (sourceDomainsArray.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid one-to-many mapping',
+            details: `One-to-many mapping should have only one source domain, but found: ${sourceDomainsArray.join(', ')}`
+          }, { status: 400 })
+        }
+        
+      } else if (domainMapping === 'many-to-one') {
+        console.log(`🔧 Cross-tenant scenario with many-to-one domain mapping`)
+        console.log(`🔧 Many-to-One mapping: [${sourceDomainsArray.join(', ')}] → ${targetDomainsArray[0]}`)
+        
+        // Validate: should have only one target domain for many-to-one
+        if (targetDomainsArray.length > 1) {
+          return NextResponse.json({
+            error: 'Invalid many-to-one mapping',
+            details: `Many-to-one mapping should have only one target domain, but found: ${targetDomainsArray.join(', ')}`
+          }, { status: 400 })
+        }
+      }
+      
+      // Log domain mapping summary
+      console.log(`📊 Domain Mapping Summary:`)
+      console.log(`   Source Domains (${sourceDomainsArray.length}): ${sourceDomainsArray.join(', ')}`)
+      console.log(`   Target Domains (${targetDomainsArray.length}): ${targetDomainsArray.join(', ')}`)
+      console.log(`   User Mappings: ${userMappings?.length || 0}`)
     }
 
     // Determine mapping type based on domain relationships
@@ -238,7 +291,11 @@ export async function POST(request: NextRequest) {
       for (const targetDomain of allTargetDomains) {
         // Check if this domain pair is relevant
         const isRelevantPair = userMappings ? 
-          userMappings.some(mapping => mapping.sourceDomain === sourceDomain && mapping.targetDomain === targetDomain) :
+          userMappings.some(mapping => {
+            const mappingSourceDomain = mapping.sourceUserEmail.split('@')[1]
+            const mappingTargetDomain = mapping.targetUserEmail.split('@')[1]
+            return mappingSourceDomain === sourceDomain && mappingTargetDomain === targetDomain
+          }) :
           true // For simple scenarios, all combinations are relevant
         
         if (isRelevantPair) {
