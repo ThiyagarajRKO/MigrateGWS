@@ -9,6 +9,7 @@ import {
   generateEnhancedVerificationToken,
   parseEnhancedVerificationToken,
   isEnhancedTokenValidForDomains,
+  isTokenCorrupted,
   getAdminEmailFromEnhancedToken,
   type EnhancedVerificationTokenData,
   type DelegationStatus 
@@ -191,6 +192,17 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
   useEffect(() => {
     if (verificationToken) {
       try {
+        console.log('[UserManagementWorkflow] Attempting to parse verification token...');
+        console.log('[UserManagementWorkflow] Token length:', verificationToken.length);
+        console.log('[UserManagementWorkflow] Token first 50 chars:', verificationToken.substring(0, 50));
+        
+        // First check if token is corrupted
+        if (isTokenCorrupted(verificationToken)) {
+          console.warn('[UserManagementWorkflow] Token appears to be corrupted, skipping parse');
+          setEnhancedTokenData(null);
+          return;
+        }
+        
         const parsedData = parseEnhancedVerificationToken(verificationToken);
         if (parsedData) {
           setEnhancedTokenData(parsedData);
@@ -199,13 +211,18 @@ export const UserManagementWorkflow = memo(function UserManagementWorkflow({
             verifiedDomains: parsedData.verifiedDomains,
             timestamp: parsedData.timestamp
           });
+        } else {
+          console.warn('[UserManagementWorkflow] Failed to parse verification token - token is invalid or corrupted');
+          // Don't throw an error, just continue without the token data
+          setEnhancedTokenData(null);
         }
       } catch (error) {
-        console.warn('[UserManagementWorkflow] Failed to parse verification token as enhanced token:', error);
-        // Fallback: treat as simple token
+        console.error('[UserManagementWorkflow] Error parsing verification token:', error);
+        // Reset token data if parsing fails
         setEnhancedTokenData(null);
       }
     } else {
+      console.log('[UserManagementWorkflow] No verification token provided');
       setEnhancedTokenData(null);
     }
   }, [verificationToken]);

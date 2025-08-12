@@ -1198,6 +1198,19 @@ function getEnterpriseAdminEmailOverride(domain: string, originalAdminEmail: str
       subsidiaryDomains: ['migrate.arakutourism.net', 'sample.arakutourism.net'],
       strategy: 'parent-admin'
     },
+    // Explicit configuration for subdomains to ensure they're caught
+    'migrate.arakutourism.net': {
+      parentDomain: 'arakutourism.net',
+      adminEmail: 'admin@arakutourism.net',
+      subsidiaryDomains: [],
+      strategy: 'parent-admin'
+    },
+    'sample.arakutourism.net': {
+      parentDomain: 'arakutourism.net',
+      adminEmail: 'admin@arakutourism.net',
+      subsidiaryDomains: [],
+      strategy: 'parent-admin'
+    },
     
     // Common enterprise patterns
     'company.com': {
@@ -1226,6 +1239,21 @@ function getEnterpriseAdminEmailOverride(domain: string, originalAdminEmail: str
         reason: `Direct parent domain configuration: ${domain} managed by ${config.adminEmail}`,
         domainType: 'parent',
         delegationStrategy: config.strategy
+      };
+    }
+  }
+
+  // Handle special case for arakutourism.net domains explicitly
+  if (domain.endsWith('.arakutourism.net') || domain === 'arakutourism.net') {
+    // Always use admin@arakutourism.net for any subdomain of arakutourism.net
+    const parentAdmin = 'admin@arakutourism.net';
+    if (originalAdminEmail !== parentAdmin) {
+      return {
+        overrideRequired: true,
+        effectiveAdminEmail: parentAdmin,
+        reason: `Explicit arakutourism.net domain hierarchy: ${domain} managed by parent admin`,
+        domainType: 'subdomain',
+        delegationStrategy: 'parent-admin'
       };
     }
   }
@@ -1366,42 +1394,62 @@ export function createGoogleWorkspaceService(credentials: GoogleWorkspaceCredent
 export function createServiceAccountService(adminEmail: string): GoogleWorkspaceService {
   try {
     const serviceAccountKeyPath = process.env.SERVICE_ACCOUNT_KEY_PATH || './source-service-account-key.json'
-    const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
-    const serviceAccountData = JSON.parse(serviceAccountDataRaw)
+    console.log(`[createServiceAccountService] Reading key file from: ${serviceAccountKeyPath}`)
     
-    // Extract domain from admin email to apply enterprise-level working configurations
-    const domain = adminEmail.split('@')[1]
-    console.log('[createServiceAccountService] Attempting to create service for domain:', domain)
+    let serviceAccountData;
+    let effectiveSubjectEmail = adminEmail;
+    let domainOverride;
+    
+    try {
+      const serviceAccountDataRaw = fs.readFileSync(path.resolve(serviceAccountKeyPath), 'utf8')
+      serviceAccountData = JSON.parse(serviceAccountDataRaw)
+      
+      // Extract domain from admin email to apply enterprise-level working configurations
+      const domain = adminEmail.split('@')[1]
+      console.log('[createServiceAccountService] Attempting to create service for domain:', domain)
 
-    // Use enterprise-level working configurations discovered through testing
-    let effectiveSubjectEmail = adminEmail
-    const domainOverride = getEnterpriseAdminEmailOverride(domain, adminEmail)
-    
-    if (domainOverride.overrideRequired) {
-      effectiveSubjectEmail = domainOverride.effectiveAdminEmail
-      console.log(`[createServiceAccountService] ${domainOverride.reason}`)
-      console.log(`[createServiceAccountService] Using enterprise admin override for ${domain}: ${effectiveSubjectEmail}`)
-    }
-    
-    const serviceAccountCredentials: ServiceAccountCredentials = {
-      clientEmail: serviceAccountData.client_email,
-      privateKey: serviceAccountData.private_key,
-      subjectEmail: effectiveSubjectEmail
-    }
-    
-    console.log('[createServiceAccountService] Creating service with:', {
-      clientEmail: serviceAccountData.client_email,
-      originalAdminEmail: adminEmail,
-      effectiveSubjectEmail: effectiveSubjectEmail,
-      domainType: domainOverride.domainType,
-      overrideApplied: domainOverride.overrideRequired,
-      hasPrivateKey: !!serviceAccountData.private_key
-    });
+      // Use enterprise-level working configurations discovered through testing
+      domainOverride = getEnterpriseAdminEmailOverride(domain, adminEmail)
+      
+      if (domainOverride.overrideRequired) {
+        effectiveSubjectEmail = domainOverride.effectiveAdminEmail
+        console.log(`[createServiceAccountService] ${domainOverride.reason}`)
+        console.log(`[createServiceAccountService] Using enterprise admin override for ${domain}: ${effectiveSubjectEmail}`)
+      }
+      
+      // Check if service account key has required fields
+      if (!serviceAccountData.client_email) {
+        throw new Error('Service account is missing client_email field')
+      }
+      
+      if (!serviceAccountData.private_key) {
+        throw new Error('Service account is missing private_key field')
+      }
+      
+      const serviceAccountCredentials: ServiceAccountCredentials = {
+        clientEmail: serviceAccountData.client_email,
+        privateKey: serviceAccountData.private_key,
+        subjectEmail: effectiveSubjectEmail
+      }
+      
+      console.log('[createServiceAccountService] Creating service with:', {
+        clientEmail: serviceAccountData.client_email,
+        originalAdminEmail: adminEmail,
+        effectiveSubjectEmail: effectiveSubjectEmail,
+        domainType: domainOverride.domainType,
+        overrideApplied: domainOverride.overrideRequired,
+        hasPrivateKey: !!serviceAccountData.private_key
+      });
 
-    return new GoogleWorkspaceService(serviceAccountCredentials, true)
-  } catch (error) {
+      return new GoogleWorkspaceService(serviceAccountCredentials, true)
+      
+    } catch (error: any) {
+      console.error(`[createServiceAccountService] Error processing service account: ${error.message}`)
+      throw new Error(`Service account configuration error: ${error.message}`)
+    }
+  } catch (error: any) {
     console.error('Failed to create service account service:', error)
-    throw new Error('Failed to initialize service account authentication')
+    throw new Error(`Failed to initialize service account authentication: ${error.message}`)
   }
 }
 

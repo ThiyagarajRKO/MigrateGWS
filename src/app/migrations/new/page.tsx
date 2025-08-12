@@ -75,6 +75,9 @@ const DomainWideDelegationSetup = lazy(() =>
   import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }))
 );
 const UserManagementWorkflow = lazy(() => import('@/components/UserManagementWorkflow'));
+const UserMapping = lazy(() => 
+  import('@/components/UserMapping').then(module => ({ default: module.UserMapping }))
+);
 const MigrationProgress = lazy(() => 
   import('@/components/MigrationProgress').then(module => ({ default: module.default }))
 );
@@ -2761,29 +2764,31 @@ export default function NewMigration() {
     try {
       console.log(`[Single User Migration] ${serviceName} [${userIndex}/${totalUsers}]: ${sourceUserEmail} → ${targetUserEmail}`);
       
-      // Create single-user migration request (compatible with existing APIs)
-      const singleUserRequest = {
-        scenario: basePayload.scenario,
-        migrationId: `${basePayload.migrationId}-${serviceName}-user-${userIndex}`,
-        sourceAdminEmail: basePayload.adminCredentials?.sourceAdminEmail || basePayload.adminCredentials?.adminEmail,
-        targetAdminEmail: basePayload.adminCredentials?.targetAdminEmail || basePayload.adminCredentials?.adminEmail,
-        sourceUserEmail: sourceUserEmail,
-        targetUserEmail: targetUserEmail,
-        migrationOptions: getServiceSpecificMigrationOptions(serviceName, basePayload.migrationOptions),
-        domainMapping: userMappingConfig?.relationship || 'one-to-one',
-        verificationToken: basePayload.verificationToken,
-        realDataMode: false, // Keep as false for safety
-        dryRun: true
-      };
-      
-      console.log(`[Single User Migration] Making API call for ${targetUserEmail}:`, {
-        endpoint,
-        sourceUser: sourceUserEmail,
-        targetUser: targetUserEmail,
-        migrationId: singleUserRequest.migrationId,
-        timestamp: new Date().toISOString()
-      });
-      
+        // Create single-user migration request (compatible with existing APIs)
+        const singleUserRequest = {
+          scenario: basePayload.scenario,
+          migrationId: `${basePayload.migrationId}-${serviceName}-user-${userIndex}`,
+          sourceAdminEmail: basePayload.adminCredentials?.sourceAdminEmail || basePayload.adminCredentials?.adminEmail,
+          targetAdminEmail: basePayload.adminCredentials?.targetAdminEmail || basePayload.adminCredentials?.adminEmail,
+          sourceUserEmail: sourceUserEmail,
+          targetUserEmail: targetUserEmail,
+          migrationOptions: getServiceSpecificMigrationOptions(serviceName, basePayload.migrationOptions),
+          domainMapping: userMappingConfig?.relationship || 'one-to-one',
+          verificationToken: basePayload.verificationToken,
+          realDataMode: false, // Keep as false for safety
+          dryRun: true
+        };
+        
+        console.log(`[Single User Migration] Making API call for ${targetUserEmail}:`, {
+          endpoint,
+          sourceUser: sourceUserEmail,
+          targetUser: targetUserEmail,
+          sourceAdmin: singleUserRequest.sourceAdminEmail,
+          targetAdmin: singleUserRequest.targetAdminEmail,
+          migrationId: singleUserRequest.migrationId,
+          timestamp: new Date().toISOString()
+        });
+        
       // Make API call to service endpoint
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -2797,7 +2802,17 @@ export default function NewMigration() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+        const errorDetails = errorData.details || 'No additional details provided';
+        
+        console.error(`[Single User Migration] Error for ${sourceUserEmail} → ${targetUserEmail}:`, {
+          status: response.status,
+          error: errorMessage,
+          details: errorDetails,
+          service: serviceName
+        });
+        
+        throw new Error(`${errorMessage} - ${errorDetails}`);
       }
 
       const result = await response.json();
@@ -3813,6 +3828,7 @@ export default function NewMigration() {
   }, [selectedScenario, adminEmail, user?.email, sourceAdminEmail, targetAdminEmail, sourceAdminEmails, targetAdminEmails, getSourceDomains, getTargetDomains]);
 
   const renderStepContent = () => {
+    // Ensure we return something for each case
     switch (currentStep) {
       case 'scenario':
         return (
@@ -4406,195 +4422,84 @@ export default function NewMigration() {
                   </div>
                 </div>
 
-                {/* All Target Domain Users Section */}
-                <div className="bg-white border border-gray-200 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    <Database className="h-5 w-5 mr-2 text-purple-600" />
-                    All Existing Target Domain Users
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    {/* Info Banner */}
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                        <span className="text-sm font-medium text-purple-900">All users currently in target domains</span>
+                {/* User Mapping Section */}
+                <div className="bg-white border border-gray-200 rounded-xl">
+                  <Suspense fallback={
+                    <div className="p-6">
+                      <div className="flex items-center space-x-3 mb-4">
+                        <div className="w-5 h-5 bg-gray-300 rounded animate-pulse"></div>
+                        <div className="w-48 h-6 bg-gray-300 rounded animate-pulse"></div>
                       </div>
-                      <p className="text-xs text-purple-700 mt-1">
-                        These are all existing users in your target domains, including both cloned and pre-existing users
-                      </p>
+                      <div className="space-y-3">
+                        <div className="w-full h-4 bg-gray-200 rounded animate-pulse"></div>
+                        <div className="w-3/4 h-4 bg-gray-200 rounded animate-pulse"></div>
+                        <div className="w-1/2 h-4 bg-gray-200 rounded animate-pulse"></div>
+                      </div>
                     </div>
-                    
-                    {allTargetUsers.length > 0 ? (
-                      <>
-                        {/* Header with Select All Controls */}
-                        <div className="flex items-center justify-between py-3 border-b border-gray-200">
-                          <div>
-                            <h4 className="text-base font-medium text-gray-900">
-                              Target Domain Users ({allTargetUsers.length})
-                            </h4>
-                            <p className="text-sm text-gray-600 mt-1">
-                              All existing users in your target domains available for migration
-                            </p>
-                            <div className="flex items-center space-x-2 mt-2">
-                              <span className="text-xs text-purple-600 font-medium">Target Domains:</span>
-                              <div className="flex flex-wrap gap-1">
-                                {[...new Set(allTargetUsers.map(u => u.targetDomain))].map(domain => (
-                                  <span key={domain} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                    {domain}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id="selectAllTargetUsers"
-                                checked={selectedAllTargetUsers.length === allTargetUsers.length && allTargetUsers.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    selectAllTargetUsers();
-                                  } else {
-                                    deselectAllTargetUsers();
-                                  }
-                                }}
-                                className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-                              />
-                              <label htmlFor="selectAllTargetUsers" className="text-sm font-medium text-gray-700">
-                                Select All
-                              </label>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={deselectAllTargetUsers}
-                              className="text-sm text-gray-600 hover:text-gray-800 font-medium"
-                            >
-                              Clear Selection
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Users List */}
-                        <div className="max-h-64 overflow-y-auto space-y-3">
-                          {allTargetUsers.map((user) => {
-                            const isSelected = selectedAllTargetUsers.some(u => u.primaryEmail === user.primaryEmail);
-                            return (
-                              <label
-                                key={user.primaryEmail}
-                                className={`flex items-center space-x-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                  isSelected
-                                    ? 'border-purple-300 bg-purple-50'
-                                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleAllTargetUserSelection(user)}
-                                  className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center space-x-3">
-                                    <div className="flex-1">
-                                      <div className="flex items-center space-x-2">
-                                        <span className="text-sm font-medium text-gray-900 truncate">
-                                          {user.name || user.primaryEmail}
-                                        </span>
-                                        {user.isAdmin && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                            Admin
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="mt-1 space-y-1">
-                                        <p className="text-xs text-gray-500 truncate">
-                                          <span className="font-medium">Email:</span> {user.primaryEmail}
-                                        </p>
-                                        <p className="text-xs text-gray-500 truncate">
-                                          <span className="font-medium">Domain:</span> {user.targetDomain}
-                                        </p>
-                                        {user.sourceEmail && (
-                                          <p className="text-xs text-orange-600 truncate">
-                                            <span className="font-medium">Source User:</span> {user.sourceEmail}
-                                          </p>
-                                        )}
-                                        {user.sourceEmail && (
-                                          <p className="text-xs text-orange-600 truncate">
-                                            <span className="font-medium">Source Domain:</span> {user.sourceEmail.split('@')[1]}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {isSelected && (
-                                      <CheckCircle className="h-5 w-5 text-purple-600" />
-                                    )}
-                                  </div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
-
-                        {/* Selection Summary */}
-                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                          <div className="flex items-center justify-between text-sm mb-2">
-                            <span className="text-gray-600">Selected Target Users:</span>
-                            <span className="font-medium text-gray-900">
-                              {selectedAllTargetUsers.length} of {allTargetUsers.length} users
-                            </span>
-                          </div>
-                          {selectedAllTargetUsers.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {selectedAllTargetUsers.slice(0, 4).map(user => (
-                                <span key={user.primaryEmail} className="inline-flex items-center px-2 py-1 rounded-md bg-purple-100 text-purple-800 text-xs font-medium">
-                                  {user.name || user.primaryEmail}
-                                </span>
-                              ))}
-                              {selectedAllTargetUsers.length > 4 && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-xs font-medium">
-                                  +{selectedAllTargetUsers.length - 4} more
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 italic">No target users selected</p>
-                          )}
-                        </div>
-                      </>
-                    ) : loadingAllTargetUsers ? (
-                      <div className="text-center py-12">
-                        <div className="flex justify-center mb-4">
-                          <Loader2 className="h-16 w-16 text-purple-500 animate-spin" />
-                        </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">Loading All Target Users...</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Fetching all existing users from target domain(s)
-                        </p>
-                        <div className="text-xs text-gray-500 bg-purple-50 rounded-lg p-3 max-w-md mx-auto">
-                          <p><strong>Loading:</strong> Retrieving all users from your target domain(s) via Google Admin API.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <Database className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Target Users Found</h4>
-                        <p className="text-sm text-gray-600 mb-4">
-                          Unable to load users from target domains
-                        </p>
-                        <div className="text-xs text-gray-500 bg-yellow-50 rounded-lg p-3 max-w-md mx-auto space-y-2">
-                          <p><strong>Possible reasons:</strong></p>
-                          <ul className="text-left space-y-1">
-                            <li>• Target domains are not properly configured</li>
-                            <li>• Admin permissions are insufficient</li>
-                            <li>• Network connectivity issues</li>
-                          </ul>
-                          <p className="mt-2"><strong>Try:</strong> Check your domain configuration and admin permissions.</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  }>
+                    <UserMapping
+                      sourceDomains={sourceDomains}
+                      targetDomains={targetDomains}
+                      sourceAdminEmails={(() => {
+                        // Ensure all source domains have admin emails
+                        const computedSourceAdminEmails: {[domain: string]: string} = {};
+                        sourceDomains.forEach(domain => {
+                          computedSourceAdminEmails[domain] = sourceAdminEmails[domain] || sourceAdminEmail || adminEmail || '';
+                        });
+                        return computedSourceAdminEmails;
+                      })()}
+                      targetAdminEmails={targetAdminEmails}
+                      strategy={userMappingConfig?.relationship || 'one-to-one'}
+                      onMappingComplete={(mappings) => {
+                        console.log('[Migration Config] User mappings completed:', mappings);
+                        console.log('[Migration Config] UserMapping domains:', { sourceDomains, targetDomains });
+                        console.log('[Migration Config] Strategy:', userMappingConfig?.relationship);
+                        
+                        // Extract users from mappings and update selectedAllTargetUsers
+                        const users: any[] = [];
+                        mappings.forEach(mapping => {
+                          // For many-to-one strategy with consolidated mappings
+                          if ((mapping as any).targetUsers && typeof (mapping as any).targetUsers === 'object') {
+                            // Handle consolidated mappings where targetUsers is an object with domain keys
+                            Object.entries((mapping as any).targetUsers).forEach(([domain, domainUsers]) => {
+                              if (Array.isArray(domainUsers)) {
+                                domainUsers.forEach(user => {
+                                  users.push({
+                                    ...user,
+                                    sourceEmail: mapping.sourceUser.primaryEmail,
+                                    sourceUser: mapping.sourceUser,
+                                    targetDomain: domain
+                                  });
+                                });
+                              }
+                            });
+                          } else {
+                            // Handle regular one-to-one mappings
+                            if (mapping.targetUser) {
+                              users.push({
+                                primaryEmail: mapping.targetUser.primaryEmail || mapping.targetEmail,
+                                targetDomain: mapping.targetUser.domain,
+                                sourceEmail: mapping.sourceUser.primaryEmail,
+                                sourceUser: mapping.sourceUser,
+                                name: mapping.sourceUser.name || mapping.targetUser.name
+                              });
+                            } else if (mapping.targetEmail) {
+                              // Fallback to targetEmail if targetUser is not available
+                              users.push({
+                                primaryEmail: mapping.targetEmail,
+                                sourceEmail: mapping.sourceUser.primaryEmail,
+                                sourceUser: mapping.sourceUser,
+                                name: mapping.sourceUser.name
+                              });
+                            }
+                          }
+                        });
+                        
+                        console.log('[Migration Config] Extracted users for migration:', users);
+                        setSelectedAllTargetUsers(users);
+                      }}
+                    />
+                  </Suspense>
                 </div>
               </div>
 
@@ -5035,750 +4940,18 @@ export default function NewMigration() {
       case 'migration':
         if (!selectedScenario || !migrationStatus) return null;
         
-        const scenario = {
-          type: selectedScenario,
-          steps: selectedScenario === 'single-super-admin' 
-            ? SINGLE_SUPER_ADMIN_STEPS 
-            : CROSS_TENANT_STEPS
-        };
-
         return (
-          <div className="space-y-6">
-            {/* Header */}
+          <div className="space-y-8">
             <div className="text-center">
               <div className="flex justify-center mb-4">
                 <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
                   <PlayCircle className="h-8 w-8 text-green-600 animate-pulse" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                Migration Dashboard
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                Migration in Progress
               </h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
-                Real-time monitoring and control of your Google Workspace migration
-              </p>
             </div>
-
-            {/* Overall Progress Card */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Overall Progress</h3>
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm text-green-600 font-medium">Active</span>
-                  </div>
-                  <span className="text-sm text-gray-500">
-                    {new Date().toLocaleTimeString()}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Migration Progress</span>
-                  <span className="text-sm font-medium text-gray-900">
-                    {migrationStatus?.overallProgress || 0}%
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full transition-all duration-300"
-                    style={{ width: `${migrationStatus?.overallProgress || 0}%` }}
-                  ></div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {selectedAllTargetUsers.length}
-                    </div>
-                    <div className="text-sm text-blue-700">Total Users</div>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">
-                      {Math.round((migrationStatus?.overallProgress || 0) / 100 * selectedAllTargetUsers.length)}
-                    </div>
-                    <div className="text-sm text-green-700">Completed</div>
-                  </div>
-                  <div className="text-center p-4 bg-orange-50 rounded-lg">
-                    <div className="text-2xl font-bold text-orange-600">
-                      {migrationConfig.services.length}
-                    </div>
-                    <div className="text-sm text-orange-700">Services</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-lg">
-                    <div className="text-2xl font-bold text-purple-600">
-                      {(() => {
-                        // Calculate total errors from services and users
-                        const serviceErrors = migrationStatus?.serviceProgress ? 
-                          Object.values(migrationStatus.serviceProgress).reduce((total, service) => 
-                            total + (service.errors?.length || 0), 0
-                          ) : 0;
-                        const userErrors = migrationStatus?.userProgress ? 
-                          Object.values(migrationStatus.userProgress).filter(user => 
-                            user.status === 'failed' || (user.errors && user.errors.length > 0)
-                          ).length : 0;
-                        return serviceErrors + userErrors + (migrationStatus?.errors?.length || 0);
-                      })()}
-                    </div>
-                    <div className="text-sm text-purple-700">Errors</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Service Progress Cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {migrationConfig.services.map((service, index) => {
-                // Calculate service progress from migration status
-                const serviceStatus = migrationStatus?.serviceProgress?.[service.toLowerCase()] || {
-                  progress: 0,
-                  status: 'pending',
-                  itemsProcessed: 0,
-                  totalItems: 0,
-                  errors: [],
-                  estimatedTimeRemaining: 0
-                };
-                
-                const serviceProgress = serviceStatus.progress || 0;
-                const isActive = serviceStatus.status === 'running';
-                const isCompleted = serviceStatus.status === 'completed' || serviceProgress >= 100;
-                const hasError = serviceStatus.status === 'failed' || (serviceStatus.errors && serviceStatus.errors.length > 0);
-                
-                return (
-                  <div key={service} className="bg-white border border-gray-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center space-x-3">
-                        <div className={`p-2 rounded-lg ${
-                          hasError ? 'bg-red-100' : isCompleted ? 'bg-green-100' : isActive ? 'bg-blue-100' : 'bg-gray-100'
-                        }`}>
-                          {service.toLowerCase() === 'gmail' && <Mail className={`h-5 w-5 ${
-                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
-                          }`} />}
-                          {service.toLowerCase() === 'drive' && <HardDrive className={`h-5 w-5 ${
-                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
-                          }`} />}
-                          {service.toLowerCase() === 'calendar' && <Calendar className={`h-5 w-5 ${
-                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
-                          }`} />}
-                          {service.toLowerCase() === 'contacts' && <Users className={`h-5 w-5 ${
-                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
-                          }`} />}
-                          {!['gmail', 'drive', 'calendar', 'contacts'].includes(service.toLowerCase()) && <Settings className={`h-5 w-5 ${
-                            hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
-                          }`} />}
-                        </div>
-                        <div>
-                          <h4 className="font-medium text-gray-900 capitalize">{service}</h4>
-                          <p className="text-sm text-gray-500 capitalize">
-                            {hasError ? 'Error' : isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Pending'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-gray-900">{Math.round(serviceProgress)}%</div>
-                        {hasError && (
-                          <div className="flex items-center space-x-1">
-                            <AlertCircle className="h-3 w-3 text-red-500" />
-                            <span className="text-xs text-red-600">Failed</span>
-                          </div>
-                        )}
-                        {isActive && !hasError && (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="h-3 w-3 text-blue-500 animate-spin" />
-                            <span className="text-xs text-blue-600">Processing</span>
-                          </div>
-                        )}
-                        {isCompleted && !hasError && (
-                          <div className="flex items-center space-x-1">
-                            <CheckCircle className="h-3 w-3 text-green-500" />
-                            <span className="text-xs text-green-600">Done</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full transition-all duration-300 ${
-                          hasError ? 'bg-red-500' : isCompleted ? 'bg-green-500' : isActive ? 'bg-blue-500' : 'bg-gray-300'
-                        }`}
-                        style={{ width: `${serviceProgress}%` }}
-                      ></div>
-                    </div>
-                    
-                    <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500">Items Processed:</span>
-                        <div className="font-medium text-gray-900">
-                          {serviceStatus.itemsProcessed || 0} / {serviceStatus.totalItems || selectedAllTargetUsers.length}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Est. Time Left:</span>
-                        <div className="font-medium text-gray-900">
-                          {isCompleted ? '0 min' : serviceStatus.estimatedTimeRemaining ? 
-                            `${Math.round(serviceStatus.estimatedTimeRemaining / 60)} min` : 
-                            'Calculating...'
-                          }
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Error Details */}
-                    {hasError && serviceStatus.errors && serviceStatus.errors.length > 0 && (
-                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="text-sm text-red-800 font-medium mb-1">Recent Errors:</div>
-                        <div className="text-xs text-red-700 space-y-1">
-                          {serviceStatus.errors.slice(0, 2).map((error: any, idx: number) => (
-                            <div key={idx} className="truncate">{error.message || error}</div>
-                          ))}
-                          {serviceStatus.errors.length > 2 && (
-                            <div className="text-red-600">+{serviceStatus.errors.length - 2} more errors</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* User Mapping Summary */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">User Mapping Configuration</h3>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-500">
-                    {selectedAllTargetUsers.length} users configured
-                  </span>
-                </div>
-              </div>
-
-              {/* Mapping Statistics with One-to-Many Support */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <GitBranch className="h-5 w-5 text-green-600" />
-                    <div>
-                      <div className="text-lg font-semibold text-green-700">
-                        {selectedAllTargetUsers.filter(user => user.hasSourceMapping).length}
-                      </div>
-                      <div className="text-sm text-green-600">Explicit Mappings</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <Zap className="h-5 w-5 text-yellow-600" />
-                    <div>
-                      <div className="text-lg font-semibold text-yellow-700">
-                        {selectedAllTargetUsers.filter(user => user.isInferredMapping).length}
-                      </div>
-                      <div className="text-sm text-yellow-600">Inferred Mappings</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <UserPlus className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <div className="text-lg font-semibold text-blue-700">
-                        {selectedAllTargetUsers.filter(user => !user.hasSourceMapping && !user.isInferredMapping).length}
-                      </div>
-                      <div className="text-sm text-blue-600">Direct Migrations</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <Database className="h-5 w-5 text-purple-600" />
-                    <div>
-                      <div className="text-lg font-semibold text-purple-700">
-                        {userMappingConfig?.relationship === 'one-to-many' ? (() => {
-                          // Calculate unique source users for one-to-many
-                          const sourceEmails = new Set(
-                            selectedAllTargetUsers
-                              .filter(user => user.sourceEmail)
-                              .map(user => user.sourceEmail)
-                          );
-                          return sourceEmails.size;
-                        })() : migrationConfig.services.length}
-                      </div>
-                      <div className="text-sm text-purple-600">
-                        {userMappingConfig?.relationship === 'one-to-many' ? 'Source Users' : 'Services per User'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* One-to-Many Specific Statistics */}
-              {userMappingConfig?.relationship === 'one-to-many' && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
-                  <h4 className="text-sm font-semibold text-orange-900 mb-3">One-to-Many Migration Details</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-700">
-                        {(() => {
-                          // Calculate parallel groups
-                          const sourceToTargetsMap = new Map();
-                          selectedAllTargetUsers.forEach(user => {
-                            const sourceEmail = user.sourceEmail || user.primaryEmail;
-                            if (!sourceToTargetsMap.has(sourceEmail)) {
-                              sourceToTargetsMap.set(sourceEmail, []);
-                            }
-                            sourceToTargetsMap.get(sourceEmail).push(user);
-                          });
-                          return Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1).length;
-                        })()}
-                      </div>
-                      <div className="text-xs text-orange-600">Parallel Groups</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-700">
-                        {(() => {
-                          // Calculate average targets per source
-                          const sourceToTargetsMap = new Map();
-                          selectedAllTargetUsers.forEach(user => {
-                            const sourceEmail = user.sourceEmail || user.primaryEmail;
-                            if (!sourceToTargetsMap.has(sourceEmail)) {
-                              sourceToTargetsMap.set(sourceEmail, []);
-                            }
-                            sourceToTargetsMap.get(sourceEmail).push(user);
-                          });
-                          const groups = Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1);
-                          const totalTargets = groups.reduce((sum, group) => sum + group.length, 0);
-                          return groups.length > 0 ? Math.round(totalTargets / groups.length * 10) / 10 : 0;
-                        })()}
-                      </div>
-                      <div className="text-xs text-orange-600">Avg Targets/Source</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-700">
-                        {(() => {
-                          // Calculate time savings (approximate)
-                          const sourceToTargetsMap = new Map();
-                          selectedAllTargetUsers.forEach(user => {
-                            const sourceEmail = user.sourceEmail || user.primaryEmail;
-                            if (!sourceToTargetsMap.has(sourceEmail)) {
-                              sourceToTargetsMap.set(sourceEmail, []);
-                            }
-                            sourceToTargetsMap.get(sourceEmail).push(user);
-                          });
-                          const groups = Array.from(sourceToTargetsMap.values()).filter(group => group.length > 1);
-                          const timeSaved = groups.reduce((sum, group) => sum + (group.length - 1), 0) * 5; // 5 min per user saved
-                          return Math.round(timeSaved);
-                        })()}min
-                      </div>
-                      <div className="text-xs text-orange-600">Est. Time Saved</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Domain Mapping Overview */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-                <h4 className="text-sm font-semibold text-gray-900 mb-3">Domain Mapping Overview</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-xs text-gray-600 mb-2">Source → Target Domain Mapping</div>
-                    {domainMapping ? (
-                      Object.entries(domainMapping).map(([sourceDomain, targetDomains]) => (
-                        <div key={sourceDomain} className="flex items-center space-x-2 text-sm mb-1">
-                          <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                            {sourceDomain}
-                          </span>
-                          <ArrowRight className="h-3 w-3 text-gray-400" />
-                          <div className="flex flex-wrap gap-1">
-                            {targetDomains.map((targetDomain, idx) => (
-                              <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
-                                {targetDomain}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-xs text-gray-500 italic">
-                        {migrationConfig.sourceDomain && migrationConfig.targetDomain ? (
-                          <div className="flex items-center space-x-2">
-                            <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                              {migrationConfig.sourceDomain}
-                            </span>
-                            <ArrowRight className="h-3 w-3 text-gray-400" />
-                            <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
-                              {migrationConfig.targetDomain}
-                            </span>
-                          </div>
-                        ) : (
-                          'No domain mapping configured'
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600 mb-2">Migration Scenario</div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      selectedScenario === 'cross-tenant' 
-                        ? 'bg-purple-100 text-purple-800' 
-                        : 'bg-green-100 text-green-800'
-                    }`}>
-                      {selectedScenario === 'cross-tenant' ? 'Cross-Tenant Migration' : 'Single Super Admin'}
-                    </span>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {userMappingConfig?.relationship || 'Default user relationship'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sample User Mappings Preview */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-900 mb-3">Sample User Mappings</h4>
-                <div className="space-y-2">
-                  {selectedAllTargetUsers.slice(0, 3).map((user, index) => (
-                    <div key={user.primaryEmail} className="flex items-center justify-between text-xs bg-white rounded p-2">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-medium">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{user.name || user.primaryEmail}</div>
-                          <div className="text-gray-500">{user.primaryEmail}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {user.sourceEmail ? (
-                          <>
-                            <span className="text-orange-700">{user.sourceEmail}</span>
-                            <ArrowRight className="h-3 w-3 text-gray-400" />
-                            <span className="text-indigo-700">{user.primaryEmail}</span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              user.hasSourceMapping ? 'bg-green-100 text-green-700' :
-                              user.isInferredMapping ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {user.hasSourceMapping ? 'Explicit' : user.isInferredMapping ? 'Inferred' : 'Direct'}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-gray-500 italic">New user</span>
-                            <ArrowRight className="h-3 w-3 text-gray-400" />
-                            <span className="text-indigo-700">{user.primaryEmail}</span>
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                              Direct
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {selectedAllTargetUsers.length > 3 && (
-                    <div className="text-center text-xs text-gray-500 italic">
-                      ... and {selectedAllTargetUsers.length - 3} more users
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* User Progress Table */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">User Migration Status</h3>
-                <div className="flex items-center space-x-2">
-                  <button className="flex items-center space-x-2 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition-colors">
-                    <RefreshCw className="h-4 w-4" />
-                    <span>Refresh</span>
-                  </button>
-                  <button className="flex items-center space-x-2 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm transition-colors">
-                    <Download className="h-4 w-4" />
-                    <span>Export</span>
-                  </button>
-                </div>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Target User</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Target Domain</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Source User</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Source Domain</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Progress</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Current Service</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedAllTargetUsers.slice(0, 10).map((user, index) => {
-                      // Get user-specific migration status from migrationStatus
-                      const userStatus = migrationStatus?.userProgress?.[user.primaryEmail] || {
-                        progress: 0,
-                        currentService: null,
-                        status: 'pending',
-                        servicesCompleted: [],
-                        errors: [],
-                        startTime: null,
-                        lastUpdated: null
-                      };
-                      
-                      const userProgress = userStatus.progress || 0;
-                      const currentService = userStatus.currentService || (migrationConfig.services[0] || 'Unknown');
-                      const isCompleted = userStatus.status === 'completed' || userProgress >= 100;
-                      const hasError = userStatus.status === 'failed' || (userStatus.errors && userStatus.errors.length > 0);
-                      const isProcessing = userStatus.status === 'processing';
-                      
-                      return (
-                        <tr key={user.primaryEmail} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center space-x-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
-                                isCompleted ? 'bg-green-100 text-green-700' : 
-                                hasError ? 'bg-red-100 text-red-700' : 
-                                isProcessing ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-                              }`}>
-                                {user.name ? user.name.charAt(0).toUpperCase() : user.primaryEmail.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <div className="font-medium text-gray-900">{user.name || user.primaryEmail}</div>
-                                <div className="text-xs text-gray-500">{user.primaryEmail}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                              {user.targetDomain || user.primaryEmail.split('@')[1]}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {user.sourceEmail ? (
-                              <div>
-                                <div className="font-medium text-orange-800">{user.sourceEmail}</div>
-                                <div className="text-xs text-orange-600">
-                                  {user.hasSourceMapping ? 'Explicit Mapping' : 
-                                   user.isInferredMapping ? 'Inferred Mapping' : 'Source User'}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-center">
-                                <span className="text-xs text-gray-400 italic">No source mapping</span>
-                                <div className="text-xs text-gray-400">Direct migration</div>
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            {user.sourceEmail ? (
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                user.hasSourceMapping ? 'bg-orange-100 text-orange-800' :
-                                user.isInferredMapping ? 'bg-yellow-100 text-yellow-800' : 'bg-orange-100 text-orange-800'
-                              }`}>
-                                {user.sourceEmail.split('@')[1]}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400 italic">—</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-16 bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className={`h-2 rounded-full transition-all duration-300 ${
-                                    isCompleted ? 'bg-green-500' : hasError ? 'bg-red-500' : isProcessing ? 'bg-blue-500' : 'bg-gray-300'
-                                  }`}
-                                  style={{ width: `${userProgress}%` }}
-                                ></div>
-                              </div>
-                              <span className="text-xs font-medium text-gray-700">{Math.round(userProgress)}%</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium capitalize ${
-                              isCompleted ? 'bg-green-100 text-green-800' :
-                              hasError ? 'bg-red-100 text-red-800' :
-                              isProcessing ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
-                            }`}>
-                              {isCompleted ? 'All Services' : hasError ? 'Failed' : currentService}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {isCompleted ? (
-                              <span className="inline-flex items-center space-x-1 text-green-700">
-                                <CheckCircle className="h-4 w-4" />
-                                <span className="text-xs font-medium">Complete</span>
-                              </span>
-                            ) : hasError ? (
-                              <span className="inline-flex items-center space-x-1 text-red-700">
-                                <AlertCircle className="h-4 w-4" />
-                                <span className="text-xs font-medium">Error</span>
-                              </span>
-                            ) : isProcessing ? (
-                              <span className="inline-flex items-center space-x-1 text-blue-700">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span className="text-xs font-medium">Processing</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center space-x-1 text-gray-700">
-                                <Clock className="h-4 w-4" />
-                                <span className="text-xs font-medium">Pending</span>
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center space-x-1">
-                              <button 
-                                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                                title="View Details"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                              {hasError && (
-                                <button 
-                                  className="p-1 text-red-400 hover:text-red-600 transition-colors"
-                                  title="Retry Migration"
-                                >
-                                  <RefreshCw className="h-4 w-4" />
-                                </button>
-                              )}
-                              {isProcessing && (
-                                <button 
-                                  className="p-1 text-orange-400 hover:text-orange-600 transition-colors"
-                                  title="Pause User Migration"
-                                >
-                                  <Pause className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              
-              {selectedAllTargetUsers.length > 10 && (
-                <div className="mt-4 text-center">
-                  <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                    View All {selectedAllTargetUsers.length} Users
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Control Panel */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Migration Controls</h3>
-              
-              {/* Service Integration Controls */}
-              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="text-sm font-semibold text-blue-900 mb-3">Service Integration with User Mappings</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => {
-                      const payload = createMigrationPayload('gmail');
-                      console.log('Gmail Service Payload:', payload);
-                      // Here you would call your actual Gmail migration API
-                      startServiceMigration('gmail', payload);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    <Mail className="h-4 w-4" />
-                    <span>Start Gmail Migration</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const payload = createMigrationPayload('drive');
-                      console.log('Drive Service Payload:', payload);
-                      startServiceMigration('drive', payload);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    <HardDrive className="h-4 w-4" />
-                    <span>Start Drive Migration</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const payload = createMigrationPayload('calendar');
-                      console.log('Calendar Service Payload:', payload);
-                      startServiceMigration('calendar', payload);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    <Calendar className="h-4 w-4" />
-                    <span>Start Calendar Migration</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const payload = createMigrationPayload('contacts');
-                      console.log('Contacts Service Payload:', payload);
-                      startServiceMigration('contacts', payload);
-                    }}
-                    className="flex items-center space-x-2 px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    <Users className="h-4 w-4" />
-                    <span>Start Contacts Migration</span>
-                  </button>
-                </div>
-                <div className="mt-3 text-xs text-blue-700">
-                  Click any service button to see the user mapping payload in console
-                </div>
-              </div>
-
-              {/* Standard Migration Controls */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <button className="flex items-center space-x-2 px-4 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-lg font-medium transition-colors">
-                    <Pause className="h-4 w-4" />
-                    <span>Pause Migration</span>
-                  </button>
-                  <button className="flex items-center space-x-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors">
-                    <StopCircle className="h-4 w-4" />
-                    <span>Stop Migration</span>
-                  </button>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <button className="flex items-center space-x-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg font-medium transition-colors">
-                    <FileText className="h-4 w-4" />
-                    <span>View Logs</span>
-                  </button>
-                  <button className="flex items-center space-x-2 px-4 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg font-medium transition-colors">
-                    <Download className="h-4 w-4" />
-                    <span>Download Report</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Migration Completion or Next Steps */}
-            {(migrationStatus?.overallProgress || 0) >= 100 && (
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
-                <div className="flex items-center space-x-3 mb-4">
-                  <CheckCircle className="h-8 w-8 text-green-600" />
-                  <div>
-                    <h3 className="text-lg font-semibold text-green-900">Migration Completed Successfully!</h3>
-                    <p className="text-green-700">All selected services have been migrated to the target domain(s).</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <button 
-                    onClick={() => router.push('/migrations')}
-                    className="flex items-center space-x-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                    <span>View Migration Summary</span>
-                  </button>
-                  <button className="flex items-center space-x-2 px-4 py-2 bg-white hover:bg-gray-50 text-green-700 border border-green-300 rounded-lg font-medium transition-colors">
-                    <Download className="h-4 w-4" />
-                    <span>Download Complete Report</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         );
 
@@ -5923,8 +5096,16 @@ export default function NewMigration() {
   }, [currentStep, userMappingConfig]);
 
   // Memoize UserManagementWorkflow props to prevent unnecessary re-renders
-  const sourceDomains = useMemo(() => getSourceDomains(), [getSourceDomains]);
-  const targetDomains = useMemo(() => getTargetDomains(), [getTargetDomains]);
+  const sourceDomains = useMemo(() => {
+    const domains = getSourceDomains();
+    console.log('[Migration Page] Computed sourceDomains:', domains);
+    return domains;
+  }, [getSourceDomains]);
+  const targetDomains = useMemo(() => {
+    const domains = getTargetDomains();
+    console.log('[Migration Page] Computed targetDomains:', domains);
+    return domains;
+  }, [getTargetDomains]);
   
   // Add ref to track if we've loaded users for this configuration step
   const hasLoadedUsersForCurrentStep = useRef(false);
@@ -6591,43 +5772,40 @@ export default function NewMigration() {
                           )}
                         </div>
                       )}
-                      <button
-                        onClick={() => {
-                          if (currentStep === 'delegation' && canProceed()) {
-                            // Handle complete configuration action
-                            console.log('Complete Configuration clicked');
-                            // You can add specific logic here
-                            handleNext(); // Or any other action you want
-                          } else {
-                            handleNext();
-                          }
-                        }}
-                        disabled={!canProceed()}
-                        className={`flex items-center px-8 py-3 text-sm font-medium rounded-lg transition-all ${
-                          canProceed()
-                            ? currentStep === 'delegation' 
-                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 shadow-lg hover:shadow-xl'
-                              : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl'
-                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                      >
-                        {currentStep === 'review' ? (
-                          <>
-                            <PlayCircle className="h-4 w-4 mr-2" />
-                            Start Migration
-                          </>
-                        ) : currentStep === 'delegation' ? (
-                          <>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Complete Configuration
-                          </>
-                        ) : (
-                          <>
-                            {getNextButtonText()}
-                            <ArrowRight className="h-4 w-4 ml-2" />
-                          </>
-                        )}
-                      </button>
+                      {currentStep !== 'review' && (
+                        <button
+                          onClick={() => {
+                            if (currentStep === 'delegation' && canProceed()) {
+                              // Handle complete configuration action
+                              console.log('Complete Configuration clicked');
+                              // You can add specific logic here
+                              handleNext(); // Or any other action you want
+                            } else {
+                              handleNext();
+                            }
+                          }}
+                          disabled={!canProceed()}
+                          className={`flex items-center px-8 py-3 text-sm font-medium rounded-lg transition-all ${
+                            canProceed()
+                              ? currentStep === 'delegation' 
+                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 shadow-lg hover:shadow-xl'
+                                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl'
+                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          }`}
+                        >
+                          {currentStep === 'delegation' ? (
+                            <>
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Complete Configuration
+                            </>
+                          ) : (
+                            <>
+                              {getNextButtonText()}
+                              <ArrowRight className="h-4 w-4 ml-2" />
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -344,9 +344,18 @@ export async function POST(request: NextRequest) {
       if (scenario === 'single-super-admin') {
         // Single admin manages both domains
         console.log('🔧 Using single super admin scenario with service account')
-        const gwsService = createServiceAccountService(sourceAdminEmail)
-        sourceGmailService = google.gmail({ version: 'v1', auth: gwsService['jwtClient'] })
-        targetGmailService = sourceGmailService
+        try {
+          const gwsService = createServiceAccountService(sourceAdminEmail)
+          sourceGmailService = google.gmail({ version: 'v1', auth: gwsService['jwtClient'] })
+          targetGmailService = sourceGmailService
+          console.log('✅ Successfully created Gmail services for single-super-admin scenario')
+        } catch (authError: any) {
+          console.error('❌ Failed to create service account for single-super-admin:', authError.message)
+          return NextResponse.json({
+            error: 'Failed to initialize single-super-admin Gmail service',
+            details: authError.message
+          }, { status: 500 })
+        }
       } else {
         // Cross-tenant: check for OAuth tokens first, fallback to service accounts
         // For multi-user migrations, we'll determine the domains from the first user mapping
@@ -377,13 +386,33 @@ export async function POST(request: NextRequest) {
           
           sourceGmailService = google.gmail({ version: 'v1', auth: sourceAuth })
           targetGmailService = google.gmail({ version: 'v1', auth: targetAuth })
+          console.log('✅ Successfully created Gmail services using OAuth tokens')
         } else {
           // Fallback to service accounts
           console.log('🔧 Using service accounts for authentication')
-          const sourceService = createServiceAccountService(sourceAdminEmail)
-          const targetService = createServiceAccountService(targetAdminEmail)
-          sourceGmailService = google.gmail({ version: 'v1', auth: sourceService['jwtClient'] })
-          targetGmailService = google.gmail({ version: 'v1', auth: targetService['jwtClient'] })
+          try {
+            const sourceService = createServiceAccountService(sourceAdminEmail)
+            sourceGmailService = google.gmail({ version: 'v1', auth: sourceService['jwtClient'] })
+            console.log('✅ Successfully created source Gmail service')
+          } catch (sourceError: any) {
+            console.error('❌ Failed to create source service account:', sourceError.message)
+            return NextResponse.json({
+              error: 'Failed to initialize source Gmail service',
+              details: sourceError.message
+            }, { status: 500 })
+          }
+          
+          try {
+            const targetService = createServiceAccountService(targetAdminEmail)
+            targetGmailService = google.gmail({ version: 'v1', auth: targetService['jwtClient'] })
+            console.log('✅ Successfully created target Gmail service')
+          } catch (targetError: any) {
+            console.error('❌ Failed to create target service account:', targetError.message)
+            return NextResponse.json({
+              error: 'Failed to initialize target Gmail service',
+              details: targetError.message
+            }, { status: 500 })
+          }
         }
       }
     } catch (authError: any) {
@@ -539,18 +568,24 @@ async function processSequentialGmailMigration(
         } catch (error: any) {
           console.error(`Failed to get message count for ${mapping.sourceUserEmail}:`, error)
           
+          // Enhanced error handling with details from the error
+          if (error.response) {
+            console.error(`Status: ${error.response.status}`)
+            console.error(`Data:`, error.response.data)
+          }
+          
           // Check for specific error types
-          if (error.code === 404) {
+          if (error.code === 404 || (error.response && error.response.status === 404)) {
             userProgress.errors.push(`User ${mapping.sourceUserEmail} not found or not accessible`)
             userProgress.status = 'failed'
             failedUsers++
             continue
-          } else if (error.code === 403) {
+          } else if (error.code === 403 || (error.response && error.response.status === 403)) {
             userProgress.errors.push(`Insufficient permissions to access ${mapping.sourceUserEmail}. Check delegation setup.`)
             userProgress.status = 'failed'
             failedUsers++
             continue
-          } else if (error.code === 401) {
+          } else if (error.code === 401 || (error.response && error.response.status === 401)) {
             userProgress.errors.push('Invalid or expired authentication credentials')
             userProgress.status = 'failed'
             failedUsers++
@@ -815,15 +850,21 @@ async function processUserBatch(
         userProgress.migratedMessages = 50
         console.log(`🎭 Dry run completed for ${mapping.sourceUserEmail}`)
       } else if (realDataMode) {
-        // Actual Gmail migration logic would go here
-        // This is a simplified version - full implementation would include:
-        // - Message retrieval and migration
-        // - Label migration
-        // - Filter migration
-        // - Signature migration
-        userProgress.processedMessages = 100
-        userProgress.migratedMessages = 95
-        console.log(`📧 Real migration completed for ${mapping.sourceUserEmail}`)
+        try {
+          // Actual Gmail migration logic would go here
+          // This is a simplified version - full implementation would include:
+          // - Message retrieval and migration
+          // - Label migration
+          // - Filter migration
+          // - Signature migration
+          userProgress.processedMessages = 100
+          userProgress.migratedMessages = 95
+          console.log(`📧 Real migration completed for ${mapping.sourceUserEmail}`)
+        } catch (migrationError: any) {
+          console.error(`❌ Migration execution error for ${mapping.sourceUserEmail}:`, migrationError)
+          userProgress.errors.push(migrationError.message || 'Unknown migration execution error')
+          throw migrationError
+        }
       } else {
         // Mock mode
         userProgress.processedMessages = 100

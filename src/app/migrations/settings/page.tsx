@@ -446,9 +446,9 @@ export default function MigrationSettingsPage() {
                   </div>
                   
                   <UserMapping
-                    sourceDomain={settings.sourceDomain}
+                    sourceDomains={settings.sourceDomain ? [settings.sourceDomain] : []}
                     targetDomains={settings.targetDomains}
-                    sourceAdminEmail={settings.sourceAdminEmail}
+                    sourceAdminEmails={settings.sourceAdminEmail ? { [settings.sourceDomain]: settings.sourceAdminEmail } : {}}
                     targetAdminEmails={settings.targetAdminEmails}
                     onMappingComplete={handleUserMappingsComplete}
                   />

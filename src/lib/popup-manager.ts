@@ -80,10 +80,15 @@ export function createPopupManager(): PopupManager {
             !errorMessage.includes('coop')) {
           console.debug('Unexpected popup state error:', error.message);
         }
+        // Mark that COOP is blocking access for future reference
+        coopBlocked = true;
       }
       return false;
     }
   };
+
+  // Flag to track if COOP is blocking access
+  let coopBlocked = false;
 
   /**
    * Cleanup all resources and listeners
@@ -212,18 +217,26 @@ export function createPopupManager(): PopupManager {
       const monitorClosure = () => {
         if (!popup) return;
 
+        // If COOP is blocking access, rely only on message-based detection
+        if (coopBlocked) {
+          if (debug) console.log('🔒 COOP detected - relying on message-based popup detection only');
+          return;
+        }
+
         if (safeIsClosed()) {
           if (debug) console.log('🔗 Popup closed detected');
           cleanup();
         } else {
           // Continue monitoring with reduced frequency to minimize COOP errors
-          // Only poll if we haven't received a message in a while
-          setTimeout(monitorClosure, 10000); // Increased interval to reduce COOP warnings
+          // Only poll if we haven't received a message in a while and COOP isn't blocking
+          if (!coopBlocked) {
+            setTimeout(monitorClosure, 15000); // Further increased interval
+          }
         }
       };
 
       // Start monitoring after a longer delay to prioritize message-based detection
-      setTimeout(monitorClosure, 5000);
+      setTimeout(monitorClosure, 10000);
 
       return popup;
 

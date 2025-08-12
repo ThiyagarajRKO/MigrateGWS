@@ -113,6 +113,33 @@ function decryptTokenData(encryptedData: { encrypted: string; iv: string; tag: s
 }
 
 /**
+ * Validate if a token string is likely to be corrupted
+ */
+export function isTokenCorrupted(token: string): boolean {
+  if (!token || typeof token !== 'string') return true;
+  
+  // Check for common Base64 corruption indicators
+  if (token.includes('�') || token.includes('\u0000')) return true;
+  
+  // Check if token has valid Base64 format
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(token)) return true;
+  
+  // Try to decode and check if result is valid
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf8');
+    if (!decoded || decoded.length === 0) return true;
+    if (decoded.includes('\u0000') || decoded.includes('�')) return true;
+    
+    // Try to parse as JSON to check structure
+    JSON.parse(decoded);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Generate enhanced verification token with security features
  * 
  * @param verifiedDomains List of domains that have been verified for delegation
@@ -194,8 +221,35 @@ export function parseEnhancedVerificationToken(
   try {
     const options = { ...DEFAULT_SECURITY_OPTIONS, ...securityOptions }
     
-    // Base64 decode
-    let tokenString = Buffer.from(token, 'base64').toString('utf8')
+    // Validate input token
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      console.warn('Invalid token: empty or null')
+      return null
+    }
+    
+    // Check for token corruption
+    if (isTokenCorrupted(token)) {
+      console.warn('Token appears to be corrupted')
+      return null
+    }
+    
+    // Base64 decode with better error handling
+    let tokenString: string
+    try {
+      tokenString = Buffer.from(token, 'base64').toString('utf8')
+      
+      // Check if the decoded string looks like valid data
+      if (!tokenString || tokenString.length === 0) {
+        console.warn('Token decoded to empty string')
+        return null
+      }
+      
+    } catch (decodeError) {
+      console.error('Failed to decode base64 token:', decodeError)
+      return null
+    }
+    
+    console.debug('Decoded token string (first 100 chars):', tokenString.substring(0, 100))
     
     // Decrypt if encryption was enabled
     if (options.enableEncryption && options.encryptionKey) {
@@ -208,8 +262,15 @@ export function parseEnhancedVerificationToken(
       }
     }
 
-    // Parse token data
-    const data = JSON.parse(tokenString) as EnhancedVerificationTokenData
+    // Parse token data with better error handling
+    let data: EnhancedVerificationTokenData
+    try {
+      data = JSON.parse(tokenString) as EnhancedVerificationTokenData
+    } catch (parseError) {
+      console.error('Failed to parse token JSON:', parseError)
+      console.error('Token string that failed to parse:', tokenString)
+      return null
+    }
     
     // Verify signature if signing was enabled
     if (options.enableSigning && options.secretKey) {
