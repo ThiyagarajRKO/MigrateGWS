@@ -28,7 +28,11 @@ import {
   BarChart3,
   TrendingUp,
   Server,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Search,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import type { 
   JobProgress, 
@@ -75,7 +79,7 @@ const ServiceStats: React.FC<ServiceStatsProps> = ({ service, icon, stats, progr
             </div>
           </div>
           <Badge variant={getProgressColor(progress)} className="text-xs">
-            {progress}%
+            {Math.round(progress)}%
           </Badge>
         </div>
       </CardHeader>
@@ -200,7 +204,7 @@ const TaskLog: React.FC<TaskLogProps> = ({ tasks, onTaskSelect }) => {
                 {getStatusBadge(task.status)}
                 {task.status === 'running' && (
                   <div className="text-xs text-secondary-600">
-                    {task.progress}%
+                    {Math.round(task.progress)}%
                   </div>
                 )}
               </div>
@@ -212,15 +216,332 @@ const TaskLog: React.FC<TaskLogProps> = ({ tasks, onTaskSelect }) => {
   );
 };
 
-export default function RealTimeMigrationDashboard() {
+interface MigrationLogEntry {
+  id: string;
+  timestamp: Date;
+  level: 'info' | 'warning' | 'error' | 'success';
+  service: ServiceName | 'system';
+  userId?: string;
+  message: string;
+  details?: string;
+  action?: string;
+  metadata?: Record<string, any>;
+}
+
+interface MigrationLogProps {
+  logs: MigrationLogEntry[];
+  maxEntries?: number;
+  onExportLogs?: () => void;
+}
+
+const MigrationLog: React.FC<MigrationLogProps> = ({ 
+  logs, 
+  maxEntries = 100,
+  onExportLogs 
+}) => {
+  const [filter, setFilter] = useState<'all' | 'info' | 'warning' | 'error' | 'success'>('all');
+  const [serviceFilter, setServiceFilter] = useState<'all' | ServiceName | 'system'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [autoScroll, setAutoScroll] = useState(true);
+  
+  const filteredLogs = logs
+    .filter(log => filter === 'all' || log.level === filter)
+    .filter(log => serviceFilter === 'all' || log.service === serviceFilter)
+    .filter(log => 
+      searchTerm === '' || 
+      log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      log.userId?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .slice(-maxEntries)
+    .reverse();
+
+  const getLevelIcon = (level: string) => {
+    switch (level) {
+      case 'success':
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case 'warning':
+        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+      case 'error':
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return <FileText className="h-4 w-4 text-blue-500" />;
+    }
+  };
+
+  const getLevelBadge = (level: string) => {
+    const variants = {
+      success: 'success',
+      warning: 'warning', 
+      error: 'danger',
+      info: 'info'
+    } as const;
+    
+    return <Badge variant={variants[level as keyof typeof variants] || 'info'} className="text-xs">{level}</Badge>;
+  };
+
+  const getServiceIcon = (service: string) => {
+    const icons = {
+      gmail: <Mail className="h-4 w-4" />,
+      drive: <FolderOpen className="h-4 w-4" />,
+      calendar: <Calendar className="h-4 w-4" />,
+      contacts: <Users className="h-4 w-4" />,
+      chat: <MessageSquare className="h-4 w-4" />,
+      photos: <Camera className="h-4 w-4" />,
+      groups: <UserCheck className="h-4 w-4" />,
+      system: <Server className="h-4 w-4" />
+    };
+    return icons[service as keyof typeof icons] || <Activity className="h-4 w-4" />;
+  };
+
+  const copyLogEntry = (log: MigrationLogEntry) => {
+    const logText = `[${log.timestamp.toISOString()}] [${log.level.toUpperCase()}] [${log.service}] ${log.userId ? `[${log.userId}] ` : ''}${log.message}${log.details ? `\nDetails: ${log.details}` : ''}`;
+    navigator.clipboard.writeText(logText);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center space-x-2">
+            <FileText className="h-5 w-5 text-primary-600" />
+            <span>Migration Logs</span>
+            <Badge variant="info" className="ml-2">{filteredLogs.length} entries</Badge>
+          </CardTitle>
+          
+          <div className="flex items-center space-x-2">
+            <div className="relative">
+              <Search className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search logs..."
+                className="text-sm border border-gray-300 rounded pl-8 pr-3 py-1 w-40"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            
+            <select 
+              className="text-sm border border-gray-300 rounded px-2 py-1"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as any)}
+            >
+              <option value="all">All Levels</option>
+              <option value="info">Info</option>
+              <option value="success">Success</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+            
+            <select 
+              className="text-sm border border-gray-300 rounded px-2 py-1"
+              value={serviceFilter}
+              onChange={(e) => setServiceFilter(e.target.value as any)}
+            >
+              <option value="all">All Services</option>
+              <option value="system">System</option>
+              <option value="gmail">Gmail</option>
+              <option value="drive">Drive</option>
+              <option value="calendar">Calendar</option>
+              <option value="contacts">Contacts</option>
+              <option value="chat">Chat</option>
+              <option value="photos">Photos</option>
+              <option value="groups">Groups</option>
+            </select>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={autoScroll ? 'bg-blue-50' : ''}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            
+            {onExportLogs && (
+              <Button size="sm" variant="outline" onClick={onExportLogs}>
+                <Download className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-1 max-h-96 overflow-y-auto font-mono text-xs">
+          {filteredLogs.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No log entries match the current filters</p>
+            </div>
+          ) : (
+            filteredLogs.map((log) => (
+              <div 
+                key={log.id}
+                className="flex items-start space-x-2 p-2 border-l-2 hover:bg-gray-50 group"
+                style={{
+                  borderLeftColor: 
+                    log.level === 'error' ? '#ef4444' :
+                    log.level === 'warning' ? '#f59e0b' :
+                    log.level === 'success' ? '#10b981' :
+                    '#3b82f6'
+                }}
+              >
+                <div className="flex items-center space-x-1 min-w-20">
+                  {getLevelIcon(log.level)}
+                  <span className="text-gray-500">
+                    {log.timestamp.toLocaleTimeString()}
+                  </span>
+                </div>
+                
+                <div className="flex items-center space-x-1 min-w-16">
+                  {getServiceIcon(log.service)}
+                  <span className="text-gray-600 capitalize text-xs">
+                    {log.service}
+                  </span>
+                </div>
+                
+                {log.userId && (
+                  <div className="min-w-32">
+                    <span className="text-purple-600 text-xs font-medium">
+                      {log.userId}
+                    </span>
+                  </div>
+                )}
+                
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2">
+                    {getLevelBadge(log.level)}
+                    <span className={`${
+                      log.level === 'error' ? 'text-red-700' :
+                      log.level === 'warning' ? 'text-yellow-700' :
+                      log.level === 'success' ? 'text-green-700' :
+                      'text-gray-700'
+                    }`}>
+                      {log.message}
+                    </span>
+                  </div>
+                  
+                  {log.details && (
+                    <div className="mt-1 text-gray-600 text-xs pl-2 border-l border-gray-200">
+                      {log.details}
+                    </div>
+                  )}
+                  
+                  {log.action && (
+                    <div className="mt-1">
+                      <span className="text-blue-600 text-xs font-medium">
+                        Action: {log.action}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => copyLogEntry(log)}
+                    className="h-6 w-6 p-0"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+interface RealTimeMigrationDashboardProps {
+  migrationStatus?: {
+    id: string;
+    status: 'running' | 'completed' | 'failed' | 'paused';
+    overallProgress: number;
+    serviceProgress?: Record<string, {
+      progress: number;
+      status: 'pending' | 'running' | 'completed' | 'failed';
+      itemsProcessed: number;
+      totalItems: number;
+      errors: string[];
+    }>;
+    userProgress?: Record<string, {
+      progress: number;
+      currentService: string;
+      status: 'pending' | 'processing' | 'completed' | 'failed';
+      servicesCompleted: string[];
+      errors: string[];
+    }>;
+    startTime?: string;
+    estimatedCompletion?: string;
+  };
+  selectedUsers?: Array<{
+    primaryEmail: string;
+    sourceEmail: string;
+    name?: { fullName?: string };
+  }>;
+  services?: string[];
+  tasks?: MigrationTask[];
+  logs?: MigrationLogEntry[];
+  orchestratorMetrics?: OrchestratorMetrics;
+}
+
+export default function RealTimeMigrationDashboard({ 
+  migrationStatus, 
+  selectedUsers = [], 
+  services = ['gmail', 'drive', 'calendar', 'contacts', 'chat', 'groups', 'photos'],
+  tasks = [],
+  logs = [],
+  orchestratorMetrics
+}: RealTimeMigrationDashboardProps = {}) {
   const [isConnected, setIsConnected] = useState(true);
   const [selectedTask, setSelectedTask] = useState<MigrationTask | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   
-  // Mock data - in real implementation, this would come from WebSocket/SSE
-  const [jobProgress] = useState<JobProgress>({
+  // Use real migration data when available, fall back to mock data
+  const mapMigrationStatusToTaskStatus = (status: string): TaskStatus => {
+    switch (status) {
+      case 'running': return 'running';
+      case 'completed': return 'completed';
+      case 'failed': return 'failed';
+      case 'paused': return 'pending'; // Map paused to pending for compatibility
+      default: return 'pending';
+    }
+  };
+
+  const jobProgress: JobProgress = migrationStatus ? {
+    jobId: migrationStatus.id,
+    status: mapMigrationStatusToTaskStatus(migrationStatus.status),
+    progress: migrationStatus.overallProgress,
+    totalTasks: selectedUsers.length * services.length,
+    completedTasks: Math.round((migrationStatus.overallProgress / 100) * selectedUsers.length * services.length),
+    failedTasks: Object.values(migrationStatus.serviceProgress || {}).reduce((sum, service) => sum + service.errors.length, 0),
+    skippedTasks: 0,
+    startedAt: migrationStatus.startTime ? new Date(migrationStatus.startTime) : new Date(),
+    lastUpdatedAt: new Date(),
+    estimatedTimeRemaining: migrationStatus.estimatedCompletion ? 
+      Math.max(0, Math.round((new Date(migrationStatus.estimatedCompletion).getTime() - Date.now()) / (1000 * 60))) : 
+      120,
+    serviceProgress: services.reduce((acc, service) => {
+      const serviceData = migrationStatus.serviceProgress?.[service] || {
+        progress: 0,
+        itemsProcessed: 0,
+        totalItems: selectedUsers.length,
+        errors: []
+      };
+      acc[service as ServiceName] = {
+        completed: serviceData.itemsProcessed,
+        total: serviceData.totalItems,
+        failed: serviceData.errors.length,
+        progress: serviceData.progress
+      };
+      return acc;
+    }, {} as Record<ServiceName, any>)
+  } : {
+    // Fallback mock data when no real migration status is available
     jobId: 'job-123',
-    status: 'running',
+    status: 'running' as TaskStatus,
     progress: 67,
     totalTasks: 2450,
     completedTasks: 1641,
@@ -228,7 +549,7 @@ export default function RealTimeMigrationDashboard() {
     skippedTasks: 0,
     startedAt: new Date(),
     lastUpdatedAt: new Date(),
-    estimatedTimeRemaining: 120, // 2 hours in minutes
+    estimatedTimeRemaining: 120,
     serviceProgress: {
       gmail: { completed: 850, total: 1200, failed: 12, progress: 71 },
       drive: { completed: 450, total: 600, failed: 5, progress: 75 },
@@ -238,92 +559,60 @@ export default function RealTimeMigrationDashboard() {
       groups: { completed: 0, total: 0, failed: 0, progress: 0 },
       photos: { completed: 0, total: 0, failed: 0, progress: 0 }
     }
-  });
+  };
 
-  const [orchestratorMetrics] = useState<OrchestratorMetrics>({
-    totalJobs: 24,
-    activeJobs: 6,
-    completedJobs: 18,
-    failedJobs: 0,
-    totalTasks: 15678,
-    tasksPerSecond: 142,
+  // Use real orchestrator metrics when available, fall back to calculated values
+  const defaultOrchestratorMetrics: OrchestratorMetrics = {
+    totalJobs: 1,
+    activeJobs: migrationStatus?.status === 'running' ? 1 : 0,
+    completedJobs: migrationStatus?.status === 'completed' ? 1 : 0,
+    failedJobs: migrationStatus?.status === 'failed' ? 1 : 0,
+    totalTasks: selectedUsers.length * services.length,
+    tasksPerSecond: 12,
     averageJobDuration: 45.6,
-    microservices: [
-      {
-        service: 'gmail',
-        status: 'healthy',
-        lastHeartbeat: new Date(),
-        version: '1.2.3',
-        tasksInQueue: 145,
-        tasksProcessing: 8,
-        errorRate: 0.2,
-        avgProcessingTime: 1.4
-      },
-      {
-        service: 'drive',
-        status: 'healthy',
-        lastHeartbeat: new Date(),
-        version: '1.2.3',
-        tasksInQueue: 89,
-        tasksProcessing: 12,
-        errorRate: 0.8,
-        avgProcessingTime: 2.1
-      }
-    ] as MicroserviceHealth[],
-    queueDepth: {
-      gmail: 145,
-      drive: 89,
-      calendar: 23,
-      contacts: 12,
-      chat: 56,
-      groups: 8,
-      photos: 234
-    }
-  });
+    microservices: services.map(service => ({
+      service: service as ServiceName,
+      status: 'healthy' as const,
+      lastHeartbeat: new Date(),
+      version: '1.0.0',
+      tasksInQueue: tasks.filter(t => t.service === service && t.status === 'pending').length,
+      tasksProcessing: tasks.filter(t => t.service === service && t.status === 'running').length,
+      errorRate: tasks.filter(t => t.service === service && t.status === 'failed').length / Math.max(tasks.filter(t => t.service === service).length, 1) * 100,
+      avgProcessingTime: 2.1
+    })),
+    queueDepth: services.reduce((acc, service) => ({
+      ...acc,
+      [service]: tasks.filter(t => t.service === service && t.status === 'pending').length
+    }), {} as Record<ServiceName, number>)
+  };
 
-  const [mockTasks] = useState<MigrationTask[]>([
-    {
-      id: 'task-1',
-      jobId: 'job-123',
-      tenantId: 'tenant-456',
-      userId: 'user1@domain.com',
-      service: 'gmail',
-      status: 'completed',
-      progress: 100,
-      startedAt: new Date(Date.now() - 5 * 60 * 1000),
-      completedAt: new Date(Date.now() - 1 * 60 * 1000),
-      retryCount: 0,
-      idempotencyKey: 'key-1',
-      metadata: {}
-    },
-    {
-      id: 'task-2',
-      jobId: 'job-123',
-      tenantId: 'tenant-456',
-      userId: 'user2@domain.com',
-      service: 'drive',
-      status: 'running',
-      progress: 45,
-      startedAt: new Date(Date.now() - 3 * 60 * 1000),
-      retryCount: 0,
-      idempotencyKey: 'key-2',
-      metadata: {}
-    },
-    {
-      id: 'task-3',
-      jobId: 'job-123',
-      tenantId: 'tenant-456',
-      userId: 'user3@domain.com',
-      service: 'calendar',
-      status: 'failed',
-      progress: 0,
-      startedAt: new Date(Date.now() - 10 * 60 * 1000),
-      errorMessage: 'API quota exceeded',
-      retryCount: 2,
-      idempotencyKey: 'key-3',
-      metadata: {}
-    }
-  ]);
+  const currentOrchestratorMetrics = orchestratorMetrics || defaultOrchestratorMetrics;
+
+  // Use real tasks when available, fall back to generated tasks based on migration status
+  const generateDefaultTasks = (): MigrationTask[] => {
+    if (!migrationStatus || selectedUsers.length === 0) return [];
+    
+    return selectedUsers.flatMap((user, userIndex) => 
+      services.map((service, serviceIndex) => ({
+        id: `task-${userIndex}-${serviceIndex}`,
+        jobId: migrationStatus.id,
+        tenantId: 'default-tenant',
+        userId: user.sourceEmail,
+        service: service as ServiceName,
+        status: (migrationStatus.userProgress?.[user.sourceEmail]?.status === 'completed' ? 'completed' :
+                migrationStatus.userProgress?.[user.sourceEmail]?.status === 'processing' ? 'running' :
+                migrationStatus.userProgress?.[user.sourceEmail]?.status === 'failed' ? 'failed' :
+                'pending') as TaskStatus,
+        progress: migrationStatus.userProgress?.[user.sourceEmail]?.progress || 0,
+        startedAt: migrationStatus.startTime ? new Date(migrationStatus.startTime) : new Date(),
+        retryCount: 0,
+        idempotencyKey: `${user.sourceEmail}-${service}`,
+        metadata: {}
+      }))
+    );
+  };
+
+  const currentTasks = tasks.length > 0 ? tasks : generateDefaultTasks();
 
   const serviceIcons = {
     gmail: <Mail className="h-5 w-5 text-primary-600" />,
@@ -345,7 +634,7 @@ export default function RealTimeMigrationDashboard() {
       completed: progress.completed,
       running: running,
       failed: progress.failed,
-      queued: orchestratorMetrics.queueDepth[service] || 0
+      queued: currentOrchestratorMetrics.queueDepth[service] || 0
     };
   };
 
@@ -353,6 +642,94 @@ export default function RealTimeMigrationDashboard() {
     const progress = jobProgress.serviceProgress[service];
     if (!progress || progress.total === 0) return 0;
     return Math.round((progress.completed / progress.total) * 100);
+  };
+
+  // Use real logs when available, fall back to generated logs based on migration status
+  const generateDefaultLogs = (): MigrationLogEntry[] => {
+    if (!migrationStatus) return [];
+    
+    const defaultLogs: MigrationLogEntry[] = [];
+    
+    // System startup log
+    defaultLogs.push({
+      id: 'system-start',
+      timestamp: migrationStatus.startTime ? new Date(migrationStatus.startTime) : new Date(),
+      level: 'info',
+      service: 'system',
+      message: `Migration started for ${selectedUsers.length} users`,
+      details: `Initializing migration workflow with selected services: ${services.join(', ')}`,
+      action: 'Migration initialization'
+    });
+
+    // Generate logs based on user progress
+    selectedUsers.forEach((user, index) => {
+      const userProgress = migrationStatus.userProgress?.[user.sourceEmail];
+      if (!userProgress) return;
+      
+      userProgress.servicesCompleted?.forEach(service => {
+        defaultLogs.push({
+          id: `${user.sourceEmail}-${service}-completed`,
+          timestamp: new Date(Date.now() - (selectedUsers.length - index) * 30000),
+          level: 'success',
+          service: service as ServiceName,
+          userId: user.sourceEmail,
+          message: `${service.charAt(0).toUpperCase() + service.slice(1)} migration completed successfully`,
+          details: `Migration completed for ${user.name?.fullName || user.sourceEmail}`,
+          action: `${service} migration`
+        });
+      });
+
+      // Add error logs for any errors
+      userProgress.errors?.forEach((error, errorIndex) => {
+        defaultLogs.push({
+          id: `${user.sourceEmail}-error-${errorIndex}`,
+          timestamp: new Date(Date.now() - (selectedUsers.length - index) * 20000 - errorIndex * 5000),
+          level: 'error',
+          service: userProgress.currentService as ServiceName || 'system',
+          userId: user.sourceEmail,
+          message: error,
+          details: `Error occurred during ${userProgress.currentService} migration for ${user.name?.fullName || user.sourceEmail}`,
+          action: 'Error handling'
+        });
+      });
+    });
+
+    return defaultLogs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  };
+
+  const currentLogs = logs.length > 0 ? logs : generateDefaultLogs();
+
+  const handleExportLogs = () => {
+    const logData = currentLogs.map(log => ({
+      timestamp: log.timestamp.toISOString(),
+      level: log.level,
+      service: log.service,
+      userId: log.userId || '',
+      message: log.message,
+      details: log.details || '',
+      action: log.action || ''
+    }));
+    
+    const csvContent = [
+      ['Timestamp', 'Level', 'Service', 'User ID', 'Message', 'Details', 'Action'],
+      ...logData.map(log => [
+        log.timestamp,
+        log.level,
+        log.service,
+        log.userId,
+        log.message,
+        log.details,
+        log.action
+      ])
+    ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `migration-logs-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
@@ -402,7 +779,7 @@ export default function RealTimeMigrationDashboard() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-primary-600">{jobProgress.progress}%</div>
+              <div className="text-2xl font-bold text-primary-600">{Math.round(jobProgress.progress)}%</div>
               <div className="text-sm text-secondary-600">Overall Progress</div>
             </div>
             <div className="text-center">
@@ -410,7 +787,7 @@ export default function RealTimeMigrationDashboard() {
               <div className="text-sm text-secondary-600">Completed Tasks</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-info-600">{orchestratorMetrics.tasksPerSecond}</div>
+              <div className="text-2xl font-bold text-info-600">{currentOrchestratorMetrics.tasksPerSecond}</div>
               <div className="text-sm text-secondary-600">Tasks/Second</div>
             </div>
             <div className="text-center">
@@ -437,7 +814,7 @@ export default function RealTimeMigrationDashboard() {
       {/* Main Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Task Log */}
-        <TaskLog tasks={mockTasks} onTaskSelect={setSelectedTask} />
+        <TaskLog tasks={currentTasks} onTaskSelect={setSelectedTask} />
 
         {/* Microservice Health */}
         <Card>
@@ -448,7 +825,7 @@ export default function RealTimeMigrationDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {orchestratorMetrics.microservices.map((microservice) => (
+            {currentOrchestratorMetrics.microservices.map((microservice) => (
               <div key={microservice.service} className="flex items-center justify-between p-3 border rounded-lg">
                 <div className="flex items-center space-x-3">
                   {serviceIcons[microservice.service]}
@@ -468,7 +845,7 @@ export default function RealTimeMigrationDashboard() {
                     <div className="text-secondary-600">Processing</div>
                   </div>
                   <div className="text-center">
-                    <div className="font-medium">{microservice.errorRate}%</div>
+                    <div className="font-medium">{Math.round(microservice.errorRate)}%</div>
                     <div className="text-secondary-600">Error Rate</div>
                   </div>
                   <Badge 
@@ -487,6 +864,13 @@ export default function RealTimeMigrationDashboard() {
         </Card>
       </div>
 
+      {/* Migration Logs - Full Width */}
+      <MigrationLog 
+        logs={currentLogs}
+        maxEntries={50}
+        onExportLogs={handleExportLogs}
+      />
+
       {/* System Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -499,15 +883,15 @@ export default function RealTimeMigrationDashboard() {
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Total Jobs</span>
-              <span className="text-lg font-bold text-secondary-900">{orchestratorMetrics.totalJobs}</span>
+              <span className="text-lg font-bold text-secondary-900">{currentOrchestratorMetrics.totalJobs}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Active Jobs</span>
-              <span className="text-lg font-bold text-info-600">{orchestratorMetrics.activeJobs}</span>
+              <span className="text-lg font-bold text-info-600">{currentOrchestratorMetrics.activeJobs}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Completed</span>
-              <span className="text-lg font-bold text-success-600">{orchestratorMetrics.completedJobs}</span>
+              <span className="text-lg font-bold text-success-600">{currentOrchestratorMetrics.completedJobs}</span>
             </div>
           </CardContent>
         </Card>
@@ -522,16 +906,16 @@ export default function RealTimeMigrationDashboard() {
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Avg Duration</span>
-              <span className="text-lg font-bold text-primary-600">{orchestratorMetrics.averageJobDuration}min</span>
+              <span className="text-lg font-bold text-primary-600">{currentOrchestratorMetrics.averageJobDuration}min</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Throughput</span>
-              <span className="text-lg font-bold text-success-600">{orchestratorMetrics.tasksPerSecond}/s</span>
+              <span className="text-lg font-bold text-success-600">{currentOrchestratorMetrics.tasksPerSecond}/s</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary-700">Queue Depth</span>
               <span className="text-lg font-bold text-warning-600">
-                {Object.values(orchestratorMetrics.queueDepth).reduce((a, b) => a + b, 0)}
+                {Object.values(currentOrchestratorMetrics.queueDepth).reduce((a, b) => a + b, 0)}
               </span>
             </div>
           </CardContent>

@@ -5147,6 +5147,7 @@ export default function NewMigration() {
         
         return (
           <div className="space-y-8">
+            {/* Migration Header */}
             <div className="text-center">
               <div className="flex justify-center mb-4">
                 <div className="p-3 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl">
@@ -5156,6 +5157,94 @@ export default function NewMigration() {
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
                 Migration in Progress
               </h2>
+              <p className="text-gray-600 max-w-2xl mx-auto">
+                Real-time monitoring of your {migrationConfig.services.length} service migration across {selectedAllTargetUsers.length} selected users
+              </p>
+            </div>
+
+            {/* Migration Summary */}
+            <div className="max-w-6xl mx-auto">
+              <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">{selectedAllTargetUsers.length}</div>
+                    <div className="text-sm text-gray-600">Selected Users</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">{migrationConfig.services.length}</div>
+                    <div className="text-sm text-gray-600">Services</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {migrationStatus.overallProgress || 0}%
+                    </div>
+                    <div className="text-sm text-gray-600">Progress</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {migrationStatus.status === 'running' ? 'Active' : migrationStatus.status}
+                    </div>
+                    <div className="text-sm text-gray-600">Status</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-Time Migration Dashboard */}
+              <ComponentLoader>
+                <RealTimeMigrationDashboard 
+                  migrationStatus={migrationStatus}
+                  selectedUsers={selectedAllTargetUsers}
+                  services={migrationConfig.services}
+                />
+              </ComponentLoader>
+            </div>
+
+            {/* Migration Controls */}
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Migration Controls</h3>
+                    <p className="text-gray-600">
+                      Migration started at {migrationStatus.startTime ? new Date(migrationStatus.startTime).toLocaleString() : 'Unknown'}
+                    </p>
+                  </div>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => {
+                        // TODO: Implement pause functionality
+                        console.log('[Migration] Pause requested');
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white font-medium rounded-lg hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2"
+                    >
+                      <Pause className="h-4 w-4 mr-2" />
+                      Pause
+                    </button>
+                    <button
+                      onClick={() => {
+                        // TODO: Implement stop functionality with confirmation
+                        if (confirm('Are you sure you want to stop the migration? This action cannot be undone.')) {
+                          console.log('[Migration] Stop requested');
+                        }
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                    >
+                      <StopCircle className="h-4 w-4 mr-2" />
+                      Stop
+                    </button>
+                    <button
+                      onClick={() => {
+                        // TODO: Implement detailed logs view
+                        console.log('[Migration] View logs requested');
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      View Logs
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         );
