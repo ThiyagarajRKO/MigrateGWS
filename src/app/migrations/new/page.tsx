@@ -4388,41 +4388,7 @@ export default function NewMigration() {
                   </div>
                 </div>
 
-                {/* Migration Options */}
-                <div className="bg-white border border-gray-200 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    <Settings className="h-5 w-5 mr-2 text-gray-600" />
-                    Advanced Options
-                  </h3>
-                  <div className="space-y-4">
-                    {Object.entries(migrationConfig.migrationOptions).map(([key, value]) => (
-                      <label key={key} className="flex items-start space-x-3">
-                        <input
-                          type="checkbox"
-                          checked={value}
-                          onChange={(e) => setMigrationConfig(prev => ({
-                            ...prev,
-                            migrationOptions: {
-                              ...prev.migrationOptions,
-                              [key]: e.target.checked
-                            }
-                          }))}
-                          className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <div>
-                          <span className="text-sm font-medium text-gray-900">
-                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-                          </span>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {getOptionDescription(key)}
-                          </p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* User Mapping Section */}
+                {/* User Mapping Section - moved up */}
                 <div className="bg-white border border-gray-200 rounded-xl">
                   <Suspense fallback={
                     <div className="p-6">
@@ -4503,57 +4469,94 @@ export default function NewMigration() {
                 </div>
               </div>
 
-              {/* Services Selection */}
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <Zap className="h-5 w-5 mr-2 text-gray-600" />
-                  Services to Migrate
-                </h3>
-                <div className="grid grid-cols-3 gap-4">
-                  {['Gmail', 'Drive', 'Calendar', 'Contacts', 'Photos', 'Chat', 'Groups', 'Forms', 'Slides'].map(service => {
-                    const IconComponent = SERVICE_ICONS[service as keyof typeof SERVICE_ICONS];
-                    const isSelected = migrationConfig.services.includes(service);
-                    
-                    return (
-                      <label 
-                        key={service} 
-                        className={`relative flex flex-col items-center p-4 border-2 rounded-xl cursor-pointer transition-all ${
-                          isSelected 
-                            ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleServiceToggle(service)}
-                          className="sr-only"
-                        />
-                        <IconComponent className={`h-8 w-8 mb-2 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
-                        <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+              {/* Right Column */}
+              <div className="space-y-6">
+                {/* Services Selection */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Zap className="h-5 w-5 mr-2 text-gray-600" />
+                    Services to Migrate
+                  </h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    {['Gmail', 'Drive', 'Calendar', 'Contacts', 'Photos', 'Chat', 'Groups', 'Forms', 'Slides'].map(service => {
+                      const IconComponent = SERVICE_ICONS[service as keyof typeof SERVICE_ICONS];
+                      const isSelected = migrationConfig.services.includes(service);
+                      
+                      return (
+                        <label 
+                          key={service} 
+                          className={`relative flex flex-col items-center p-4 border-2 rounded-xl cursor-pointer transition-all ${
+                            isSelected 
+                              ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleServiceToggle(service)}
+                            className="sr-only"
+                          />
+                          <IconComponent className={`h-8 w-8 mb-2 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
+                          <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+                            {service}
+                          </span>
+                          {isSelected && (
+                            <CheckCircle className="absolute top-2 right-2 h-5 w-5 text-blue-600" />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Service Summary */}
+                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Selected Services:</span>
+                      <span className="font-medium text-gray-900">
+                        {migrationConfig.services.length} of 9 services
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {migrationConfig.services.map(service => (
+                        <span key={service} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
                           {service}
                         </span>
-                        {isSelected && (
-                          <CheckCircle className="absolute top-2 right-2 h-5 w-5 text-blue-600" />
-                        )}
-                      </label>
-                    );
-                  })}
-                </div>
-                
-                {/* Service Summary */}
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Selected Services:</span>
-                    <span className="font-medium text-gray-900">
-                      {migrationConfig.services.length} of 9 services
-                    </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {migrationConfig.services.map(service => (
-                      <span key={service} className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800 text-xs font-medium">
-                        {service}
-                      </span>
+                </div>
+
+                {/* Advanced Options - moved to right column */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Settings className="h-5 w-5 mr-2 text-gray-600" />
+                    Advanced Options
+                  </h3>
+                  <div className="space-y-4">
+                    {Object.entries(migrationConfig.migrationOptions).map(([key, value]) => (
+                      <label key={key} className="flex items-start space-x-3">
+                        <input
+                          type="checkbox"
+                          checked={value}
+                          onChange={(e) => setMigrationConfig(prev => ({
+                            ...prev,
+                            migrationOptions: {
+                              ...prev.migrationOptions,
+                              [key]: e.target.checked
+                            }
+                          }))}
+                          className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                          </span>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {getOptionDescription(key)}
+                          </p>
+                        </div>
+                      </label>
                     ))}
                   </div>
                 </div>
@@ -4790,6 +4793,91 @@ export default function NewMigration() {
                 </div>
               </div>
 
+              {/* Selected Users for Migration */}
+              {selectedAllTargetUsers.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-blue-600" />
+                    Selected Users for Migration ({selectedAllTargetUsers.length})
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-sm text-gray-600 mb-1">Total Users</div>
+                        <div className="font-medium text-gray-900">{selectedAllTargetUsers.length}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-600 mb-1">Migration Strategy</div>
+                        <div className="font-medium text-gray-900">
+                          {userMappingConfig?.relationship ? 
+                            userMappingConfig.relationship.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 
+                            'One-to-One'
+                          }
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-gray-600 mb-1">Target Domains</div>
+                        <div className="font-medium text-gray-900">
+                          {new Set(selectedAllTargetUsers.map(user => user.targetDomain || user.primaryEmail?.split('@')[1]).filter(Boolean)).size}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="max-h-40 overflow-y-auto">
+                      <div className="text-sm text-gray-600 mb-2">Users selected for migration:</div>
+                      <div className="space-y-2">
+                        {selectedAllTargetUsers.slice(0, 15).map((user, index) => (
+                          <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center space-x-3">
+                              <div className="flex-shrink-0">
+                                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
+                                  <span className="text-xs font-medium text-blue-600">
+                                    {user.name?.fullName?.charAt(0) || user.name?.givenName?.charAt(0) || user.sourceUser?.name?.givenName?.charAt(0) || user.primaryEmail?.charAt(0) || 'U'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {user.name?.fullName || user.sourceUser?.name?.fullName || user.primaryEmail}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {user.sourceEmail && user.primaryEmail ? 
+                                    `${user.sourceEmail} → ${user.primaryEmail}` : 
+                                    user.primaryEmail
+                                  }
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-blue-600 font-medium">
+                              {user.targetDomain || user.primaryEmail?.split('@')[1]}
+                            </div>
+                          </div>
+                        ))}
+                        {selectedAllTargetUsers.length > 15 && (
+                          <div className="text-sm text-gray-500 italic text-center py-2">
+                            ...and {selectedAllTargetUsers.length - 15} more users
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-start space-x-2">
+                        <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-blue-800">
+                          <p className="font-medium mb-1">Migration Target</p>
+                          <p>
+                            Data from {selectedAllTargetUsers.length} user{selectedAllTargetUsers.length !== 1 ? 's' : ''} will be migrated across {migrationConfig.services.length} service{migrationConfig.services.length !== 1 ? 's' : ''}. 
+                            {userMappingConfig?.relationship === 'many-to-one' && ' Multiple source users will be consolidated into target accounts.'}
+                            {userMappingConfig?.relationship === 'one-to-many' && ' Source users will be distributed across multiple target domains.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Existing Target Users */}
               {selectedExistingUsers.length > 0 && (
                 <div className="bg-white border border-gray-200 rounded-xl p-6">
@@ -4931,6 +5019,85 @@ export default function NewMigration() {
                       </li>
                     </ul>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Start Migration Button */}
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="text-center">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready to Start Migration</h3>
+                  <p className="text-gray-600 mb-6">
+                    All configurations have been reviewed. Click the button below to begin the migration process.
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (!selectedScenario) {
+                        console.error('[Migration] Cannot start migration: no scenario selected');
+                        return;
+                      }
+                      
+                      console.log('[Migration] Starting migration process...');
+                      // TODO: Implement migration start logic
+                      setCurrentStep('migration');
+                      
+                      // Initialize migration status
+                      setMigrationStatus({
+                        id: `migration-${Date.now()}`,
+                        name: migrationConfig.migrationName || `Migration - ${new Date().toLocaleDateString()}`,
+                        scenarioType: selectedScenario,
+                        status: 'running',
+                        currentStep: 'migration',
+                        startTime: new Date().toISOString(),
+                        estimatedCompletion: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+                        overallProgress: 0,
+                        errors: [],
+                        serviceProgress: {},
+                        userProgress: {},
+                        migrationConfig: {
+                          services: migrationConfig.services,
+                          sourceDomain: migrationConfig.sourceDomain,
+                          targetDomain: migrationConfig.targetDomain,
+                          migrationOptions: migrationConfig.migrationOptions,
+                          userMappings: userMappings,
+                          selectedUsers: selectedAllTargetUsers,
+                          domainMapping: domainMapping,
+                          userMappingConfig: userMappingConfig,
+                          serviceUserMappings: [],
+                          executionPlan: {
+                            totalUsers: selectedAllTargetUsers.length,
+                            effectiveUsers: selectedAllTargetUsers.length,
+                            totalServices: migrationConfig.services.length,
+                            estimatedDuration: migrationConfig.services.length * 30,
+                            batchSize: 5,
+                            retryPolicy: {
+                              maxRetries: 3,
+                              backoffMultiplier: 2,
+                              initialDelay: 1000
+                            },
+                            serviceOrder: migrationConfig.services,
+                            parallelServices: false
+                          },
+                          adminCredentials: {
+                            scenario: selectedScenario,
+                            adminEmail: selectedScenario === 'single-super-admin' ? adminEmail : undefined,
+                            sourceAdminEmail: selectedScenario === 'cross-tenant' ? sourceAdminEmail : undefined,
+                            targetAdminEmail: selectedScenario === 'cross-tenant' ? targetAdminEmail : undefined,
+                            sourceAdminEmails: selectedScenario === 'cross-tenant' ? sourceAdminEmails : undefined,
+                            targetAdminEmails: targetAdminEmails
+                          }
+                        }
+                      });
+                    }}
+                    className="inline-flex items-center px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transform transition-all duration-200 hover:scale-105 shadow-lg"
+                  >
+                    <PlayCircle className="h-6 w-6 mr-3" />
+                    Start Migration Process
+                  </button>
+                  <p className="text-sm text-gray-500 mt-4">
+                    This will begin migrating data for {selectedAllTargetUsers.length} user{selectedAllTargetUsers.length !== 1 ? 's' : ''} across {migrationConfig.services.length} service{migrationConfig.services.length !== 1 ? 's' : ''}
+                  </p>
                 </div>
               </div>
             </div>

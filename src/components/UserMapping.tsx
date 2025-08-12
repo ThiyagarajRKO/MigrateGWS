@@ -129,15 +129,24 @@ export const UserMapping = memo(function UserMapping({
       newSelected.delete(userId);
     }
     setSelectedUsers(newSelected);
+    
+    // Automatically pass selected users to next page
+    const selectedMappings = filteredMappings.filter(group => newSelected.has(group.sourceUser.id));
+    onNext?.(selectedMappings);
   };
 
   const handleSelectAll = (isSelected: boolean) => {
+    let newSelected: Set<string>;
     if (isSelected) {
-      const allUserIds = new Set(filteredMappings.map(group => group.sourceUser.id));
-      setSelectedUsers(allUserIds);
+      newSelected = new Set(filteredMappings.map(group => group.sourceUser.id));
     } else {
-      setSelectedUsers(new Set());
+      newSelected = new Set();
     }
+    setSelectedUsers(newSelected);
+    
+    // Automatically pass selected users to next page
+    const selectedMappings = filteredMappings.filter(group => newSelected.has(group.sourceUser.id));
+    onNext?.(selectedMappings);
   };
 
   const getSelectedUserMappings = () => {
@@ -632,30 +641,6 @@ export const UserMapping = memo(function UserMapping({
               : "No existing users found in target domains"
             }
           </p>
-        </div>
-      )}
-
-      {/* Footer with action buttons */}
-      {filteredMappings.length > 0 && (
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            {selectedUsers.size} of {filteredMappings.length} users selected
-          </div>
-          <button
-            onClick={() => {
-              const selectedMappings = getSelectedUserMappings();
-              console.log('Selected user mappings for next step:', selectedMappings);
-              onNext?.(selectedMappings);
-            }}
-            disabled={selectedUsers.size === 0}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              selectedUsers.size > 0
-                ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            Proceed with {selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} →
-          </button>
         </div>
       )}
     </div>
