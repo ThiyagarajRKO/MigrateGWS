@@ -12,8 +12,39 @@ import {
 interface DriveMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
-  sourceUserEmail: string
-  targetUserEmail: string
+  sourceUserEmail?: string  // For backward compatibility - single user
+  targetUserEmail?: string  // For backward compatibility - single user
+  userMappings?: Array<{    // For multi-user migrations
+    sourceUserEmail: string
+    targetUserEmail: string
+    sourceUser?: any
+    targetUser?: any
+  }>
+  // New: Multiple user batch/group selection support
+  userBatches?: Array<{
+    batchId: string
+    batchName: string
+    userMappings: Array<{
+      sourceUserEmail: string
+      targetUserEmail: string
+      sourceUser?: any
+      targetUser?: any
+    }>
+    priority: 'high' | 'medium' | 'low'
+    scheduledStart?: string
+  }>
+  selectedUserIds?: string[]  // For selective user processing from discovered users
+  selectionCriteria?: {
+    departments?: string[]
+    roles?: string[]
+    emailPatterns?: string[]
+    excludePatterns?: string[]
+    storageUsedGt?: number  // Users with storage > X GB
+    storageUsedLt?: number  // Users with storage < X GB
+    lastActiveAfter?: string
+    lastActiveBefore?: string
+    hasSharedDrives?: boolean
+  }
   migrationOptions: {
     includeSharedDrives: boolean
     preservePermissions: boolean
@@ -22,10 +53,15 @@ interface DriveMigrationRequest {
     fileTypeFilters?: string[]
     sizeLimit?: number // in MB
     batchSize: number
+    concurrentBatches?: number  // How many batches to process concurrently
+    batchProcessingMode?: 'sequential' | 'parallel' | 'adaptive'
+    prioritizeBySize?: boolean  // Process smaller files first
   }
   scenario: 'single-super-admin' | 'cross-tenant'
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   verificationToken?: string
+  realDataMode?: boolean
+  dryRun?: boolean
 }
 
 interface DriveMigrationProgress {
@@ -38,11 +74,60 @@ interface DriveMigrationProgress {
   currentBatch: number
   status: 'initializing' | 'processing' | 'completed' | 'failed'
   errors: Array<{
-    fileId: string
-    fileName: string
+    fileId?: string
+    fileName?: string
+    user?: string
     error: string
     timestamp: string
   }>
+  userProgress?: Array<{
+    sourceUserEmail: string
+    targetUserEmail: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    processedFiles: number
+    migratedFiles: number
+    failedFiles: number
+    totalSize: number
+    migratedSize: number
+    errors: string[]
+  }>
+  // New: Multiple batch progress tracking
+  batchProgress?: Array<{
+    batchId: string
+    batchName: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    totalUsers: number
+    processedUsers: number
+    completedUsers: number
+    failedUsers: number
+    totalFiles: number
+    migratedFiles: number
+    totalSize: number
+    migratedSize: number
+    startTime?: string
+    endTime?: string
+    estimatedCompletion?: string
+    userProgress: Array<{
+      sourceUserEmail: string
+      targetUserEmail: string
+      status: 'pending' | 'processing' | 'completed' | 'failed'
+      processedFiles: number
+      migratedFiles: number
+      failedFiles: number
+      totalSize: number
+      migratedSize: number
+      errors: string[]
+    }>
+  }>
+  selectedUserStats?: {
+    totalSelected: number
+    processed: number
+    completed: number
+    failed: number
+    skipped: number
+    totalStorageGB: number
+    migratedStorageGB: number
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -111,10 +196,43 @@ export async function POST(request: NextRequest) {
       targetAdminEmail,
       sourceUserEmail,
       targetUserEmail,
+      userMappings,
       migrationOptions,
       scenario,
-      domainMapping
+      domainMapping,
+      realDataMode = false,
+      dryRun = false
     } = body
+
+    // Determine migration type and validate user inputs
+    const isSingleUser = sourceUserEmail && targetUserEmail && !userMappings?.length
+    const isMultiUser = userMappings && userMappings.length > 0
+
+    if (!isSingleUser && !isMultiUser) {
+      return NextResponse.json({
+        error: 'Invalid migration configuration',
+        details: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
+      }, { status: 400 })
+    }
+
+    // Normalize user mappings for processing
+    const processUserMappings = isSingleUser 
+      ? [{ sourceUserEmail: sourceUserEmail!, targetUserEmail: targetUserEmail! }]
+      : userMappings!
+
+    console.log(`🚀 Drive Migration Request:`)
+    console.log(`   Type: ${isSingleUser ? 'Single User' : `Multi-User (${processUserMappings.length} users)`}`)
+    console.log(`   Scenario: ${scenario}`)
+    console.log(`   Domain Mapping: ${domainMapping}`)
+    console.log(`   Dry Run: ${dryRun}`)
+    console.log(`   Real Data Mode: ${realDataMode}`)
+
+    if (isMultiUser) {
+      console.log(`📋 User Mappings:`)
+      processUserMappings.forEach((mapping, index) => {
+        console.log(`   ${index + 1}. ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+      })
+    }
 
     // Initialize Drive services based on scenario
     let sourceDriveService: any
@@ -131,7 +249,9 @@ export async function POST(request: NextRequest) {
       targetDriveService = google.drive({ version: 'v3', auth: targetService['jwtClient'] })
     }
 
-    const migrationId = `drive-${Date.now()}-${sourceUserEmail}`
+    const migrationId = `drive-${Date.now()}-multi-user-${processUserMappings.length}`
+    
+    // Initialize migration progress for multi-user support
     const progress: DriveMigrationProgress = {
       totalFiles: 0,
       processedFiles: 0,
@@ -141,36 +261,115 @@ export async function POST(request: NextRequest) {
       migratedSize: 0,
       currentBatch: 0,
       status: 'initializing',
-      errors: []
+      errors: [],
+      userProgress: processUserMappings.map(mapping => ({
+        sourceUserEmail: mapping.sourceUserEmail,
+        targetUserEmail: mapping.targetUserEmail,
+        status: 'pending' as const,
+        processedFiles: 0,
+        migratedFiles: 0,
+        failedFiles: 0,
+        totalSize: 0,
+        migratedSize: 0,
+        errors: []
+      }))
     }
 
-    // Step 1: Get file count and total size
-    const fileStats = await getFileStatistics(sourceDriveService, sourceUserEmail, migrationOptions)
-    progress.totalFiles = fileStats.count
-    progress.totalSize = fileStats.size
-    progress.status = 'processing'
+    console.log(`🚀 Starting Drive migration for ${processUserMappings.length} users`)
 
-    // Step 2: Migrate shared drives (if enabled)
-    if (migrationOptions.includeSharedDrives) {
-      await migrateSharedDrives(sourceDriveService, targetDriveService, sourceUserEmail, targetUserEmail)
+    // Process each user mapping
+    let totalUsers = processUserMappings.length
+    let processedUsers = 0
+    let successfulUsers = 0
+
+    for (let userIndex = 0; userIndex < processUserMappings.length; userIndex++) {
+      const mapping = processUserMappings[userIndex]
+      const { sourceUserEmail: currentSourceUser, targetUserEmail: currentTargetUser } = mapping
+
+      console.log(`📂 Processing user ${userIndex + 1}/${totalUsers}: ${currentSourceUser} → ${currentTargetUser}`)
+
+      try {
+        // Update user progress
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'processing'
+        }
+
+        // Step 1: Get file count and total size for this user
+        const fileStats = await getFileStatistics(sourceDriveService, currentSourceUser, migrationOptions)
+        progress.totalFiles += fileStats.count
+        progress.totalSize += fileStats.size
+
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].processedFiles = fileStats.count
+        }
+
+        // Step 2: Migrate shared drives (if enabled) for this user
+        if (migrationOptions.includeSharedDrives) {
+          await migrateSharedDrives(sourceDriveService, targetDriveService, currentSourceUser, currentTargetUser)
+        }
+
+        // Step 3: Start file migration process for this user (sync for now, could be async)
+        await processFileMigration(
+          sourceDriveService,
+          targetDriveService,
+          currentSourceUser,
+          currentTargetUser,
+          migrationOptions,
+          progress,
+          migrationId
+        )
+
+        // Update progress
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'completed'
+          progress.userProgress[userIndex].migratedFiles = fileStats.count
+        }
+
+        successfulUsers++
+        console.log(`✅ User ${userIndex + 1} migration completed: ${currentSourceUser}`)
+
+      } catch (error: any) {
+        console.error(`❌ User ${userIndex + 1} migration failed: ${currentSourceUser}`, error)
+        
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'failed'
+          progress.userProgress[userIndex].errors.push(error.message || 'Unknown error')
+        }
+        
+        progress.errors.push({
+          user: currentSourceUser,
+          error: error.message || 'Unknown error',
+          timestamp: new Date().toISOString()
+        })
+      }
+
+      processedUsers++
     }
 
-    // Step 3: Start file migration process (async)
-    processFileMigration(
-      sourceDriveService,
-      targetDriveService,
-      sourceUserEmail,
-      targetUserEmail,
-      migrationOptions,
-      progress,
-      migrationId
-    )
+    // Update final status
+    progress.status = successfulUsers === totalUsers ? 'completed' : 
+                     successfulUsers > 0 ? 'completed' : 'failed'
+
+    const results = processUserMappings.map((mapping, index) => ({
+      sourceUserEmail: mapping.sourceUserEmail,
+      targetUserEmail: mapping.targetUserEmail,
+      success: progress.userProgress?.[index]?.status === 'completed' || false,
+      error: progress.userProgress?.[index]?.errors?.[0] || null,
+      migrationId: `${migrationId}-user-${index + 1}`
+    }))
 
     return NextResponse.json({
-      success: true,
+      success: successfulUsers > 0,
       migrationId,
       progress,
-      message: 'Drive migration started successfully'
+      results,
+      summary: {
+        total: totalUsers,
+        successful: successfulUsers,
+        failed: totalUsers - successfulUsers,
+        successRate: `${Math.round((successfulUsers / totalUsers) * 100)}%`
+      },
+      message: `Drive migration completed. ${successfulUsers}/${totalUsers} users migrated successfully.`
     })
 
   } catch (error: any) {

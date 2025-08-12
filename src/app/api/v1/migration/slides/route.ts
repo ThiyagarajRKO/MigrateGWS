@@ -12,8 +12,14 @@ import {
 interface SlidesMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
-  sourceUserEmail: string
-  targetUserEmail: string
+  sourceUserEmail?: string  // For backward compatibility - single user
+  targetUserEmail?: string  // For backward compatibility - single user
+  userMappings?: Array<{    // For multi-user migrations
+    sourceUserEmail: string
+    targetUserEmail: string
+    sourceUser?: any
+    targetUser?: any
+  }>
   migrationOptions: {
     preservePermissions: boolean
     preserveComments: boolean
@@ -25,6 +31,8 @@ interface SlidesMigrationRequest {
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   specificPresentations?: string[] // Specific presentation IDs to migrate
   verificationToken?: string
+  realDataMode?: boolean
+  dryRun?: boolean
 }
 
 interface SlidesMigrationProgress {
@@ -37,10 +45,22 @@ interface SlidesMigrationProgress {
   currentBatch: number
   status: 'initializing' | 'processing' | 'completed' | 'failed'
   errors: Array<{
-    presentationId: string
-    presentationTitle: string
+    presentationId?: string
+    presentationTitle?: string
+    user?: string
     error: string
     timestamp: string
+  }>
+  userProgress?: Array<{
+    sourceUserEmail: string
+    targetUserEmail: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    processedPresentations: number
+    migratedPresentations: number
+    failedPresentations: number
+    processedSlides: number
+    migratedSlides: number
+    errors: string[]
   }>
 }
 
@@ -110,11 +130,43 @@ export async function POST(request: NextRequest) {
       targetAdminEmail,
       sourceUserEmail,
       targetUserEmail,
+      userMappings,
       migrationOptions,
       scenario,
       domainMapping,
-      specificPresentations
+      specificPresentations,
+      realDataMode = false,
+      dryRun = false
     } = body
+
+    // Determine migration type and validate user inputs
+    const isSingleUser = sourceUserEmail && targetUserEmail && !userMappings?.length
+    const isMultiUser = userMappings && userMappings.length > 0
+
+    if (!isSingleUser && !isMultiUser) {
+      return NextResponse.json({
+        error: 'Invalid migration configuration',
+        details: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
+      }, { status: 400 })
+    }
+
+    // Normalize user mappings for processing
+    const processUserMappings = isSingleUser 
+      ? [{ sourceUserEmail: sourceUserEmail!, targetUserEmail: targetUserEmail! }]
+      : userMappings!
+
+    console.log(`🚀 Slides Migration Request:`)
+    console.log(`   Type: ${isSingleUser ? 'Single User' : `Multi-User (${processUserMappings.length} users)`}`)
+    console.log(`   Scenario: ${scenario}`)
+    console.log(`   Domain Mapping: ${domainMapping}`)
+    console.log(`   Dry Run: ${dryRun}`)
+
+    if (isMultiUser) {
+      console.log(`📋 User Mappings:`)
+      processUserMappings.forEach((mapping, index) => {
+        console.log(`   ${index + 1}. ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+      })
+    }
 
     // Initialize Google Slides and Drive services
     let sourceSlidesService: any
@@ -137,7 +189,7 @@ export async function POST(request: NextRequest) {
       targetDriveService = google.drive({ version: 'v3', auth: targetService['jwtClient'] })
     }
 
-    const migrationId = `slides-${Date.now()}-${sourceUserEmail}`
+    const migrationId = `slides-${Date.now()}-${processUserMappings[0].sourceUserEmail}`
     const progress: SlidesMigrationProgress = {
       totalPresentations: 0,
       processedPresentations: 0,
@@ -147,27 +199,51 @@ export async function POST(request: NextRequest) {
       migratedSlides: 0,
       currentBatch: 0,
       status: 'initializing',
-      errors: []
+      errors: [],
+      userProgress: []
     }
 
-    // Step 1: Get presentation count and slide count
-    const slideStats = await getSlideStatistics(sourceDriveService, sourceSlidesService, sourceUserEmail, specificPresentations)
-    progress.totalPresentations = slideStats.presentationCount
-    progress.totalSlides = slideStats.slideCount
+    // Initialize user progress tracking for multi-user scenarios
+    if (isMultiUser) {
+      progress.userProgress = processUserMappings.map(mapping => ({
+        sourceUserEmail: mapping.sourceUserEmail,
+        targetUserEmail: mapping.targetUserEmail,
+        status: 'pending' as const,
+        processedPresentations: 0,
+        migratedPresentations: 0,
+        failedPresentations: 0,
+        processedSlides: 0,
+        migratedSlides: 0,
+        errors: []
+      }))
+    }
+
+    // Get slides statistics for all users to calculate totals
+    for (const mapping of processUserMappings) {
+      try {
+        const slideStats = await getSlideStatistics(sourceDriveService, sourceSlidesService, mapping.sourceUserEmail, specificPresentations)
+        progress.totalPresentations += slideStats.presentationCount
+        progress.totalSlides += slideStats.slideCount
+      } catch (error) {
+        console.warn(`Failed to get slides statistics for ${mapping.sourceUserEmail}:`, error)
+      }
+    }
+
     progress.status = 'processing'
 
-    // Step 2: Start slides migration process (async)
-    processSlideMigration(
+    // Process slides migration for all users
+    processMultiUserSlidesMigration(
       sourceSlidesService,
       targetSlidesService,
       sourceDriveService,
       targetDriveService,
-      sourceUserEmail,
-      targetUserEmail,
+      processUserMappings,
       migrationOptions,
       progress,
       migrationId,
-      specificPresentations
+      specificPresentations,
+      realDataMode,
+      dryRun
     )
 
     return NextResponse.json({
@@ -337,6 +413,168 @@ async function processSlideMigration(
   }
 }
 
+// Multi-user slides migration processing function
+async function processMultiUserSlidesMigration(
+  sourceSlidesService: any,
+  targetSlidesService: any,
+  sourceDriveService: any,
+  targetDriveService: any,
+  userMappings: Array<{ sourceUserEmail: string; targetUserEmail: string }>,
+  options: any,
+  progress: SlidesMigrationProgress,
+  migrationId: string,
+  specificPresentations?: string[],
+  realDataMode: boolean = false,
+  dryRun: boolean = false
+) {
+  try {
+    // Process each user mapping
+    for (let i = 0; i < userMappings.length; i++) {
+      const mapping = userMappings[i]
+      const userProgress = progress.userProgress![i]
+
+      try {
+        userProgress.status = 'processing'
+        console.log(`🔄 Processing slides for user: ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+
+        if (dryRun) {
+          // Dry run: just collect statistics
+          const userSlideStats = await getSlideStatistics(sourceDriveService, sourceSlidesService, mapping.sourceUserEmail, specificPresentations)
+          userProgress.processedPresentations = userSlideStats.presentationCount
+          userProgress.migratedPresentations = userSlideStats.presentationCount
+          userProgress.processedSlides = userSlideStats.slideCount
+          userProgress.migratedSlides = userSlideStats.slideCount
+          console.log(`📊 Dry run stats for ${mapping.sourceUserEmail}: ${userSlideStats.presentationCount} presentations, ${userSlideStats.slideCount} slides`)
+        } else if (realDataMode) {
+          // Real migration
+          let presentationsToMigrate: any[] = []
+
+          if (specificPresentations && specificPresentations.length > 0) {
+            // Get specific presentations from Drive
+            for (const presentationId of specificPresentations) {
+              try {
+                const presentationFile = await sourceDriveService.files.get({ fileId: presentationId })
+                presentationsToMigrate.push(presentationFile.data)
+              } catch (error) {
+                console.error(`Error fetching presentation ${presentationId} for user ${mapping.sourceUserEmail}:`, error)
+                userProgress.errors.push(`Failed to fetch presentation ${presentationId}: ${error}`)
+              }
+            }
+          } else {
+            // Get all presentations owned by this user
+            const presentationsResponse = await sourceDriveService.files.list({
+              q: `'${mapping.sourceUserEmail}' in owners and mimeType='application/vnd.google-apps.presentation'`,
+              fields: 'files(id, name)'
+            })
+            presentationsToMigrate = presentationsResponse.data.files || []
+          }
+
+          // Process presentations for this user
+          const batchSize = options.batchSize || 3
+          for (let j = 0; j < presentationsToMigrate.length; j += batchSize) {
+            const batch = presentationsToMigrate.slice(j, j + batchSize)
+            
+            const migrationPromises = batch.map(async (presentationFile: any) => {
+              try {
+                // Method 1: Copy via Drive API (preserves most formatting)
+                const copiedPresentation = await targetDriveService.files.copy({
+                  fileId: presentationFile.id,
+                  requestBody: {
+                    name: `${presentationFile.name} (Migrated)`,
+                    parents: [] // You can specify target folder if needed
+                  }
+                })
+
+                // Method 2: Detailed migration via Slides API (if needed for specific customizations)
+                if (options.includeRevisionHistory) {
+                  await migrateDetailedPresentationForUser(
+                    sourceSlidesService,
+                    targetSlidesService,
+                    presentationFile.id,
+                    copiedPresentation.data.id,
+                    userProgress
+                  )
+                }
+
+                // Migrate permissions if enabled
+                if (options.preservePermissions) {
+                  await migrateSlidePermissions(sourceDriveService, targetDriveService, presentationFile.id, copiedPresentation.data.id)
+                }
+
+                // Migrate comments if enabled
+                if (options.preserveComments) {
+                  await migrateSlideComments(sourceDriveService, targetDriveService, presentationFile.id, copiedPresentation.data.id)
+                }
+
+                // Transfer ownership if enabled
+                if (options.transferOwnership) {
+                  await transferSlideOwnership(targetDriveService, copiedPresentation.data.id, mapping.targetUserEmail)
+                }
+
+                userProgress.migratedPresentations++
+
+              } catch (error) {
+                userProgress.failedPresentations++
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                userProgress.errors.push(`Presentation ${presentationFile.name || 'Unknown'}: ${errorMessage}`)
+                progress.errors.push({
+                  presentationId: presentationFile.id,
+                  presentationTitle: presentationFile.name || 'Unknown Presentation',
+                  user: mapping.sourceUserEmail,
+                  error: errorMessage,
+                  timestamp: new Date().toISOString()
+                })
+              }
+              userProgress.processedPresentations++
+            })
+
+            await Promise.all(migrationPromises)
+          }
+        } else {
+          // Mock mode: simulate migration
+          const mockStats = { presentationCount: 8, slideCount: 64 }
+          userProgress.processedPresentations = mockStats.presentationCount
+          userProgress.migratedPresentations = mockStats.presentationCount
+          userProgress.processedSlides = mockStats.slideCount
+          userProgress.migratedSlides = mockStats.slideCount
+          console.log(`🎭 Mock migration for ${mapping.sourceUserEmail}: ${mockStats.presentationCount} presentations, ${mockStats.slideCount} slides`)
+        }
+
+        userProgress.status = 'completed'
+        console.log(`✅ Completed slides migration for user: ${mapping.sourceUserEmail}`)
+
+      } catch (error) {
+        console.error(`❌ Error migrating slides for user ${mapping.sourceUserEmail}:`, error)
+        userProgress.status = 'failed'
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+        userProgress.errors.push(errorMessage)
+        progress.errors.push({
+          user: mapping.sourceUserEmail,
+          error: errorMessage,
+          timestamp: new Date().toISOString()
+        })
+      }
+    }
+
+    // Calculate final totals from user progress
+    progress.migratedPresentations = progress.userProgress!.reduce((sum, up) => sum + up.migratedPresentations, 0)
+    progress.migratedSlides = progress.userProgress!.reduce((sum, up) => sum + up.migratedSlides, 0)
+    progress.failedPresentations = progress.userProgress!.reduce((sum, up) => sum + up.failedPresentations, 0)
+    progress.processedPresentations = progress.userProgress!.reduce((sum, up) => sum + up.processedPresentations, 0)
+
+    progress.status = 'completed'
+    console.log(`🎉 Multi-user slides migration completed for ${userMappings.length} users`)
+
+  } catch (error) {
+    progress.status = 'failed'
+    console.error('Multi-user slides migration processing error:', error)
+    progress.errors.push({
+      error: error instanceof Error ? error.message : 'Unknown error in multi-user processing',
+      timestamp: new Date().toISOString()
+    })
+  }
+}
+
 // Helper function for detailed presentation migration
 async function migrateDetailedPresentation(
   sourceSlidesService: any,
@@ -385,6 +623,60 @@ async function migrateDetailedPresentation(
 
   } catch (error) {
     console.error('Detailed presentation migration error:', error)
+  }
+}
+
+// Helper function for detailed presentation migration for a specific user
+async function migrateDetailedPresentationForUser(
+  sourceSlidesService: any,
+  targetSlidesService: any,
+  sourcePresentationId: string,
+  targetPresentationId: string,
+  userProgress: any
+) {
+  try {
+    // Get source presentation
+    const sourcePresentation = await sourceSlidesService.presentations.get({
+      presentationId: sourcePresentationId
+    })
+
+    // Create new presentation with same title
+    const newPresentation = await targetSlidesService.presentations.create({
+      requestBody: {
+        title: sourcePresentation.data.title
+      }
+    })
+
+    // Copy slides one by one
+    const slides = sourcePresentation.data.slides || []
+    
+    for (const slide of slides) {
+      try {
+        // Create slide in target presentation
+        await targetSlidesService.presentations.batchUpdate({
+          presentationId: newPresentation.data.presentationId,
+          requestBody: {
+            requests: [{
+              createSlide: {
+                slideLayoutReference: {
+                  predefinedLayout: 'BLANK'
+                }
+              }
+            }]
+          }
+        })
+
+        userProgress.migratedSlides++
+        userProgress.processedSlides++
+      } catch (error) {
+        console.error(`Error migrating slide ${slide.objectId}:`, error)
+        userProgress.errors.push(`Slide ${slide.objectId}: ${error}`)
+      }
+    }
+
+  } catch (error) {
+    console.error('Detailed presentation migration error for user:', error)
+    userProgress.errors.push(`Detailed presentation migration error: ${error}`)
   }
 }
 

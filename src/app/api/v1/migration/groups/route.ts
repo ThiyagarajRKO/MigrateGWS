@@ -15,6 +15,12 @@ export const dynamic = 'force-dynamic'
 interface GroupsMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
+  sourceDomains?: string[]  // For multi-domain migrations
+  targetDomains?: string[]  // For multi-domain migrations
+  userMappings?: Array<{    // For user email domain mapping
+    sourceDomain: string
+    targetDomain: string
+  }>
   migrationOptions: {
     includeSettings: boolean
     includeMembers: boolean
@@ -27,6 +33,8 @@ interface GroupsMigrationRequest {
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   sourceGroups?: string[] // Specific groups to migrate (optional)
   verificationToken?: string
+  realDataMode?: boolean
+  dryRun?: boolean
 }
 
 interface GroupsMigrationProgress {
@@ -39,10 +47,22 @@ interface GroupsMigrationProgress {
   currentBatch: number
   status: 'initializing' | 'processing' | 'completed' | 'failed'
   errors: Array<{
-    groupId: string
-    groupEmail: string
+    groupId?: string
+    groupName?: string
+    domain?: string
     error: string
     timestamp: string
+  }>
+  domainProgress?: Array<{
+    sourceDomain: string
+    targetDomain: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    processedGroups: number
+    migratedGroups: number
+    failedGroups: number
+    processedMembers: number
+    migratedMembers: number
+    errors: string[]
   }>
 }
 
@@ -308,7 +328,7 @@ async function processGroupMigration(
           progress.failedGroups++
           progress.errors.push({
             groupId: group.id,
-            groupEmail: group.email,
+            groupName: group.name,
             error: (error as Error).message,
             timestamp: new Date().toISOString()
           })

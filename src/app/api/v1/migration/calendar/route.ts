@@ -12,8 +12,42 @@ import {
 interface CalendarMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
-  sourceUserEmail: string
-  targetUserEmail: string
+  sourceUserEmail?: string  // For backward compatibility - single user
+  targetUserEmail?: string  // For backward compatibility - single user
+  userMappings?: Array<{    // For multi-user migrations
+    sourceUserEmail: string
+    targetUserEmail: string
+    sourceUser?: any
+    targetUser?: any
+  }>
+  // New: Multiple user batch/group selection support
+  userBatches?: Array<{
+    batchId: string
+    batchName: string
+    userMappings: Array<{
+      sourceUserEmail: string
+      targetUserEmail: string
+      sourceUser?: any
+      targetUser?: any
+    }>
+    priority: 'high' | 'medium' | 'low'
+    scheduledStart?: string
+    calendarFilters?: string[]  // Specific calendar IDs for this batch
+  }>
+  selectedUserIds?: string[]  // For selective user processing from discovered users
+  selectionCriteria?: {
+    departments?: string[]
+    roles?: string[]
+    emailPatterns?: string[]
+    excludePatterns?: string[]
+    hasSharedCalendars?: boolean
+    calendarCountGt?: number  // Users with > X calendars
+    calendarCountLt?: number  // Users with < X calendars
+    eventCountGt?: number     // Users with > X events
+    eventCountLt?: number     // Users with < X events
+    lastEventAfter?: string
+    lastEventBefore?: string
+  }
   migrationOptions: {
     includeSharedCalendars: boolean
     includeSubscribedCalendars: boolean
@@ -24,11 +58,16 @@ interface CalendarMigrationRequest {
     batchSize: number
     pastEventsDays?: number // How many days back to migrate
     futureEventsDays?: number // How many days forward to migrate
+    concurrentBatches?: number  // How many batches to process concurrently
+    batchProcessingMode?: 'sequential' | 'parallel' | 'adaptive'
+    prioritizeByEventCount?: boolean  // Process users with fewer events first
   }
   scenario: 'single-super-admin' | 'cross-tenant'
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   specificCalendars?: string[] // Specific calendar IDs to migrate
   verificationToken?: string
+  realDataMode?: boolean
+  dryRun?: boolean
 }
 
 interface CalendarMigrationProgress {
@@ -43,10 +82,22 @@ interface CalendarMigrationProgress {
   currentBatch: number
   status: 'initializing' | 'processing' | 'completed' | 'failed'
   errors: Array<{
-    calendarId: string
-    calendarName: string
+    calendarId?: string
+    calendarName?: string
+    user?: string
     error: string
     timestamp: string
+  }>
+  userProgress?: Array<{
+    sourceUserEmail: string
+    targetUserEmail: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    processedCalendars: number
+    migratedCalendars: number
+    failedCalendars: number
+    processedEvents: number
+    migratedEvents: number
+    errors: string[]
   }>
 }
 
@@ -116,11 +167,44 @@ export async function POST(request: NextRequest) {
       targetAdminEmail,
       sourceUserEmail,
       targetUserEmail,
+      userMappings,
       migrationOptions,
       scenario,
       domainMapping,
-      specificCalendars
+      specificCalendars,
+      realDataMode = false,
+      dryRun = false
     } = body
+
+    // Determine migration type and validate user inputs
+    const isSingleUser = sourceUserEmail && targetUserEmail && !userMappings?.length
+    const isMultiUser = userMappings && userMappings.length > 0
+
+    if (!isSingleUser && !isMultiUser) {
+      return NextResponse.json({
+        error: 'Invalid migration configuration',
+        details: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
+      }, { status: 400 })
+    }
+
+    // Normalize user mappings for processing
+    const processUserMappings = isSingleUser 
+      ? [{ sourceUserEmail: sourceUserEmail!, targetUserEmail: targetUserEmail! }]
+      : userMappings!
+
+    console.log(`🚀 Calendar Migration Request:`)
+    console.log(`   Type: ${isSingleUser ? 'Single User' : `Multi-User (${processUserMappings.length} users)`}`)
+    console.log(`   Scenario: ${scenario}`)
+    console.log(`   Domain Mapping: ${domainMapping}`)
+    console.log(`   Dry Run: ${dryRun}`)
+    console.log(`   Real Data Mode: ${realDataMode}`)
+
+    if (isMultiUser) {
+      console.log(`📋 User Mappings:`)
+      processUserMappings.forEach((mapping, index) => {
+        console.log(`   ${index + 1}. ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+      })
+    }
 
     // Initialize Google Calendar services
     let sourceCalendarService: any
@@ -137,7 +221,9 @@ export async function POST(request: NextRequest) {
       targetCalendarService = google.calendar({ version: 'v3', auth: targetService['jwtClient'] })
     }
 
-    const migrationId = `calendar-${Date.now()}-${sourceUserEmail}`
+    const migrationId = `calendar-${Date.now()}-multi-user-${processUserMappings.length}`
+    
+    // Initialize migration progress for multi-user support
     const progress: CalendarMigrationProgress = {
       totalCalendars: 0,
       processedCalendars: 0,
@@ -149,33 +235,114 @@ export async function POST(request: NextRequest) {
       migratedSharedCalendars: 0,
       currentBatch: 0,
       status: 'initializing',
-      errors: []
+      errors: [],
+      userProgress: processUserMappings.map(mapping => ({
+        sourceUserEmail: mapping.sourceUserEmail,
+        targetUserEmail: mapping.targetUserEmail,
+        status: 'pending' as const,
+        processedCalendars: 0,
+        migratedCalendars: 0,
+        failedCalendars: 0,
+        processedEvents: 0,
+        migratedEvents: 0,
+        errors: []
+      }))
     }
 
-    // Step 1: Get calendar statistics
-    const calendarStats = await getCalendarStatistics(sourceCalendarService, sourceUserEmail, specificCalendars)
-    progress.totalCalendars = calendarStats.calendarCount
-    progress.totalEvents = calendarStats.eventCount
-    progress.totalSharedCalendars = calendarStats.sharedCalendarCount
-    progress.status = 'processing'
+    console.log(`🚀 Starting Calendar migration for ${processUserMappings.length} users`)
 
-    // Step 2: Start calendar migration process (async)
-    processCalendarMigration(
-      sourceCalendarService,
-      targetCalendarService,
-      sourceUserEmail,
-      targetUserEmail,
-      migrationOptions,
-      progress,
-      migrationId,
-      specificCalendars
-    )
+    // Process each user mapping
+    let totalUsers = processUserMappings.length
+    let processedUsers = 0
+    let successfulUsers = 0
+
+    for (let userIndex = 0; userIndex < processUserMappings.length; userIndex++) {
+      const mapping = processUserMappings[userIndex]
+      const { sourceUserEmail: currentSourceUser, targetUserEmail: currentTargetUser } = mapping
+
+      console.log(`📅 Processing user ${userIndex + 1}/${totalUsers}: ${currentSourceUser} → ${currentTargetUser}`)
+
+      try {
+        // Update user progress
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'processing'
+        }
+
+        // Step 1: Get calendar statistics for this user
+        const calendarStats = await getCalendarStatistics(sourceCalendarService, currentSourceUser, specificCalendars)
+        progress.totalCalendars += calendarStats.calendarCount
+        progress.totalEvents += calendarStats.eventCount
+        progress.totalSharedCalendars += calendarStats.sharedCalendarCount
+
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].processedCalendars = calendarStats.calendarCount
+          progress.userProgress[userIndex].processedEvents = calendarStats.eventCount
+        }
+
+        // Step 2: Process calendar migration for this user (sync processing)
+        await processCalendarMigration(
+          sourceCalendarService,
+          targetCalendarService,
+          currentSourceUser,
+          currentTargetUser,
+          migrationOptions,
+          progress,
+          migrationId,
+          specificCalendars
+        )
+
+        // Update progress
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'completed'
+          progress.userProgress[userIndex].migratedCalendars = calendarStats.calendarCount
+          progress.userProgress[userIndex].migratedEvents = calendarStats.eventCount
+        }
+
+        successfulUsers++
+        console.log(`✅ User ${userIndex + 1} calendar migration completed: ${currentSourceUser}`)
+
+      } catch (error: any) {
+        console.error(`❌ User ${userIndex + 1} calendar migration failed: ${currentSourceUser}`, error)
+        
+        if (progress.userProgress) {
+          progress.userProgress[userIndex].status = 'failed'
+          progress.userProgress[userIndex].errors.push(error.message || 'Unknown error')
+        }
+        
+        progress.errors.push({
+          user: currentSourceUser,
+          error: error.message || 'Unknown error',
+          timestamp: new Date().toISOString()
+        })
+      }
+
+      processedUsers++
+    }
+
+    // Update final status
+    progress.status = successfulUsers === totalUsers ? 'completed' : 
+                     successfulUsers > 0 ? 'completed' : 'failed'
+
+    const results = processUserMappings.map((mapping, index) => ({
+      sourceUserEmail: mapping.sourceUserEmail,
+      targetUserEmail: mapping.targetUserEmail,
+      success: progress.userProgress?.[index]?.status === 'completed' || false,
+      error: progress.userProgress?.[index]?.errors?.[0] || null,
+      migrationId: `${migrationId}-user-${index + 1}`
+    }))
 
     return NextResponse.json({
-      success: true,
+      success: successfulUsers > 0,
       migrationId,
       progress,
-      message: 'Calendar migration started successfully'
+      results,
+      summary: {
+        total: totalUsers,
+        successful: successfulUsers,
+        failed: totalUsers - successfulUsers,
+        successRate: `${Math.round((successfulUsers / totalUsers) * 100)}%`
+      },
+      message: `Calendar migration completed. ${successfulUsers}/${totalUsers} users migrated successfully.`
     })
 
   } catch (error: any) {

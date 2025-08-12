@@ -15,8 +15,14 @@ export const dynamic = 'force-dynamic'
 interface PhotosMigrationRequest {
   sourceAdminEmail: string
   targetAdminEmail: string
-  sourceUserEmail: string
-  targetUserEmail: string
+  sourceUserEmail?: string  // For backward compatibility - single user
+  targetUserEmail?: string  // For backward compatibility - single user
+  userMappings?: Array<{    // For multi-user migrations
+    sourceUserEmail: string
+    targetUserEmail: string
+    sourceUser?: any
+    targetUser?: any
+  }>
   migrationOptions: {
     includeAlbums: boolean
     includeSharedAlbums: boolean
@@ -30,6 +36,8 @@ interface PhotosMigrationRequest {
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   specificAlbums?: string[] // Specific album IDs to migrate
   verificationToken?: string
+  realDataMode?: boolean
+  dryRun?: boolean
 }
 
 interface PhotosMigrationProgress {
@@ -44,10 +52,22 @@ interface PhotosMigrationProgress {
   currentBatch: number
   status: 'initializing' | 'processing' | 'completed' | 'failed'
   errors: Array<{
-    albumId: string
-    albumTitle: string
+    albumId?: string
+    albumTitle?: string
+    user?: string
     error: string
     timestamp: string
+  }>
+  userProgress?: Array<{
+    sourceUserEmail: string
+    targetUserEmail: string
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    processedAlbums: number
+    migratedAlbums: number
+    failedAlbums: number
+    processedMediaItems: number
+    migratedMediaItems: number
+    errors: string[]
   }>
 }
 
@@ -117,11 +137,43 @@ export async function POST(request: NextRequest) {
       targetAdminEmail,
       sourceUserEmail,
       targetUserEmail,
+      userMappings,
       migrationOptions,
       scenario,
       domainMapping,
-      specificAlbums
+      specificAlbums,
+      realDataMode = false,
+      dryRun = false
     } = body
+
+    // Determine migration type and validate user inputs
+    const isSingleUser = sourceUserEmail && targetUserEmail && !userMappings?.length
+    const isMultiUser = userMappings && userMappings.length > 0
+
+    if (!isSingleUser && !isMultiUser) {
+      return NextResponse.json({
+        error: 'Invalid migration configuration',
+        details: 'Must provide either sourceUserEmail/targetUserEmail for single user or userMappings array for multi-user migration'
+      }, { status: 400 })
+    }
+
+    // Normalize user mappings for processing
+    const processUserMappings = isSingleUser 
+      ? [{ sourceUserEmail: sourceUserEmail!, targetUserEmail: targetUserEmail! }]
+      : userMappings!
+
+    console.log(`🚀 Photos Migration Request:`)
+    console.log(`   Type: ${isSingleUser ? 'Single User' : `Multi-User (${processUserMappings.length} users)`}`)
+    console.log(`   Scenario: ${scenario}`)
+    console.log(`   Domain Mapping: ${domainMapping}`)
+    console.log(`   Dry Run: ${dryRun}`)
+
+    if (isMultiUser) {
+      console.log(`📋 User Mappings:`)
+      processUserMappings.forEach((mapping, index) => {
+        console.log(`   ${index + 1}. ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+      })
+    }
 
     // Initialize Google Photos Library services
     let sourcePhotosService: any
@@ -176,7 +228,7 @@ export async function POST(request: NextRequest) {
       targetPhotosService = mockService
     }
 
-    const migrationId = `photos-${Date.now()}-${sourceUserEmail}`
+    const migrationId = `photos-${Date.now()}-${processUserMappings[0].sourceUserEmail}`
     const progress: PhotosMigrationProgress = {
       totalAlbums: 0,
       processedAlbums: 0,
@@ -188,26 +240,50 @@ export async function POST(request: NextRequest) {
       migratedSharedAlbums: 0,
       currentBatch: 0,
       status: 'initializing',
-      errors: []
+      errors: [],
+      userProgress: []
     }
 
-    // Step 1: Get photos statistics
-    const photosStats = await getPhotosStatistics(sourcePhotosService, sourceUserEmail, specificAlbums)
-    progress.totalAlbums = photosStats.albumCount
-    progress.totalMediaItems = photosStats.mediaItemCount
-    progress.totalSharedAlbums = photosStats.sharedAlbumCount
+    // Initialize user progress tracking for multi-user scenarios
+    if (isMultiUser) {
+      progress.userProgress = processUserMappings.map(mapping => ({
+        sourceUserEmail: mapping.sourceUserEmail,
+        targetUserEmail: mapping.targetUserEmail,
+        status: 'pending' as const,
+        processedAlbums: 0,
+        migratedAlbums: 0,
+        failedAlbums: 0,
+        processedMediaItems: 0,
+        migratedMediaItems: 0,
+        errors: []
+      }))
+    }
+
+    // Get photos statistics for all users to calculate totals
+    for (const mapping of processUserMappings) {
+      try {
+        const photosStats = await getPhotosStatistics(sourcePhotosService, mapping.sourceUserEmail, specificAlbums)
+        progress.totalAlbums += photosStats.albumCount
+        progress.totalMediaItems += photosStats.mediaItemCount
+        progress.totalSharedAlbums += photosStats.sharedAlbumCount
+      } catch (error) {
+        console.warn(`Failed to get photos statistics for ${mapping.sourceUserEmail}:`, error)
+      }
+    }
+
     progress.status = 'processing'
 
-    // Step 2: Start photos migration process (async)
-    processPhotosMigration(
+    // Process photos migration for all users
+    processMultiUserPhotosMigration(
       sourcePhotosService,
       targetPhotosService,
-      sourceUserEmail,
-      targetUserEmail,
+      processUserMappings,
       migrationOptions,
       progress,
       migrationId,
-      specificAlbums
+      specificAlbums,
+      realDataMode,
+      dryRun
     )
 
     return NextResponse.json({
@@ -410,6 +486,170 @@ async function processPhotosMigration(
   } catch (error) {
     progress.status = 'failed'
     console.error('Photos migration processing error:', error)
+  }
+}
+
+// Multi-user photos migration processing function
+async function processMultiUserPhotosMigration(
+  sourcePhotosService: any,
+  targetPhotosService: any,
+  userMappings: Array<{ sourceUserEmail: string; targetUserEmail: string }>,
+  options: any,
+  progress: PhotosMigrationProgress,
+  migrationId: string,
+  specificAlbums?: string[],
+  realDataMode: boolean = false,
+  dryRun: boolean = false
+) {
+  try {
+    // Process each user mapping
+    for (let i = 0; i < userMappings.length; i++) {
+      const mapping = userMappings[i]
+      const userProgress = progress.userProgress![i]
+
+      try {
+        userProgress.status = 'processing'
+        console.log(`🔄 Processing photos for user: ${mapping.sourceUserEmail} → ${mapping.targetUserEmail}`)
+
+        if (dryRun) {
+          // Dry run: just collect statistics
+          const userPhotosStats = await getPhotosStatistics(sourcePhotosService, mapping.sourceUserEmail, specificAlbums)
+          userProgress.processedAlbums = userPhotosStats.albumCount
+          userProgress.migratedAlbums = userPhotosStats.albumCount
+          userProgress.processedMediaItems = userPhotosStats.mediaItemCount
+          userProgress.migratedMediaItems = userPhotosStats.mediaItemCount
+          console.log(`📊 Dry run stats for ${mapping.sourceUserEmail}: ${userPhotosStats.albumCount} albums, ${userPhotosStats.mediaItemCount} media items`)
+        } else if (realDataMode) {
+          // Real migration
+          let albumsToMigrate: any[] = []
+
+          if (specificAlbums && specificAlbums.length > 0) {
+            // Get specific albums
+            for (const albumId of specificAlbums) {
+              try {
+                const album = await sourcePhotosService.albums.get({ albumId: albumId })
+                albumsToMigrate.push(album.data)
+              } catch (error) {
+                console.error(`Error fetching album ${albumId} for user ${mapping.sourceUserEmail}:`, error)
+                userProgress.errors.push(`Failed to fetch album ${albumId}: ${error}`)
+              }
+            }
+          } else {
+            // Get all albums for this user
+            if (options.includeAlbums) {
+              const albumsResponse = await sourcePhotosService.albums.list({
+                pageSize: 50
+              })
+              albumsToMigrate = albumsResponse.data.albums || []
+            }
+          }
+
+          // Process albums for this user
+          const batchSize = options.batchSize || 2
+          for (let j = 0; j < albumsToMigrate.length; j += batchSize) {
+            const batch = albumsToMigrate.slice(j, j + batchSize)
+            
+            const migrationPromises = batch.map(async (album: any) => {
+              try {
+                // Skip shared albums if not included
+                if (album.shareInfo && !options.includeSharedAlbums) {
+                  userProgress.processedAlbums++
+                  return
+                }
+
+                // Create album in target
+                const newAlbum = await createTargetAlbum(targetPhotosService, album)
+
+                // Migrate media items
+                await migrateAlbumMediaForUser(
+                  sourcePhotosService,
+                  targetPhotosService,
+                  album.id,
+                  newAlbum.id,
+                  mapping,
+                  options,
+                  userProgress
+                )
+
+                // Migrate sharing settings if enabled
+                if (options.preserveSharing && album.shareInfo) {
+                  await migrateAlbumSharing(
+                    targetPhotosService,
+                    newAlbum.id,
+                    album.shareInfo
+                  )
+                }
+
+                userProgress.migratedAlbums++
+
+              } catch (error) {
+                userProgress.failedAlbums++
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                userProgress.errors.push(`Album ${album.title || 'Unknown'}: ${errorMessage}`)
+                progress.errors.push({
+                  albumId: album.id,
+                  albumTitle: album.title || 'Unknown Album',
+                  user: mapping.sourceUserEmail,
+                  error: errorMessage,
+                  timestamp: new Date().toISOString()
+                })
+              }
+              userProgress.processedAlbums++
+            })
+
+            await Promise.all(migrationPromises)
+          }
+
+          // Migrate unalbumed media for this user
+          await migrateUnalbumedMediaForUser(
+            sourcePhotosService,
+            targetPhotosService,
+            mapping,
+            options,
+            userProgress
+          )
+        } else {
+          // Mock mode: simulate migration
+          const mockStats = { albumCount: 3, mediaItemCount: 25, sharedAlbumCount: 1 }
+          userProgress.processedAlbums = mockStats.albumCount
+          userProgress.migratedAlbums = mockStats.albumCount
+          userProgress.processedMediaItems = mockStats.mediaItemCount
+          userProgress.migratedMediaItems = mockStats.mediaItemCount
+          console.log(`🎭 Mock migration for ${mapping.sourceUserEmail}: ${mockStats.albumCount} albums, ${mockStats.mediaItemCount} media items`)
+        }
+
+        userProgress.status = 'completed'
+        console.log(`✅ Completed photos migration for user: ${mapping.sourceUserEmail}`)
+
+      } catch (error) {
+        console.error(`❌ Error migrating photos for user ${mapping.sourceUserEmail}:`, error)
+        userProgress.status = 'failed'
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+        userProgress.errors.push(errorMessage)
+        progress.errors.push({
+          user: mapping.sourceUserEmail,
+          error: errorMessage,
+          timestamp: new Date().toISOString()
+        })
+      }
+    }
+
+    // Calculate final totals from user progress
+    progress.migratedAlbums = progress.userProgress!.reduce((sum, up) => sum + up.migratedAlbums, 0)
+    progress.migratedMediaItems = progress.userProgress!.reduce((sum, up) => sum + up.migratedMediaItems, 0)
+    progress.failedAlbums = progress.userProgress!.reduce((sum, up) => sum + up.failedAlbums, 0)
+    progress.processedAlbums = progress.userProgress!.reduce((sum, up) => sum + up.processedAlbums, 0)
+
+    progress.status = 'completed'
+    console.log(`🎉 Multi-user photos migration completed for ${userMappings.length} users`)
+
+  } catch (error) {
+    progress.status = 'failed'
+    console.error('Multi-user photos migration processing error:', error)
+    progress.errors.push({
+      error: error instanceof Error ? error.message : 'Unknown error in multi-user processing',
+      timestamp: new Date().toISOString()
+    })
   }
 }
 
@@ -617,6 +857,120 @@ async function migrateAlbumSharing(
 
   } catch (error) {
     console.error('Error migrating album sharing:', error)
+  }
+}
+
+// Helper function to migrate album media for a specific user
+async function migrateAlbumMediaForUser(
+  sourcePhotosService: any,
+  targetPhotosService: any,
+  sourceAlbumId: string,
+  targetAlbumId: string,
+  userMapping: { sourceUserEmail: string; targetUserEmail: string },
+  options: any,
+  userProgress: any
+) {
+  try {
+    let nextPageToken = ''
+    
+    do {
+      const mediaResponse = await sourcePhotosService.mediaItems.search({
+        requestBody: {
+          albumId: sourceAlbumId,
+          pageSize: 50,
+          pageToken: nextPageToken
+        }
+      })
+
+      const mediaItems = mediaResponse.data.mediaItems || []
+      
+      for (const mediaItem of mediaItems) {
+        try {
+          // Skip video files if not included
+          if (!options.includeVideoFiles && mediaItem.mediaMetadata?.video) {
+            continue
+          }
+
+          // Copy media item to target album
+          await copyMediaItem(
+            sourcePhotosService,
+            targetPhotosService,
+            mediaItem,
+            targetAlbumId,
+            options.preserveMetadata
+          )
+
+          userProgress.migratedMediaItems++
+
+        } catch (error) {
+          console.error(`Error migrating media item ${mediaItem.id} for user ${userMapping.sourceUserEmail}:`, error)
+          userProgress.errors.push(`Media item ${mediaItem.filename || mediaItem.id}: ${error}`)
+        }
+        userProgress.processedMediaItems++
+      }
+
+      nextPageToken = mediaResponse.data.nextPageToken || ''
+    } while (nextPageToken)
+
+  } catch (error) {
+    console.error(`Error migrating album media for user ${userMapping.sourceUserEmail}:`, error)
+    userProgress.errors.push(`Album media migration error: ${error}`)
+  }
+}
+
+// Helper function to migrate unalbumed media for a specific user
+async function migrateUnalbumedMediaForUser(
+  sourcePhotosService: any,
+  targetPhotosService: any,
+  userMapping: { sourceUserEmail: string; targetUserEmail: string },
+  options: any,
+  userProgress: any
+) {
+  try {
+    let nextPageToken = ''
+    
+    do {
+      const mediaResponse = await sourcePhotosService.mediaItems.list({
+        pageSize: 50,
+        pageToken: nextPageToken
+      })
+
+      const mediaItems = mediaResponse.data.mediaItems || []
+      
+      for (const mediaItem of mediaItems) {
+        try {
+          // Skip if already in an album (simplified check)
+          // In real implementation, you'd need to check if item is in any album
+          
+          // Skip video files if not included
+          if (!options.includeVideoFiles && mediaItem.mediaMetadata?.video) {
+            continue
+          }
+
+          // Copy media item without album
+          await copyMediaItem(
+            sourcePhotosService,
+            targetPhotosService,
+            mediaItem,
+            '', // No album
+            options.preserveMetadata
+          )
+
+          userProgress.migratedMediaItems++
+
+        } catch (error) {
+          console.error(`Error migrating unalbumed media item ${mediaItem.id} for user ${userMapping.sourceUserEmail}:`, error)
+          userProgress.errors.push(`Unalbumed media ${mediaItem.filename || mediaItem.id}: ${error}`)
+        }
+        userProgress.processedMediaItems++
+      }
+
+      nextPageToken = mediaResponse.data.nextPageToken || ''
+    } while (nextPageToken)
+
+  } catch (error) {
+    console.error(`Error migrating unalbumed media for user ${userMapping.sourceUserEmail}:`, error)
+    userProgress.errors.push(`Unalbumed media migration error: ${error}`)
   }
 }
 
