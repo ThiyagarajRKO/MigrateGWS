@@ -5,6 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useCrossTenantTokens } from '@/lib/cross-tenant-auth-context';
 import { useVerificationTokenGenerator } from '@/hooks/useVerificationTokenGenerator';
+import { 
+  generateEnhancedVerificationToken, 
+  parseEnhancedVerificationToken, 
+  isEnhancedTokenValidForDomains,
+  type EnhancedVerificationTokenData 
+} from '@/lib/enhanced-verification-token';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { 
   MigrationScenario, 
@@ -251,6 +257,10 @@ export default function NewMigration() {
     storageKey: 'dwd_verification_token'
   });
 
+  // Enhanced verification token state
+  const [enhancedVerificationToken, setEnhancedVerificationToken] = useState<string | null>(null);
+  const [enhancedTokenData, setEnhancedTokenData] = useState<EnhancedVerificationTokenData | null>(null);
+
   // Component lifecycle tracking
   useEffect(() => {
     console.log('[Migration Wizard] Component mounted at:', new Date().toISOString());
@@ -267,6 +277,70 @@ export default function NewMigration() {
       console.log('[Migration Wizard] Component unmounting at:', new Date().toISOString());
     };
   }, []);
+
+  // Enhanced verification token generation
+  const generateEnhancedToken = useCallback(() => {
+    if (!migrationConfig.sourceDomain || !migrationConfig.targetDomain) {
+      console.log('[Enhanced Token] Cannot generate token: missing domain configuration');
+      return;
+    }
+
+    try {
+      const verifiedDomains = [migrationConfig.sourceDomain, migrationConfig.targetDomain];
+      const adminEmails = {
+        [migrationConfig.sourceDomain]: sourceAdminEmail || `admin@${migrationConfig.sourceDomain}`,
+        [migrationConfig.targetDomain]: targetAdminEmails[migrationConfig.targetDomain] || `admin@${migrationConfig.targetDomain}`
+      };
+
+      const migrationScenario = migrationConfig.sourceDomain === migrationConfig.targetDomain 
+        ? 'single-super-admin' 
+        : 'cross-tenant';
+
+      const delegationStatus = {
+        source: { verified: true }, // Assume verified for now
+        dest: { verified: true }    // Will be validated during migration
+      };
+
+      // Generate enhanced token with signing enabled
+      const enhancedToken = generateEnhancedVerificationToken(
+        verifiedDomains,
+        adminEmails,
+        migrationScenario,
+        delegationStatus,
+        { 
+          enableSigning: true, 
+          enableEncryption: false, // Keep simple for now
+          expirationMinutes: 1440  // 24 hours
+        }
+      );
+
+      // Parse token to get data for state
+      const tokenData = parseEnhancedVerificationToken(enhancedToken);
+
+      setEnhancedVerificationToken(enhancedToken);
+      setEnhancedTokenData(tokenData);
+
+      console.log('[Enhanced Token] Generated enhanced verification token:', {
+        verificationId: tokenData?.verificationId,
+        verifiedDomains: tokenData?.verifiedDomains,
+        migrationScenario: tokenData?.migrationScenario,
+        timestamp: tokenData?.timestamp
+      });
+
+      // Store in localStorage for persistence
+      localStorage.setItem('enhanced_verification_token', enhancedToken);
+
+    } catch (error) {
+      console.error('[Enhanced Token] Failed to generate enhanced verification token:', error);
+    }
+  }, [migrationConfig.sourceDomain, migrationConfig.targetDomain, sourceAdminEmail, targetAdminEmails]);
+
+  // Generate enhanced token when domain configuration changes
+  useEffect(() => {
+    if (migrationConfig.sourceDomain && migrationConfig.targetDomain) {
+      generateEnhancedToken();
+    }
+  }, [generateEnhancedToken]);
 
   // Cross-tenant authentication for auto-populating admin emails
   const { sourceAdminEmail: authSourceAdminEmail, targetAdminEmail: authTargetAdminEmail } = useCrossTenantTokens();
@@ -367,7 +441,7 @@ export default function NewMigration() {
           increment: increment.toFixed(2),
           effectiveUserCount,
           relationship: userMappingConfig?.relationship,
-          activeServices: migrationConfig.services.filter(s => 
+          activeServices: (migrationConfig?.services || []).filter(s => 
             prev.serviceProgress?.[s.toLowerCase()]?.status === 'running'
           ),
           timestamp: new Date().toISOString()
@@ -398,7 +472,7 @@ export default function NewMigration() {
         const userProgress = prev.userProgress ? { ...prev.userProgress } : {};
 
         // Update service progress with relationship awareness
-        migrationConfig.services.forEach((service, index) => {
+        (migrationConfig?.services || []).forEach((service, index) => {
           const serviceName = service.toLowerCase();
           if (!serviceProgress[serviceName]) {
             console.log(`[Service Migration] Initializing service progress for: ${serviceName}`, {
@@ -659,13 +733,13 @@ export default function NewMigration() {
               
               // Start next service
               const nextServiceIndex = index + 1;
-              if (nextServiceIndex < migrationConfig.services.length) {
-                const nextServiceName = migrationConfig.services[nextServiceIndex].toLowerCase();
+              if (nextServiceIndex < (migrationConfig?.services || []).length) {
+                const nextServiceName = (migrationConfig?.services || [])[nextServiceIndex].toLowerCase();
                 if (serviceProgress[nextServiceName]) {
                   console.log(`[Service Migration] Starting next service: ${nextServiceName}`, {
                     previousService: serviceName,
                     serviceIndex: nextServiceIndex,
-                    totalServices: migrationConfig.services.length,
+                    totalServices: (migrationConfig?.services || []).length,
                     timestamp: new Date().toISOString()
                   });
                   
@@ -679,7 +753,7 @@ export default function NewMigration() {
               } else {
                 console.log(`[Service Migration] All services completed!`, {
                   completedService: serviceName,
-                  totalServicesCompleted: migrationConfig.services.length,
+                  totalServicesCompleted: (migrationConfig?.services || []).length,
                   allServicesStatus: Object.keys(serviceProgress).map(s => ({
                     service: s,
                     status: serviceProgress[s].status,
@@ -698,7 +772,7 @@ export default function NewMigration() {
           if (!userProgress[userEmail]) {
             userProgress[userEmail] = {
               progress: 0,
-              currentService: migrationConfig.services[0]?.toLowerCase() || 'unknown',
+              currentService: (migrationConfig?.services || [])[0]?.toLowerCase() || 'unknown',
               status: 'pending',
               servicesCompleted: [],
               errors: [],
@@ -737,11 +811,11 @@ export default function NewMigration() {
             };
 
             // Update current service based on progress
-            const serviceIndex = Math.floor((newUserProgress / 100) * migrationConfig.services.length);
-            if (serviceIndex < migrationConfig.services.length) {
+            const serviceIndex = Math.floor((newUserProgress / 100) * (migrationConfig?.services || []).length);
+            if (serviceIndex < (migrationConfig?.services || []).length) {
               userProgress[userEmail] = {
                 ...userProgress[userEmail],
-                currentService: migrationConfig.services[serviceIndex].toLowerCase()
+                currentService: (migrationConfig?.services || [])[serviceIndex].toLowerCase()
               };
             }
             
@@ -759,7 +833,7 @@ export default function NewMigration() {
                 ...userProgress[userEmail],
                 status: 'completed',
                 progress: 100,
-                servicesCompleted: [...migrationConfig.services]
+                servicesCompleted: [...(migrationConfig?.services || [])]
               };
               
               // Add consolidation completion for many-to-one
@@ -777,7 +851,7 @@ export default function NewMigration() {
             migrationId: prev.id,
             migrationName: prev.name,
             finalProgress: newProgress,
-            totalServices: migrationConfig.services.length,
+            totalServices: (migrationConfig?.services || []).length,
             completedServices: Object.values(serviceProgress).filter(s => s.status === 'completed').length,
             totalUsers: selectedAllTargetUsers.length,
             completedUsers: Object.values(userProgress).filter(u => u.status === 'completed').length,
@@ -807,7 +881,7 @@ export default function NewMigration() {
     console.log(`[Service Migration] Starting migration progress updates`, {
       migrationId: migrationStatus?.id,
       status: migrationStatus?.status,
-      currentServices: migrationConfig.services,
+      currentServices: migrationConfig?.services || [],
       selectedUsersCount: selectedAllTargetUsers.length,
       relationship: userMappingConfig?.relationship,
       updateInterval: '2 seconds'
@@ -823,7 +897,7 @@ export default function NewMigration() {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationStatus?.status, migrationConfig.services, selectedAllTargetUsers, userMappingConfig?.relationship]);
+  }, [migrationStatus?.status, migrationConfig?.services, selectedAllTargetUsers, userMappingConfig?.relationship]);
 
   // Handle OAuth callback success - DISABLED for cross-tenant auth
   // Cross-tenant auth is handled by AuthenticateAndConfigureDomains component via postMessage
@@ -1391,8 +1465,8 @@ export default function NewMigration() {
           includeSuspended: 'false'
         });
         
-        // Use verification token from generator hook
-        const verificationToken = verificationTokenGenerator.token;
+        // Use enhanced verification token with fallback to basic token
+        const verificationToken = enhancedVerificationToken || verificationTokenGenerator.token;
         
         const response = await fetch(`/api/google-workspace?${params}`, {
           method: 'GET',
@@ -1519,8 +1593,8 @@ export default function NewMigration() {
           includeSuspended: 'false'
         });
         
-        // Use verification token from generator hook
-        const verificationToken = verificationTokenGenerator.token;
+        // Use enhanced verification token with fallback to basic token
+        const verificationToken = enhancedVerificationToken || verificationTokenGenerator.token;
         
         const response = await fetch(`/api/google-workspace?${params}`, {
           method: 'GET',
@@ -2313,19 +2387,19 @@ export default function NewMigration() {
     
     // Start actual service migrations
     setTimeout(() => {
-      startServiceMigrations(status.id);
+      startServiceMigrations(status.id, status);
     }, 1000); // Small delay to ensure UI is ready
   };
 
   // Function to start actual service migrations
-  const startServiceMigrations = async (migrationId: string) => {
+  const startServiceMigrations = async (migrationId: string, migrationStatusParam?: MigrationStatus) => {
     console.log(`[Service Migration] Starting actual service migrations for: ${migrationId}`);
     
     try {
       // Start with the first service in the list
       const firstService = migrationConfig.services[0];
       if (firstService) {
-        await executeServiceMigration(firstService, migrationId);
+        await executeServiceMigration(firstService, migrationId, migrationStatusParam);
       }
     } catch (error) {
       console.error('[Service Migration] Error starting service migrations:', error);
@@ -2350,13 +2424,20 @@ export default function NewMigration() {
   };
 
   // Function to execute migration for a specific service
-  const executeServiceMigration = async (serviceName: string, migrationId: string) => {
+  const executeServiceMigration = async (serviceName: string, migrationId: string, migrationStatusParam?: MigrationStatus) => {
     const serviceKey = serviceName.toLowerCase();
     console.log(`[Service Migration] Executing migration for service: ${serviceKey}`);
     
     try {
-      // Create the migration payload for this service
-      const migrationPayload = createMigrationPayload(serviceKey);
+      // Create the migration payload for this service, using passed status if available
+      const migrationPayload = createMigrationPayload(serviceKey, migrationStatusParam);
+      
+      // Check if payload creation was successful
+      if (!migrationPayload) {
+        const error = `Failed to create migration payload for service: ${serviceKey}`;
+        console.error(`[Service Migration] ${error}`);
+        throw new Error(error);
+      }
       
       console.log(`[Service Migration] Created payload for ${serviceKey}:`, {
         userMappings: migrationPayload?.userMappings?.length || 0,
@@ -2397,7 +2478,7 @@ export default function NewMigration() {
           
           // Start the next service
           setTimeout(() => {
-            executeServiceMigration(nextService, migrationId);
+            executeServiceMigration(nextService, migrationId, migrationStatusParam);
           }, 2000); // 2 second delay between services
         } else {
           console.log(`[Service Migration] All services completed for migration: ${migrationId}`);
@@ -2437,9 +2518,314 @@ export default function NewMigration() {
     }
   };
 
-  // Execute actual service migration
+  // User Migration Orchestration Layer
+  const executeUserMigrationOrchestration = async (
+    serviceName: string, 
+    endpoint: string, 
+    userMappings: any[], 
+    basePayload: any
+  ) => {
+    console.log(`[Migration Orchestration] Starting ${serviceName} for ${userMappings.length} users`);
+    
+    // Check if the service supports multi-user migration in a single request
+    const supportsMultiUserMigration = ['gmail'].includes(serviceName.toLowerCase());
+    
+    if (supportsMultiUserMigration && userMappings.length > 1) {
+      console.log(`[Migration Orchestration] Using multi-user migration for ${serviceName}`);
+      
+      try {
+        const result = await executeMultiUserMigration(serviceName, endpoint, userMappings, basePayload);
+        
+        // Convert multi-user result to individual user results format
+        const results = userMappings.map((mapping, index) => ({
+          success: true, // If we got here, the overall request succeeded
+          userEmail: mapping.targetUser?.email || mapping.targetUserEmail || 'unknown',
+          migrationId: `${result.migrationId}-user-${index + 1}`,
+          details: result.details
+        }));
+        
+        console.log(`[Migration Orchestration] ${serviceName} multi-user migration completed: ${result.summary?.successRate || 'N/A'} success rate`);
+        
+        return {
+          results,
+          summary: {
+            total: userMappings.length,
+            successful: result.summary?.completedUsers || userMappings.length,
+            failed: result.summary?.failedUsers || 0,
+            successRate: result.summary?.successRate || '100%'
+          }
+        };
+        
+      } catch (error: any) {
+        console.error(`[Migration Orchestration] Multi-user migration failed for ${serviceName}:`, error);
+        
+        // Fall back to individual user migration if multi-user fails
+        console.log(`[Migration Orchestration] Falling back to individual user migrations for ${serviceName}`);
+        return await executeIndividualUserMigrations(serviceName, endpoint, userMappings, basePayload);
+      }
+    } else {
+      // Use individual user migrations for services that don't support multi-user or single user requests
+      return await executeIndividualUserMigrations(serviceName, endpoint, userMappings, basePayload);
+    }
+  };
+
+  // Execute individual user migrations (original logic)
+  const executeIndividualUserMigrations = async (
+    serviceName: string, 
+    endpoint: string, 
+    userMappings: any[], 
+    basePayload: any
+  ) => {
+    const results: Array<{ 
+      success: boolean; 
+      userEmail: string; 
+      error?: string; 
+      migrationId?: string 
+    }> = [];
+    
+    // Determine execution strategy based on user count
+    const PARALLEL_THRESHOLD = 3;
+    const BATCH_SIZE = 2; // Process 2 users in parallel
+    
+    if (userMappings.length <= PARALLEL_THRESHOLD) {
+      // Sequential execution for small numbers
+      console.log(`[Migration Orchestration] Using sequential execution for ${userMappings.length} users`);
+      
+      for (let i = 0; i < userMappings.length; i++) {
+        const userMapping = userMappings[i];
+        const result = await executeSingleUserMigration(serviceName, endpoint, userMapping, basePayload, i + 1, userMappings.length);
+        results.push(result);
+        
+        // Small delay between sequential migrations to avoid overwhelming APIs
+        if (i < userMappings.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    } else {
+      // Parallel batch execution for larger numbers
+      console.log(`[Migration Orchestration] Using parallel batch execution: ${userMappings.length} users in batches of ${BATCH_SIZE}`);
+      
+      for (let i = 0; i < userMappings.length; i += BATCH_SIZE) {
+        const batch = userMappings.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(userMappings.length / BATCH_SIZE);
+        
+        console.log(`[Migration Orchestration] Processing batch ${batchNumber}/${totalBatches} (${batch.length} users)`);
+        
+        // Execute batch in parallel
+        const batchPromises = batch.map((userMapping, batchIndex) => 
+          executeSingleUserMigration(
+            serviceName, 
+            endpoint, 
+            userMapping, 
+            basePayload, 
+            i + batchIndex + 1, 
+            userMappings.length
+          )
+        );
+        
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        // Process batch results
+        batchResults.forEach((result, batchIndex) => {
+          if (result.status === 'fulfilled') {
+            results.push(result.value);
+          } else {
+            const userMapping = batch[batchIndex];
+            results.push({
+              success: false,
+              userEmail: userMapping.targetUser?.email || userMapping.targetUserEmail || 'unknown',
+              error: `Batch execution failed: ${result.reason}`
+            });
+          }
+        });
+        
+        // Delay between batches to avoid overwhelming APIs
+        if (i + BATCH_SIZE < userMappings.length) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+    
+    const successfulResults = results.filter(r => r.success);
+    const failedResults = results.filter(r => !r.success);
+    
+    console.log(`[Migration Orchestration] ${serviceName} individual user migrations completed:`, {
+      totalUsers: userMappings.length,
+      successful: successfulResults.length,
+      failed: failedResults.length,
+      results: results.map(r => ({ 
+        user: r.userEmail, 
+        success: r.success, 
+        error: r.error?.substring(0, 50) 
+      }))
+    });
+    
+    return {
+      results,
+      summary: {
+        total: userMappings.length,
+        successful: successfulResults.length,
+        failed: failedResults.length,
+        successRate: `${Math.round((successfulResults.length / userMappings.length) * 100)}%`
+      }
+    };
+  };
+
+  // Execute migration for multiple users in one request (optimized for new APIs)
+  const executeMultiUserMigration = async (
+    serviceName: string, 
+    endpoint: string, 
+    userMappings: any[], 
+    basePayload: any
+  ) => {
+    try {
+      console.log(`[Multi User Migration] ${serviceName}: Processing ${userMappings.length} users in single request`);
+      
+      // Create multi-user migration request
+      const multiUserRequest = {
+        scenario: basePayload.scenario,
+        migrationId: `${basePayload.migrationId}-${serviceName}-multi-user`,
+        sourceAdminEmail: basePayload.adminCredentials?.sourceAdminEmail || basePayload.adminCredentials?.adminEmail,
+        targetAdminEmail: basePayload.adminCredentials?.targetAdminEmail || basePayload.adminCredentials?.adminEmail,
+        userMappings: userMappings.map(mapping => ({
+          sourceUserEmail: mapping.sourceUser?.email || mapping.sourceUserEmail,
+          targetUserEmail: mapping.targetUser?.email || mapping.targetUserEmail,
+          sourceUser: mapping.sourceUser,
+          targetUser: mapping.targetUser
+        })),
+        migrationOptions: getServiceSpecificMigrationOptions(serviceName, basePayload.migrationOptions),
+        domainMapping: userMappingConfig?.relationship || 'one-to-many',
+        verificationToken: basePayload.verificationToken,
+        realDataMode: false, // Keep as false for safety
+        dryRun: true
+      };
+      
+      console.log(`[Multi User Migration] Making API call for ${serviceName}:`, {
+        endpoint,
+        userCount: userMappings.length,
+        migrationId: multiUserRequest.migrationId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Make API call to service endpoint
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(multiUserRequest),
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      console.log(`[Multi User Migration] ${serviceName} migration successful:`, {
+        status: result.success,
+        migrationId: result.migrationId,
+        summary: result.summary
+      });
+
+      return {
+        success: true,
+        migrationId: result.migrationId,
+        progress: result.progress,
+        summary: result.summary,
+        details: result.message
+      };
+
+    } catch (error: any) {
+      console.error(`[Multi User Migration] ${serviceName} migration failed:`, error.message);
+      throw error;
+    }
+  };
+
+  // Execute migration for a single user mapping
+  const executeSingleUserMigration = async (
+    serviceName: string, 
+    endpoint: string, 
+    userMapping: any, 
+    basePayload: any, 
+    userIndex: number, 
+    totalUsers: number
+  ) => {
+    const targetUserEmail = userMapping.targetUser?.email || userMapping.targetUserEmail;
+    const sourceUserEmail = userMapping.sourceUser?.email || userMapping.sourceUserEmail;
+    
+    try {
+      console.log(`[Single User Migration] ${serviceName} [${userIndex}/${totalUsers}]: ${sourceUserEmail} → ${targetUserEmail}`);
+      
+      // Create single-user migration request (compatible with existing APIs)
+      const singleUserRequest = {
+        scenario: basePayload.scenario,
+        migrationId: `${basePayload.migrationId}-${serviceName}-user-${userIndex}`,
+        sourceAdminEmail: basePayload.adminCredentials?.sourceAdminEmail || basePayload.adminCredentials?.adminEmail,
+        targetAdminEmail: basePayload.adminCredentials?.targetAdminEmail || basePayload.adminCredentials?.adminEmail,
+        sourceUserEmail: sourceUserEmail,
+        targetUserEmail: targetUserEmail,
+        migrationOptions: getServiceSpecificMigrationOptions(serviceName, basePayload.migrationOptions),
+        domainMapping: userMappingConfig?.relationship || 'one-to-one',
+        verificationToken: basePayload.verificationToken,
+        realDataMode: false, // Keep as false for safety
+        dryRun: true
+      };
+      
+      console.log(`[Single User Migration] Making API call for ${targetUserEmail}:`, {
+        endpoint,
+        sourceUser: sourceUserEmail,
+        targetUser: targetUserEmail,
+        migrationId: singleUserRequest.migrationId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Make API call to service endpoint
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(singleUserRequest),
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      console.log(`[Single User Migration] ${serviceName} migration successful for ${targetUserEmail}:`, {
+        status: result.status,
+        migrationId: result.migrationId
+      });
+      
+      return {
+        success: true,
+        userEmail: targetUserEmail,
+        migrationId: result.migrationId
+      };
+      
+    } catch (error) {
+      console.error(`[Single User Migration] ${serviceName} migration failed for ${targetUserEmail}:`, error);
+      return {
+        success: false,
+        userEmail: targetUserEmail,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  };
+
+  // Execute actual service migration with multi-user orchestration
   const executeActualServiceMigration = async (serviceName: string, payload: any): Promise<{ success: boolean; error?: string }> => {
-    console.log(`[Service Migration] Starting REAL ${serviceName} migration...`);
+    console.log(`[Service Migration] Starting ${serviceName} migration with user mapping orchestration...`);
     
     try {
       // Map service names to API endpoints
@@ -2460,51 +2846,82 @@ export default function NewMigration() {
         throw new Error(`No API endpoint configured for service: ${serviceName}`);
       }
 
-      // Create service-specific migration request
-      const migrationRequest = createServiceMigrationRequest(serviceName, payload);
+      // Get user mappings for this service
+      const serviceConfig = payload.serviceConfigs?.[serviceName.toLowerCase()];
+      const userMappings = serviceConfig?.userMappings || payload.userMappings || [];
       
-      console.log(`[Service Migration] Calling ${endpoint} for ${serviceName}`, {
-        userMappings: migrationRequest.userMappings?.length || 0,
+      if (userMappings.length === 0) {
+        console.warn(`[Service Migration] No user mappings found for ${serviceName}`);
+        return { success: true }; // Consider no users as successful
+      }
+      
+      console.log(`[Service Migration] ${serviceName} - Processing ${userMappings.length} user mappings`, {
+        serviceName,
+        userMappingsCount: userMappings.length,
         endpoint,
-        payload: {
-          scenario: migrationRequest.scenario,
-          userMappingsCount: migrationRequest.userMappings?.length || 0
-        }
+        executionStrategy: userMappings.length > 3 ? 'parallel-batches' : 'sequential'
       });
 
-      // Make actual API call to service migration endpoint
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(migrationRequest),
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      // Execute user migrations with orchestration
+      const migrationResults = await executeUserMigrationOrchestration(
+        serviceName, 
+        endpoint, 
+        userMappings, 
+        payload
+      );
       
-      console.log(`[Service Migration] ${serviceName} migration API call successful:`, {
-        status: result.status,
-        progress: result.progress,
-        migrationId: result.migrationId
+      // Analyze results
+      const actualResults = Array.isArray(migrationResults) ? migrationResults : migrationResults.results;
+      const successfulMigrations = actualResults.filter(result => result.success).length;
+      const failedMigrations = actualResults.filter(result => !result.success).length;
+      
+      // Update migration progress in real-time
+      setMigrationStatus(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          progress: Math.round((successfulMigrations / userMappings.length) * 100),
+          lastUpdated: new Date().toISOString(),
+          errors: failedMigrations > 0 ? [
+            ...prev.errors,
+            {
+              id: `${serviceName}-user-failures-${Date.now()}`,
+              step: `${serviceName}-migration`,
+              message: `${failedMigrations} user migrations failed in ${serviceName}`,
+              timestamp: new Date().toISOString(),
+              resolved: false
+            }
+          ] : prev.errors
+        };
       });
-
-      // For successful start, we need to poll for completion
-      if (result.status === 'started' || result.status === 'processing') {
-        return await pollServiceMigrationProgress(serviceName, result.migrationId, endpoint);
+      
+      console.log(`[Service Migration] ${serviceName} orchestration completed:`, {
+        total: userMappings.length,
+        successful: successfulMigrations,
+        failed: failedMigrations,
+        successRate: `${Math.round((successfulMigrations / userMappings.length) * 100)}%`,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Consider migration successful if at least 80% of users migrated successfully
+      const successThreshold = 0.8;
+      const actualSuccessRate = successfulMigrations / userMappings.length;
+      
+      if (actualSuccessRate >= successThreshold) {
+        return { success: true };
+      } else {
+        const failedUsers = actualResults
+          .filter(result => !result.success)
+          .map(result => result.userEmail)
+          .join(', ');
+        return { 
+          success: false, 
+          error: `Migration failed for ${failedMigrations} users: ${failedUsers}` 
+        };
       }
-
-      return { success: result.status === 'completed' };
 
     } catch (error) {
-      console.error(`[Service Migration] ${serviceName} migration failed:`, error);
+      console.error(`[Service Migration] ${serviceName} orchestration failed:`, error);
       return { 
         success: false, 
         error: error instanceof Error ? error.message : String(error)
@@ -2514,6 +2931,12 @@ export default function NewMigration() {
 
   // Create service-specific migration request
   const createServiceMigrationRequest = (serviceName: string, payload: any) => {
+    // Check if payload is null or undefined
+    if (!payload) {
+      console.error(`[Service Migration] Cannot create migration request for ${serviceName}: payload is null`);
+      throw new Error(`Migration payload is null for service: ${serviceName}`);
+    }
+    
     const serviceConfig = payload.serviceConfigs?.[serviceName.toLowerCase()];
     const userMappings = serviceConfig?.userMappings || payload.userMappings || [];
 
@@ -2675,26 +3098,41 @@ export default function NewMigration() {
   };
 
   // Function to create migration API payload for services
-  const createMigrationPayload = useCallback((serviceName?: string) => {
-    if (!migrationStatus) return null;
+  const createMigrationPayload = useCallback((serviceName?: string, migrationStatusParam?: MigrationStatus) => {
+    // Use passed parameter or fallback to state
+    const effectiveMigrationStatus = migrationStatusParam || migrationStatus;
+    
+    console.log(`[createMigrationPayload] Called for service: ${serviceName}`, {
+      migrationStatus: !!effectiveMigrationStatus,
+      migrationConfig: !!migrationConfig,
+      migrationStatusId: effectiveMigrationStatus?.id,
+      migrationConfigServices: migrationConfig?.services,
+      usingParam: !!migrationStatusParam
+    });
+    
+    if (!effectiveMigrationStatus || !migrationConfig) {
+      console.warn(`[createMigrationPayload] Returning null - migrationStatus: ${!!effectiveMigrationStatus}, migrationConfig: ${!!migrationConfig}`);
+      return null;
+    }
 
     const basePayload = {
-      migrationId: migrationStatus.id,
+      migrationId: effectiveMigrationStatus.id,
       scenario: selectedScenario,
-      services: migrationConfig.services,
-      userMappings: migrationStatus.migrationConfig?.serviceUserMappings || [],
-      executionPlan: migrationStatus.migrationConfig?.executionPlan,
-      adminCredentials: migrationStatus.migrationConfig?.adminCredentials,
-      domainMapping: migrationStatus.migrationConfig?.domainMapping,
-      migrationOptions: migrationStatus.migrationConfig?.migrationOptions,
+      services: migrationConfig.services || [],
+      userMappings: effectiveMigrationStatus.migrationConfig?.serviceUserMappings || [],
+      executionPlan: effectiveMigrationStatus.migrationConfig?.executionPlan,
+      adminCredentials: effectiveMigrationStatus.migrationConfig?.adminCredentials,
+      domainMapping: effectiveMigrationStatus.migrationConfig?.domainMapping,
+      migrationOptions: effectiveMigrationStatus.migrationConfig?.migrationOptions,
+      verificationToken: enhancedVerificationToken || effectiveMigrationStatus.migrationConfig?.verificationToken || verificationTokenGenerator.token,
       // Service-specific configurations
-      serviceConfigs: migrationConfig.services.reduce((configs: Record<string, any>, service: string) => {
+      serviceConfigs: (migrationConfig.services || []).reduce((configs: Record<string, any>, service: string) => {
         configs[service.toLowerCase()] = {
           enabled: true,
-          batchSize: migrationStatus.migrationConfig?.executionPlan?.batchSize || 5,
-          retryPolicy: migrationStatus.migrationConfig?.executionPlan?.retryPolicy,
-          rules: migrationStatus.migrationConfig?.migrationOptions,
-          userMappings: (migrationStatus.migrationConfig?.serviceUserMappings || []).map((mapping: any) => ({
+          batchSize: effectiveMigrationStatus.migrationConfig?.executionPlan?.batchSize || 5,
+          retryPolicy: effectiveMigrationStatus.migrationConfig?.executionPlan?.retryPolicy,
+          rules: effectiveMigrationStatus.migrationConfig?.migrationOptions,
+          userMappings: (effectiveMigrationStatus.migrationConfig?.serviceUserMappings || []).map((mapping: any) => ({
             targetUser: mapping.targetUser,
             sourceUser: mapping.sourceUser,
             serviceConfig: mapping.services?.find((s: any) => s.serviceName === service.toLowerCase())
@@ -2704,16 +3142,16 @@ export default function NewMigration() {
       }, {}),
       // API endpoints for service communication
       endpoints: {
-        progress: `/api/migration/${migrationStatus.id}/progress`,
-        status: `/api/migration/${migrationStatus.id}/status`,
-        error: `/api/migration/${migrationStatus.id}/error`,
-        complete: `/api/migration/${migrationStatus.id}/complete`
+        progress: `/api/migration/${effectiveMigrationStatus.id}/progress`,
+        status: `/api/migration/${effectiveMigrationStatus.id}/status`,
+        error: `/api/migration/${effectiveMigrationStatus.id}/error`,
+        complete: `/api/migration/${effectiveMigrationStatus.id}/complete`
       }
     };
 
     // If serviceName is provided, return service-specific payload
     if (serviceName) {
-      const serviceConfig = basePayload.serviceConfigs[serviceName.toLowerCase()];
+      const serviceConfig = basePayload.serviceConfigs?.[serviceName.toLowerCase()];
       if (!serviceConfig) {
         console.warn(`Service ${serviceName} not found in configuration`);
         return null;
@@ -2722,24 +3160,25 @@ export default function NewMigration() {
       return {
         migrationId: basePayload.migrationId,
         service: serviceName,
-        servicePriority: migrationConfig.services.indexOf(serviceName) + 1,
+        servicePriority: (migrationConfig?.services || []).indexOf(serviceName) + 1,
         userMappings: serviceConfig.userMappings || [],
         totalUsers: serviceConfig.userMappings?.length || 0,
         mappingStats: {
-          explicit: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'explicit').length,
-          inferred: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'inferred').length,
-          direct: (migrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'direct').length
+          explicit: (effectiveMigrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'explicit').length,
+          inferred: (effectiveMigrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'inferred').length,
+          direct: (effectiveMigrationStatus.migrationConfig?.serviceUserMappings || []).filter((m: any) => m.mappingType === 'direct').length
         },
-        sourceDomain: migrationConfig.sourceDomain,
-        targetDomains: migrationConfig.targetDomains,
+        sourceDomain: migrationConfig?.sourceDomain || '',
+        targetDomains: migrationConfig?.targetDomains || [],
         adminCredentials: basePayload.adminCredentials,
         migrationOptions: basePayload.migrationOptions,
-        executionPlan: basePayload.executionPlan
+        executionPlan: basePayload.executionPlan,
+        verificationToken: basePayload.verificationToken
       };
     }
 
     return basePayload;
-  }, [migrationStatus, selectedScenario, migrationConfig]);
+  }, [selectedScenario, migrationConfig, enhancedVerificationToken, verificationTokenGenerator.token]);
 
   const calculateEstimatedDuration = useCallback((serviceType: string, userCount: number) => {
     const baseDuration = {

@@ -72,8 +72,15 @@ export function createPopupManager(): PopupManager {
     } catch (error) {
       // If we can't check due to COOP policy, assume popup is still open
       // This prevents premature cleanup and allows message-based detection
-      // Note: COOP warnings are expected and handled gracefully
-      // We rely primarily on message-based communication now
+      // Suppress COOP warnings as they are expected behavior
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+        if (!errorMessage.includes('cross-origin') && 
+            !errorMessage.includes('opener-policy') && 
+            !errorMessage.includes('coop')) {
+          console.debug('Unexpected popup state error:', error.message);
+        }
+      }
       return false;
     }
   };
@@ -211,12 +218,12 @@ export function createPopupManager(): PopupManager {
         } else {
           // Continue monitoring with reduced frequency to minimize COOP errors
           // Only poll if we haven't received a message in a while
-          setTimeout(monitorClosure, 5000); // Increased interval to reduce COOP warnings
+          setTimeout(monitorClosure, 10000); // Increased interval to reduce COOP warnings
         }
       };
 
       // Start monitoring after a longer delay to prioritize message-based detection
-      setTimeout(monitorClosure, 3000);
+      setTimeout(monitorClosure, 5000);
 
       return popup;
 
