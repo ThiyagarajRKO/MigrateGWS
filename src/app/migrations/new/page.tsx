@@ -340,7 +340,7 @@ export default function NewMigration() {
     if (migrationConfig.sourceDomain && migrationConfig.targetDomain) {
       generateEnhancedToken();
     }
-  }, [generateEnhancedToken]);
+  }, [generateEnhancedToken, migrationConfig.sourceDomain, migrationConfig.targetDomain]);
 
   // Cross-tenant authentication for auto-populating admin emails
   const { sourceAdminEmail: authSourceAdminEmail, targetAdminEmail: authTargetAdminEmail } = useCrossTenantTokens();
@@ -968,8 +968,8 @@ export default function NewMigration() {
           import('@/components/DomainWideDelegationSetup').then(module => ({ default: module.default }));
           break;
         case 'delegation':
-          // Preload user management workflow
-          import('@/components/UserManagementWorkflow');
+          // Preload domain wide delegation setup (the component used in delegation step)
+          import('@/components/DomainWideDelegationSetup');
           break;
         case 'user-management':
           // Preload configuration components
@@ -3178,7 +3178,7 @@ export default function NewMigration() {
     }
 
     return basePayload;
-  }, [selectedScenario, migrationConfig, enhancedVerificationToken, verificationTokenGenerator.token]);
+  }, [selectedScenario, migrationConfig, enhancedVerificationToken, verificationTokenGenerator.token, migrationStatus]);
 
   const calculateEstimatedDuration = useCallback((serviceType: string, userCount: number) => {
     const baseDuration = {

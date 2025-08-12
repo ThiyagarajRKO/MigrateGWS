@@ -62,24 +62,56 @@ interface SelectionCriteria {
   lastLoginBefore?: string;
 }
 
+interface MigrationRequest {
+  sourceAdminEmail: string;
+  targetAdminEmail: string;
+  userMappings: Array<{
+    sourceUserEmail: string;
+    targetUserEmail: string;
+    sourceUser?: any;
+    targetUser?: any;
+  }>;
+  migrationOptions: { /* service-specific options */ };
+  scenario: 'single-super-admin' | 'cross-tenant';
+  domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one';
+  verificationToken: string;  // Enhanced verification token
+  realDataMode?: boolean;
+  dryRun?: boolean;
+}
+
 interface MultiUserSelectionManagerProps {
   discoveredUsers: User[];
   targetDomains: string[];
+  sourceAdminEmail: string;
+  targetAdminEmail: string;
+  scenario: 'single-super-admin' | 'cross-tenant';
+  verificationToken: string;
   onSelectionComplete: (selection: {
     mode: 'single' | 'multi' | 'batch' | 'criteria';
+    migrationRequest?: MigrationRequest;
     userMappings?: Array<{ sourceUserEmail: string; targetUserEmail: string }>;
     userBatches?: UserBatch[];
     selectedUserIds?: string[];
     selectionCriteria?: SelectionCriteria;
   }) => void;
   supportedServices: string[];
+  migrationOptions?: any;
+  realDataMode?: boolean;
+  dryRun?: boolean;
 }
 
 export function MultiUserSelectionManager({ 
   discoveredUsers, 
   targetDomains, 
+  sourceAdminEmail,
+  targetAdminEmail,
+  scenario,
+  verificationToken,
   onSelectionComplete,
-  supportedServices 
+  supportedServices,
+  migrationOptions = {},
+  realDataMode = false,
+  dryRun = true
 }: MultiUserSelectionManagerProps) {
   const [selectionMode, setSelectionMode] = useState<'single' | 'multi' | 'batch' | 'criteria'>('multi');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
@@ -163,6 +195,54 @@ export function MultiUserSelectionManager({
     setUserBatches(userBatches.filter(b => b.batchId !== batchId));
   };
 
+  // Helper function to determine domain mapping based on selection
+  const determineDomainMapping = (userMappings: Array<{ sourceUserEmail: string; targetUserEmail: string }>): 'one-to-one' | 'one-to-many' | 'many-to-one' => {
+    const sourceDomains = new Set(userMappings.map(m => m.sourceUserEmail.split('@')[1]));
+    const targetDomains = new Set(userMappings.map(m => m.targetUserEmail.split('@')[1]));
+    
+    if (sourceDomains.size === 1 && targetDomains.size === 1) {
+      return 'one-to-one';
+    } else if (sourceDomains.size === 1 && targetDomains.size > 1) {
+      return 'one-to-many';
+    } else if (sourceDomains.size > 1 && targetDomains.size === 1) {
+      return 'many-to-one';
+    } else {
+      return 'one-to-one'; // Default fallback
+    }
+  };
+
+  // Helper function to create migration request from user mappings
+  const createMigrationRequest = (userMappings: Array<{ sourceUserEmail: string; targetUserEmail: string }>): MigrationRequest => {
+    const domainMapping = determineDomainMapping(userMappings);
+    
+    return {
+      sourceAdminEmail,
+      targetAdminEmail,
+      userMappings: userMappings.map(mapping => ({
+        sourceUserEmail: mapping.sourceUserEmail,
+        targetUserEmail: mapping.targetUserEmail,
+        sourceUser: discoveredUsers.find(u => u.email === mapping.sourceUserEmail),
+        targetUser: {
+          email: mapping.targetUserEmail,
+          domain: mapping.targetUserEmail.split('@')[1]
+        }
+      })),
+      migrationOptions: {
+        preserveLabels: true,
+        migrateFolderStructure: true,
+        enableDeltaSync: false,
+        migrateSharedDrives: true,
+        maintainPermissions: true,
+        ...migrationOptions
+      },
+      scenario,
+      domainMapping,
+      verificationToken,
+      realDataMode,
+      dryRun
+    };
+  };
+
   // Complete selection
   const completeSelection = () => {
     let selection: any = { mode: selectionMode };
@@ -171,30 +251,55 @@ export function MultiUserSelectionManager({
       case 'single':
         if (selectedUserIds.size === 1) {
           const user = discoveredUsers.find(u => u.id === Array.from(selectedUserIds)[0])!;
-          selection.userMappings = [{
+          const userMappings = [{
             sourceUserEmail: user.email,
             targetUserEmail: `${user.email.split('@')[0]}@${targetDomains[0]}`
           }];
+          
+          selection.userMappings = userMappings;
+          selection.migrationRequest = createMigrationRequest(userMappings);
         }
         break;
       case 'multi':
-        selection.userMappings = Array.from(selectedUserIds).map(userId => {
+        const userMappings = Array.from(selectedUserIds).map(userId => {
           const user = discoveredUsers.find(u => u.id === userId)!;
           return {
             sourceUserEmail: user.email,
             targetUserEmail: `${user.email.split('@')[0]}@${targetDomains[0]}`
           };
         });
+        
+        selection.userMappings = userMappings;
+        selection.migrationRequest = createMigrationRequest(userMappings);
         break;
       case 'batch':
         selection.userBatches = userBatches;
+        // For batch mode, create migration request for all users across all batches
+        const allBatchUserMappings = userBatches.flatMap(batch => batch.userMappings);
+        if (allBatchUserMappings.length > 0) {
+          selection.migrationRequest = createMigrationRequest(allBatchUserMappings);
+        }
         break;
       case 'criteria':
         selection.selectionCriteria = selectionCriteria;
         selection.selectedUserIds = Array.from(selectedUserIds);
+        
+        // Create migration request for criteria-based selection
+        const criteriaUserMappings = Array.from(selectedUserIds).map(userId => {
+          const user = discoveredUsers.find(u => u.id === userId)!;
+          return {
+            sourceUserEmail: user.email,
+            targetUserEmail: `${user.email.split('@')[0]}@${targetDomains[0]}`
+          };
+        });
+        
+        if (criteriaUserMappings.length > 0) {
+          selection.migrationRequest = createMigrationRequest(criteriaUserMappings);
+        }
         break;
     }
 
+    console.log('Migration Request Generated:', selection.migrationRequest);
     onSelectionComplete(selection);
   };
 
@@ -518,6 +623,90 @@ export function MultiUserSelectionManager({
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Request Preview Section */}
+      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <FileText className="h-5 w-5" />
+          Request Preview
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Scenario:</span>
+              <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{scenario}</span>
+            </div>
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Domain Mapping:</span>
+              <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+                {selectionMode === 'multi' && selectedUserIds.size > 0 ? 
+                  determineDomainMapping(Array.from(selectedUserIds).map(userId => {
+                    const user = discoveredUsers.find(u => u.id === userId)!;
+                    return {
+                      sourceUserEmail: user.email,
+                      targetUserEmail: `${user.email.split('@')[0]}@${targetDomains[0]}`
+                    };
+                  })) : 'one-to-one'}
+              </span>
+            </div>
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Mode:</span>
+              <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
+                {realDataMode ? 'Real Data' : 'Test'} {dryRun ? '(Dry Run)' : '(Live)'}
+              </span>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Source Admin:</span>
+              <span className="ml-2 text-gray-600 text-xs font-mono">{sourceAdminEmail}</span>
+            </div>
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Target Admin:</span>
+              <span className="ml-2 text-gray-600 text-xs font-mono">{targetAdminEmail}</span>
+            </div>
+            <div className="text-sm">
+              <span className="font-medium text-gray-700">Verification Token:</span>
+              <span className="ml-2 text-gray-600 text-xs font-mono">
+                {verificationToken ? '✓ Available' : '✗ Missing'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* User Count Summary */}
+        <div className="mt-4 pt-3 border-t border-gray-200">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">
+              User Selection Summary:
+            </span>
+            <div className="flex items-center gap-2">
+              {selectionMode === 'single' && (
+                <span className="text-sm text-gray-600">
+                  {selectedUserIds.size} of 1 max selected
+                </span>
+              )}
+              {selectionMode === 'multi' && (
+                <span className="text-sm text-gray-600">
+                  {selectedUserIds.size} users selected
+                </span>
+              )}
+              {selectionMode === 'batch' && (
+                <span className="text-sm text-gray-600">
+                  {userBatches.length} batches ({userBatches.reduce((sum, batch) => sum + batch.userMappings.length, 0)} total users)
+                </span>
+              )}
+              {selectionMode === 'criteria' && (
+                <span className="text-sm text-gray-600">
+                  {selectedUserIds.size} users match criteria
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

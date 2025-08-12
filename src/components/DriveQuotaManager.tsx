@@ -110,38 +110,60 @@ export function DriveQuotaManager({
     backoffMultiplier: 1
   })
 
-  // Simulated WebSocket connection for quota monitoring
-  useEffect(() => {
-    if (!isActive || !isMonitoring) return
-
-    const ws = new WebSocket('ws://localhost:3002/migration-logs')
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        
-        if (data.type === 'log-event' && data.event.service === 'drive') {
-          handleDriveLogEvent(data.event)
-        }
-      } catch (error) {
-        console.error('WebSocket message parse error:', error)
-      }
+  const determineQuotaType = useCallback((error: string): 'requests_per_minute' | 'requests_per_day' | 'storage' | 'bandwidth' => {
+    if (error.includes('requests per minute') || error.includes('rate limit')) {
+      return 'requests_per_minute'
     }
-
-    ws.onopen = () => {
-      console.log('📊 Drive quota monitor connected')
-      setIsMonitoring(true)
+    if (error.includes('requests per day') || error.includes('daily quota')) {
+      return 'requests_per_day'
     }
-
-    ws.onclose = () => {
-      console.log('📊 Drive quota monitor disconnected')
-      setIsMonitoring(false)
+    if (error.includes('storage') || error.includes('space')) {
+      return 'storage'
     }
+    return 'bandwidth'
+  }, [])
 
-    return () => {
-      ws.close()
-    }
-  }, [isActive, isMonitoring])
+  const calculateRetryDelay = useCallback((): number => {
+    // Exponential backoff: 1min, 2min, 4min, 8min, 16min (max)
+    const baseDelay = 60000 // 1 minute in milliseconds
+    const maxDelay = 960000 // 16 minutes
+    const delay = Math.min(baseDelay * Math.pow(2, retryStrategy.attempts), maxDelay)
+    return delay
+  }, [retryStrategy.attempts])
+
+  const resetRetryStrategy = useCallback(() => {
+    setRetryStrategy({
+      attempts: 0,
+      nextRetry: null,
+      backoffMultiplier: 1
+    })
+    onQuotaRecovered?.()
+  }, [onQuotaRecovered])
+
+  const logQuotaStrategy = useCallback((error: DriveQuotaError, nextRetry: Date) => {
+    // This would send logs to WebSocket logger
+    console.log('📊 Drive quota strategy:', {
+      quotaType: error.quotaType,
+      failedFiles: error.failedFiles,
+      remainingFiles: error.remainingFiles,
+      nextRetry: nextRetry.toISOString(),
+      strategy: 'exponential_backoff'
+    })
+  }, [])
+
+  const implementRetryStrategy = useCallback((error: DriveQuotaError) => {
+    const delay = error.retryAfter || calculateRetryDelay()
+    const nextRetry = new Date(Date.now() + delay)
+
+    setRetryStrategy(prev => ({
+      attempts: prev.attempts + 1,
+      nextRetry,
+      backoffMultiplier: Math.min(prev.backoffMultiplier * 2, 16)
+    }))
+
+    // Log quota management strategy via WebSocket
+    logQuotaStrategy(error, nextRetry)
+  }, [calculateRetryDelay, logQuotaStrategy])
 
   const handleDriveLogEvent = useCallback((event: any) => {
     // Check for quota-related errors
@@ -176,62 +198,40 @@ export function DriveQuotaManager({
     if (event.level === 'success') {
       resetRetryStrategy()
     }
-  }, [onQuotaError])
+  }, [onQuotaError, determineQuotaType, calculateRetryDelay, implementRetryStrategy, resetRetryStrategy])
 
-  const determineQuotaType = (error: string): 'requests_per_minute' | 'requests_per_day' | 'storage' | 'bandwidth' => {
-    if (error.includes('requests per minute') || error.includes('rate limit')) {
-      return 'requests_per_minute'
+  // Simulated WebSocket connection for quota monitoring
+  useEffect(() => {
+    if (!isActive || !isMonitoring) return
+
+    const ws = new WebSocket('ws://localhost:3002/migration-logs')
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'log-event' && data.event.service === 'drive') {
+          handleDriveLogEvent(data.event)
+        }
+      } catch (error) {
+        console.error('WebSocket message parse error:', error)
+      }
     }
-    if (error.includes('requests per day') || error.includes('daily quota')) {
-      return 'requests_per_day'
+
+    ws.onopen = () => {
+      console.log('📊 Drive quota monitor connected')
+      setIsMonitoring(true)
     }
-    if (error.includes('storage') || error.includes('space')) {
-      return 'storage'
+
+    ws.onclose = () => {
+      console.log('📊 Drive quota monitor disconnected')
+      setIsMonitoring(false)
     }
-    return 'bandwidth'
-  }
 
-  const calculateRetryDelay = (): number => {
-    // Exponential backoff: 1min, 2min, 4min, 8min, 16min (max)
-    const baseDelay = 60000 // 1 minute in milliseconds
-    const maxDelay = 960000 // 16 minutes
-    const delay = Math.min(baseDelay * Math.pow(2, retryStrategy.attempts), maxDelay)
-    return delay
-  }
-
-  const implementRetryStrategy = (error: DriveQuotaError) => {
-    const delay = error.retryAfter || calculateRetryDelay()
-    const nextRetry = new Date(Date.now() + delay)
-
-    setRetryStrategy(prev => ({
-      attempts: prev.attempts + 1,
-      nextRetry,
-      backoffMultiplier: Math.min(prev.backoffMultiplier * 2, 16)
-    }))
-
-    // Log quota management strategy via WebSocket
-    logQuotaStrategy(error, nextRetry)
-  }
-
-  const resetRetryStrategy = () => {
-    setRetryStrategy({
-      attempts: 0,
-      nextRetry: null,
-      backoffMultiplier: 1
-    })
-    onQuotaRecovered?.()
-  }
-
-  const logQuotaStrategy = (error: DriveQuotaError, nextRetry: Date) => {
-    // This would send logs to WebSocket logger
-    console.log('📊 Drive quota strategy:', {
-      quotaType: error.quotaType,
-      failedFiles: error.failedFiles,
-      remainingFiles: error.remainingFiles,
-      nextRetry: nextRetry.toISOString(),
-      strategy: 'exponential_backoff'
-    })
-  }
+    return () => {
+      ws.close()
+    }
+  }, [isActive, isMonitoring, handleDriveLogEvent]);
 
   const getQuotaStatusColor = (percentage: number) => {
     if (percentage >= 90) return 'danger'

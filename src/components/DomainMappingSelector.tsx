@@ -118,7 +118,7 @@ export const DomainMappingSelector = memo(function DomainMappingSelector({
     //     console.log('[DomainMappingSelector] No primary domain found in domains:', domains.map(d => ({ name: d.domainName, isPrimary: d.isPrimary })));
     //   }
     // }
-  }, [domains, selectedMapping, hasAutoSelectedPrimary]); // Removed selectedType dependency since we want this to work without type selection
+  }, [domains, selectedMapping, hasAutoSelectedPrimary, selectedType]);
 
   // Sync state when selectedMapping prop changes - DISABLED FOR MANUAL MAPPING
   useEffect(() => {

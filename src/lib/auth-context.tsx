@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null)
       
       // Mock email/password authentication for demo
-      if (email === 'admin@demo.com' && password === 'demo123') {
+      if (email === 'admin@demo.com' && password === 'Admin@123') {
         // Create a mock user session
         setUser({
           id: 'demo-user-1',
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Invalid credentials')
       }
     } catch (err) {
-      setError('Invalid email or password. Try admin@demo.com / demo123')
+      setError('Invalid email or password. Try admin@demo.com / Admin@123')
     }
   }
 

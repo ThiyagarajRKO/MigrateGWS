@@ -828,7 +828,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       sourceAccounts: {},
       destAccounts: {}
     };
-  }, [adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, inputAdminEmail, inputsourceAdminEmail, inputdestAdminEmail, getCachedAdminInfo])
+  }, [adminEmail, sourceAccount, destAccount, sourceAccounts, destAccounts, inputAdminEmail, inputsourceAdminEmail, inputdestAdminEmail, getCachedAdminInfo, migrationScenario, user?.email])
 
   // Helper function to check if admin emails are loaded from cache (not from input)
   const isAdminEmailFromCache = useCallback(() => {
@@ -862,7 +862,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       }
     });
     return fromCache;
-  }, [getCachedAdminInfo, inputAdminEmail, inputsourceAdminEmail, inputdestAdminEmail])
+  }, [getCachedAdminInfo, inputAdminEmail, inputsourceAdminEmail, inputdestAdminEmail, migrationScenario, user?.email])
 
   // Helper function to check if we have ANY cached verification data (for showing banner)
   const hasCachedVerification = useCallback(() => {
@@ -1049,7 +1049,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
       //   }
       // }
     }
-  }, [isVerificationSuccessful, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onsourceAdminEmailChange, ondestAdminEmailChange])
+  }, [isVerificationSuccessful, onVerificationStatusChange, isCurrentConfigurationVerified, getCachedAdminInfo, onAdminEmailChange, onsourceAdminEmailChange, ondestAdminEmailChange, adminEmail, delegationStatus, inputAdminEmail, inputsourceAdminEmail, migrationScenario, sourceAccount])
 
   // Trigger user discovery when domain mapping and verification are ready
   const triggerUserDiscovery = useCallback(() => {

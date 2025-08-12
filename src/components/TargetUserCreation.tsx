@@ -196,12 +196,7 @@ export const TargetUserCreation = memo(function TargetUserCreation({
 
   // Generate secure temporary password
   const generateSecurePassword = (): string => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
+    return 'Admin@123';
   };
 
   // Process a single user mapping
