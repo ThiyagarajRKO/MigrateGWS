@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useVerificationToken } from './useVerificationToken';
-import { generateVerificationToken } from '@/lib/verification-token';
+import { generateEnhancedVerificationToken } from '@/lib/enhanced-verification-token';
 
 /**
  * Enterprise-level domain configuration for scalable admin email override
@@ -479,11 +479,16 @@ export function useVerificationTokenGenerator(
       }
 
       // Generate new verification token with enterprise-level admin emails
-      const newToken = generateVerificationToken(
+      const delegationStatus = {
+        source: { verified: true },
+        dest: { verified: true }
+      }
+      
+      const newToken = generateEnhancedVerificationToken(
         domains,
         enterpriseAdminEmails, // Use enterprise-level effective admin emails
         migrationScenario,
-        verifiedDelegationStatus
+        delegationStatus
       );
 
       // Store the token

@@ -1130,8 +1130,8 @@ export async function POST(request: NextRequest) {
 
           // Validate verification token if provided
           if (verificationToken) {
-            const { parseVerificationToken } = await import('@/lib/verification-token');
-            tokenData = parseVerificationToken(verificationToken);
+            const { parseEnhancedVerificationToken } = await import('@/lib/enhanced-verification-token');
+            tokenData = parseEnhancedVerificationToken(verificationToken);
             
             if (tokenData) {
               console.log('[create-user] Verification token validated:', {

@@ -400,13 +400,18 @@ export async function GET(request: NextRequest) {
     const method = searchParams.get('method') || 'crypto';
 
     if (!adminEmail || !domain) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Missing required query parameters: adminEmail, domain' 
+      return NextResponse.json({
+        success: true,
+        message: 'Admin Verification API - Operational',
+        status: 'available',
+        endpoints: {
+          verify: '/api/v1/admin/verify?adminEmail=<email>&domain=<domain>&method=<crypto|jwt|both>',
+          challenge: 'POST /api/v1/admin/verify with admin credentials'
         },
-        { status: 400 }
-      );
+        methods: ['crypto', 'jwt', 'both'],
+        note: 'Requires adminEmail and domain query parameters',
+        timestamp: new Date().toISOString()
+      });
     }
 
     const emailDomain = adminEmail.split('@')[1];

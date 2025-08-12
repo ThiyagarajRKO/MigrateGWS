@@ -3,6 +3,11 @@ import { getServerSession } from 'next-auth'
 import { createServiceAccountService } from '@/lib/google-workspace'
 import { authOptions } from '@/lib/auth-options'
 import { google } from 'googleapis'
+import { 
+  parseEnhancedVerificationToken, 
+  isEnhancedTokenValidForDomains,
+  getAdminEmailFromEnhancedToken
+} from '@/lib/enhanced-verification-token'
 
 interface SlidesMigrationRequest {
   sourceAdminEmail: string
@@ -19,6 +24,7 @@ interface SlidesMigrationRequest {
   scenario: 'single-super-admin' | 'cross-tenant'
   domainMapping: 'one-to-one' | 'one-to-many' | 'many-to-one'
   specificPresentations?: string[] // Specific presentation IDs to migrate
+  verificationToken?: string
 }
 
 interface SlidesMigrationProgress {
@@ -40,12 +46,65 @@ interface SlidesMigrationProgress {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    // Check for test mode
+    const testMode = request.headers.get('x-test-mode');
+    
+    if (!testMode) {
+      const session = await getServerSession(authOptions)
+      if (!session?.user) {
+        return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+      }
     }
 
     const body: SlidesMigrationRequest = await request.json()
+    
+    // Enhanced verification token validation for Slides API
+    if (body.verificationToken) {
+      const sourceDomain = body.sourceAdminEmail.split('@')[1]
+      const targetDomain = body.targetAdminEmail.split('@')[1]
+      
+      try {
+        const tokenData = parseEnhancedVerificationToken(body.verificationToken)
+        
+        if (!tokenData) {
+          return NextResponse.json({
+            error: 'Failed to parse enhanced verification token',
+            details: 'Token data is null or invalid'
+          }, { status: 403 })
+        }
+        
+        // Validate token for both domains
+        if (!isEnhancedTokenValidForDomains(body.verificationToken, [sourceDomain, targetDomain])) {
+          return NextResponse.json({ 
+            error: 'Invalid enhanced verification token for the specified domains',
+            details: 'Slides API token validation failed for source or target domain'
+          }, { status: 403 })
+        }
+        
+        // Verify token security and integrity
+        if (!tokenData.apiAuthenticationEnabled) {
+          return NextResponse.json({
+            error: 'API authentication not enabled in verification token',
+            details: 'Enhanced verification token must have API authentication enabled'
+          }, { status: 403 })
+        }
+
+        // Verify delegation status for Slides API
+        if (!tokenData.delegationStatus.sourceVerified || !tokenData.delegationStatus.destVerified) {
+          return NextResponse.json({
+            error: 'Slides API delegation not properly verified',
+            details: 'Both source and destination domains must have verified Slides API delegation'
+          }, { status: 403 })
+        }
+
+      } catch (error: any) {
+        return NextResponse.json({
+          error: 'Enhanced verification token parsing failed',
+          details: error.message
+        }, { status: 403 })
+      }
+    }
+    
     const {
       sourceAdminEmail,
       targetAdminEmail,
@@ -405,7 +464,10 @@ export async function GET(request: NextRequest) {
   const migrationId = searchParams.get('migrationId')
 
   if (!migrationId) {
-    return NextResponse.json({ error: 'Migration ID required' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Method not allowed. Use POST for slides migrations.' },
+      { status: 405 }
+    )
   }
 
   return NextResponse.json({

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migration WebSocket Logger</title>
+    <style>
+        body {
+            font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+        
+        .status.connected {
+            color: #059669;
+        }
+        
+        .status.disconnected {
+            color: #dc2626;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .btn:hover {
+            background: #f9fafb;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .filter-group label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #6b7280;
+        }
+        
+        .filter-group select,
+        .filter-group input {
+            padding: 6px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .logs-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            height: 600px;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .log-entry {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 3px solid #e5e7eb;
+            font-size: 14px;
+        }
+        
+        .log-entry.info {
+            border-left-color: #3b82f6;
+        }
+        
+        .log-entry.success {
+            border-left-color: #10b981;
+        }
+        
+        .log-entry.warning {
+            border-left-color: #f59e0b;
+        }
+        
+        .log-entry.error {
+            border-left-color: #ef4444;
+        }
+        
+        .log-timestamp {
+            font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            color: #6b7280;
+            min-width: 80px;
+        }
+        
+        .log-level {
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            min-width: 50px;
+            text-align: center;
+        }
+        
+        .log-level.info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .log-level.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .log-level.warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .log-level.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .log-category {
+            font-size: 16px;
+        }
+        
+        .log-service {
+            padding: 2px 6px;
+            background: #f3f4f6;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #374151;
+            text-transform: uppercase;
+        }
+        
+        .log-domain {
+            font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            color: #2563eb;
+        }
+        
+        .log-message {
+            flex: 1;
+            line-height: 1.4;
+        }
+        
+        .log-details {
+            margin-top: 8px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .log-details summary {
+            cursor: pointer;
+            color: #2563eb;
+            font-size: 12px;
+        }
+        
+        .log-details pre {
+            margin-top: 8px;
+            font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6b7280;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-left: auto;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 style="margin: 0; font-size: 24px;">Migration WebSocket Logger</h1>
+                <p style="margin: 4px 0 0 0; color: #6b7280;">Real-time delegation validation and API monitoring</p>
+            </div>
+            
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="totalLogs">0</div>
+                    <div class="stat-label">Total Logs</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="filteredLogs">0</div>
+                    <div class="stat-label">Filtered</div>
+                </div>
+                <div class="stat">
+                    <div class="status" id="connectionStatus">
+                        <span>🔴</span>
+                        <span>Disconnected</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn" onclick="connectWebSocket()">Connect</button>
+            <button class="btn" onclick="disconnectWebSocket()">Disconnect</button>
+            <button class="btn" onclick="clearLogs()">Clear Logs</button>
+            <button class="btn" onclick="downloadLogs()">Download JSON</button>
+        </div>
+        
+        <div class="filters">
+            <div class="filter-group">
+                <label>Level</label>
+                <select id="levelFilter" onchange="applyFilters()">
+                    <option value="">All Levels</option>
+                    <option value="info">Info</option>
+                    <option value="success">Success</option>
+                    <option value="warning">Warning</option>
+                    <option value="error">Error</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Category</label>
+                <select id="categoryFilter" onchange="applyFilters()">
+                    <option value="">All Categories</option>
+                    <option value="delegation">Delegation</option>
+                    <option value="api">API</option>
+                    <option value="migration">Migration</option>
+                    <option value="system">System</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Service</label>
+                <select id="serviceFilter" onchange="applyFilters()">
+                    <option value="">All Services</option>
+                    <option value="gmail">Gmail</option>
+                    <option value="drive">Drive</option>
+                    <option value="calendar">Calendar</option>
+                    <option value="groups">Groups</option>
+                    <option value="photos">Photos</option>
+                    <option value="forms">Forms</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Search</label>
+                <input type="text" id="searchFilter" placeholder="Search logs..." oninput="applyFilters()">
+            </div>
+        </div>
+        
+        <div class="logs-container" id="logsContainer">
+            <div class="empty-state">
+                <p>No logs yet. Connect to WebSocket to start receiving real-time logs.</p>
+                <p style="font-size: 12px; color: #9ca3af;">WebSocket URL: ws://localhost:3002/migration-logs</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let allLogs = [];
+        let filteredLogs = [];
+        let autoScroll = true;
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                console.log('WebSocket already connected');
+                return;
+            }
+
+            const sessionId = 'web-client-' + Date.now();
+            ws = new WebSocket(`ws://localhost:3002/migration-logs?sessionId=${sessionId}`);
+
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('✅ WebSocket connected');
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'log-event') {
+                        allLogs.push(data.event);
+                        if (allLogs.length > 500) {
+                            allLogs = allLogs.slice(-500); // Keep last 500 logs
+                        }
+                        applyFilters();
+                    } else if (data.type === 'log-history') {
+                        allLogs = data.logs || [];
+                        applyFilters();
+                    }
+                } catch (error) {
+                    console.error('Failed to parse WebSocket message:', error);
+                }
+            };
+
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('🔌 WebSocket disconnected');
+                
+                // Auto-reconnect after 3 seconds
+                setTimeout(() => {
+                    if (!ws || ws.readyState === WebSocket.CLOSED) {
+                        connectWebSocket();
+                    }
+                }, 3000);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            if (connected) {
+                statusEl.innerHTML = '<span>🟢</span><span>Connected</span>';
+                statusEl.className = 'status connected';
+            } else {
+                statusEl.innerHTML = '<span>🔴</span><span>Disconnected</span>';
+                statusEl.className = 'status disconnected';
+            }
+        }
+
+        function applyFilters() {
+            const levelFilter = document.getElementById('levelFilter').value;
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            const serviceFilter = document.getElementById('serviceFilter').value;
+            const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+
+            filteredLogs = allLogs.filter(log => {
+                if (levelFilter && log.level !== levelFilter) return false;
+                if (categoryFilter && log.category !== categoryFilter) return false;
+                if (serviceFilter && log.service !== serviceFilter) return false;
+                if (searchFilter && !log.message.toLowerCase().includes(searchFilter)) return false;
+                return true;
+            });
+
+            renderLogs();
+            updateStats();
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logsContainer');
+            
+            if (filteredLogs.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>${allLogs.length === 0 ? 'No logs yet. Connect to WebSocket to start receiving real-time logs.' : 'No logs match current filters.'}</p>
+                        ${allLogs.length === 0 ? '<p style="font-size: 12px; color: #9ca3af;">WebSocket URL: ws://localhost:3001/migration-logs</p>' : ''}
+                    </div>
+                `;
+                return;
+            }
+
+            const logsHtml = filteredLogs.map(log => {
+                const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                const categoryIcon = getCategoryIcon(log.category);
+                
+                return `
+                    <div class="log-entry ${log.level}">
+                        <div class="log-timestamp">${timestamp}</div>
+                        <div class="log-level ${log.level}">${log.level}</div>
+                        <div class="log-category">${categoryIcon}</div>
+                        ${log.service ? `<div class="log-service">${log.service}</div>` : ''}
+                        ${log.domain ? `<div class="log-domain">${log.domain}</div>` : ''}
+                        <div class="log-message">
+                            ${log.message}
+                            ${log.details ? `
+                                <details class="log-details">
+                                    <summary>View Details</summary>
+                                    <pre>${JSON.stringify(log.details, null, 2)}</pre>
+                                </details>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = logsHtml;
+            
+            if (autoScroll) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function getCategoryIcon(category) {
+            switch (category) {
+                case 'delegation': return '🔐';
+                case 'api': return '🌐';
+                case 'migration': return '📦';
+                case 'system': return '⚙️';
+                default: return '📋';
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('totalLogs').textContent = allLogs.length;
+            document.getElementById('filteredLogs').textContent = filteredLogs.length;
+        }
+
+        function clearLogs() {
+            allLogs = [];
+            filteredLogs = [];
+            renderLogs();
+            updateStats();
+        }
+
+        function downloadLogs() {
+            const dataStr = JSON.stringify(allLogs, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `migration-logs-${new Date().toISOString().slice(0, 19)}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        // Auto-connect on page load
+        connectWebSocket();
+        
+        // Handle page visibility for auto-reconnect
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && (!ws || ws.readyState === WebSocket.CLOSED)) {
+                connectWebSocket();
+            }
+        });
+    </script>
+</body>
+</html>

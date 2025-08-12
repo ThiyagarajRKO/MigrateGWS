@@ -1,5 +1,4 @@
 'use client'
-
 import React, { useState, memo, useMemo, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
@@ -7,6 +6,7 @@ import { useVerificationToken } from '@/hooks/useVerificationToken'
 import { DomainMappingConfig } from '@/types/migration-scenarios'
 import { DomainMapping } from '@/types/config'
 import { validateMappings, getSourceDomains, getTargetDomains, isOneToMany, isManyToOne, isOneToOne, getMappingType, getMappingAnalysis } from '@/utils/domainMappingHelpers'
+import { DriveQuotaManager } from './DriveQuotaManager'
 import { 
   Copy, 
   CheckCircle, 
@@ -27,7 +27,6 @@ import {
   AlertTriangle,
   Target
 } from 'lucide-react'
-
 interface DomainWideDelegationSetupProps {
   sourceAccount?: string
   sourceAccounts?: {[domain: string]: string} // For multiple source domains
@@ -52,7 +51,7 @@ interface DomainWideDelegationSetupProps {
     domainMapping: DomainMapping; // Include the processed domain mapping
   }) => void // Callback for when user discovery should be triggered
   className?: string
-  style?: React.CSSProperties // Add style prop support
+  style?: React.CSSProperties 
   useServiceAccount?: boolean // Flag to indicate service account authentication should be used
 }
 
@@ -2965,7 +2964,7 @@ const DomainWideDelegationSetup = memo(function DomainWideDelegationSetup({
                 <h4 className="heading-primary font-bold text-blue-800 text-xl">
                   Domain-wide Delegation Setup Complete!
                 </h4>
-                <p className="text-blue-700 text-base mt-2 font-medium leading-relaxed">
+               <p className="text-blue-700 text-base mt-2 font-medium leading-relaxed">
                   Your configuration is complete and ready for migration.
                 </p>
               </div>
