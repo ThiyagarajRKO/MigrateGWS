@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createDriveServiceForUser, createServiceAccountService } from '@/lib/google-workspace'
+import {  createServiceAccountService } from '@/lib/google-workspace'
 import { google } from 'googleapis'
 
 export async function POST(request: NextRequest) {
@@ -136,14 +136,47 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  return NextResponse.json({
-    message: 'Drive API Test Endpoint',
-    usage: 'Send POST request with { "adminEmail": "admin@domain.com", "testUserEmail": "user@domain.com" }',
-    availableScopes: [
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/drive.readonly',
-      'https://www.googleapis.com/auth/drive.metadata'
-    ]
-  })
+    return NextResponse.json({
+        message: 'Drive API Test Endpoint',
+        usage: 'Send POST request with { "adminEmail": "admin@domain.com", "testUserEmail": "user@domain.com" }',
+        availableScopes: [
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive.readonly',
+            'https://www.googleapis.com/auth/drive.metadata'
+        ]
+    })
 }
+
+function createDriveServiceForUser(adminEmail: string, testUserEmail?: string) {
+    const userEmail = testUserEmail || adminEmail
+    
+    // Create service account service with domain-wide delegation for the target user
+    const service = createServiceAccountService(userEmail)
+    
+    // Create auth client directly for the user
+    const auth = new google.auth.JWT({
+        email: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL,
+        key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        scopes: [
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive.readonly',
+            'https://www.googleapis.com/auth/drive.metadata'
+        ],
+        subject: userEmail
+    })
+    
+    // Create Drive API client using the auth client
+    const drive = google.drive({
+        version: 'v3',
+        auth: auth
+    })
+    
+    return {
+        userEmail,
+        service,
+        drive
+    }
+}
+
